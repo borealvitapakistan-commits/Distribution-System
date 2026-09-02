@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>
+        {% block title %}
+            Distribution & Finance Platform
+        {% endblock %}
+    </title>
+</head>
+
+<body>
+    <nav>
+        <a href="{% url 'dashboard' %}">
+            Dashboard
+        </a>
+
+        {% if request.user.is_authenticated %}
+            <span>
+                {{ request.user.email }}
+            </span>
+
+            <form
+                method="post"
+                action="{% url 'logout' %}"
+            >
+                {% csrf_token %}
+
+                <button type="submit">
+                    Logout
+                </button>
+            </form>
+        {% endif %}
+    </nav>
+
+    <main>
+        {% block content %}
+        {% endblock %}
+    </main>
+</body>
+</html>
