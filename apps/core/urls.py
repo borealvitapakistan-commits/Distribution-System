@@ -1,17 +1,20 @@
 from django.urls import path
-from .views import DistributorDashboardView, OwnerDashboardView, dashboard_redirect
-from django.urls import path
-from . import views
+
+from .views import (
+    CompanyProfileView,
+    DistributorDashboardView,
+    DocumentSequenceListView,
+    FiscalPeriodListView,
+    OwnerDashboardView,
+    dashboard_redirect,
+)
 
 
 urlpatterns = [
-    path("", views.dashboard_redirect, name="dashboard"),
-    path("owner/", views.OwnerDashboardView.as_view(), name="owner-dashboard"),
-    path("distributor/", views.DistributorDashboardView.as_view(), name="distributor-dashboard"),
+    path("",dashboard_redirect, name="dashboard"),
+    path("owner/", OwnerDashboardView.as_view(), name="owner-dashboard"),
+    path("distributor/", DistributorDashboardView.as_view(), name="distributor-dashboard"),
+    path("owner/company/", CompanyProfileView.as_view(), name="company-profile"),
+    path("owner/fiscal-periods/", FiscalPeriodListView.as_view(), name="fiscal-period-list"),
+    path("owner/document-sequences/", DocumentSequenceListView.as_view(), name="document-sequence-list"),
 ]
-
-
-
-
-
-

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Approval Pending
+{% endblock %}
+
+{% block content %}
+<div class="auth-card">
+    <div class="auth-brand-mark">DF</div>
+
+    <h1>Approval Pending</h1>
+
+    <p>
+        Your Distributor account has been created,
+        but an Owner must approve it before you can sign in.
+    </p>
+
+    <a
+        href="{% url 'login' %}"
+        class="button button-primary button-block"
+    >
+        Return to Login
+    </a>
+</div>
+{% endblock %}

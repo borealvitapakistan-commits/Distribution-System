@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Company Profile
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Configuration</p>
+        <h1>Company Profile</h1>
+        <p>
+            Manage legal, tax, contact and system defaults.
+        </p>
+    </div>
+</div>
+
+<section class="panel form-panel">
+    <form
+        method="post"
+        enctype="multipart/form-data"
+        class="form-layout"
+    >
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="form-errors">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        <div class="form-grid">
+            {% for field in form %}
+                <div class="form-group {% if field.name == 'address' or field.name == 'logo' %}form-group-full{% endif %}">
+                    <label for="{{ field.id_for_label }}">
+                        {{ field.label }}
+
+                        {% if field.field.required %}
+                            <span class="required">*</">*</span>
+                        {% endif %}
+                    </label>
+
+                    {{ field }}
+
+                    {% if field.help_text %}
+                        <small>{{ field.help_text }}</small>
+                    {% endif %}
+
+                    {% for error in field.errors %}
+                        <span class="field-error">
+                            {{ error }}
+                        </span>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-actions">
+            <button
+                type="submit"
+                class="button button-primary"
+            >
+                Save Company Profile
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

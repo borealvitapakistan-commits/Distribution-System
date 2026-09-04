@@ -1,18 +1,27 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 
+
 class RoleRequiredMixin(LoginRequiredMixin):
     allowed_roles = ()
 
     def dispatch(self, request, *args, **kwargs):
-        if request.user.is_authenticated:
-            if (
-                request.user.role
-                not in self.allowed_roles
-            ):
+        user = request.user
+
+        if user.is_authenticated:
+            if not user.is_active:
                 raise PermissionDenied(
-                    "You are not allowed "
-                    "to access this page."
+                    "Your account is inactive."
+                )
+
+            if not user.company_id:
+                raise PermissionDenied(
+                    "Your account has no company."
+                )
+
+            if user.role not in self.allowed_roles:
+                raise PermissionDenied(
+                    "You are not allowed to access this page."
                 )
 
         return super().dispatch(

@@ -1,19 +1,96 @@
 {% extends "base.html" %}
 
 {% block title %}
-    Login
+    Sign In
 {% endblock %}
 
 {% block content %}
-    <h1>Login</h1>
+<div class="auth-card">
+    <div class="auth-brand">
+        <div class="auth-brand-mark">DF</div>
 
-    <form method="post">
+        <div>
+            <strong>Distribution</strong>
+            <span>Finance Platform</span>
+        </div>
+    </div>
+
+    <div class="auth-heading">
+        <h1>Welcome back</h1>
+        <p>Sign in to continue to your account.</p>
+    </div>
+
+    {% if form.non_field_errors %}
+        <div class="form-errors">
+            Invalid email or password, or the account
+            is not currently active.
+        </div>
+    {% endif %}
+
+    <form
+        method="post"
+        class="auth-form"
+    >
         {% csrf_token %}
 
-        {{ form.as_p }}
+        <div class="form-group">
+            <label for="{{ form.username.id_for_label }}">
+                Email address
+            </label>
 
-        <button type="submit">
-            Login
+            {{ form.username }}
+
+            {% for error in form.username.errors %}
+                <span class="field-error">{{ error }}</span>
+            {% endfor %}
+        </div>
+
+        <div class="form-group">
+            <label for="{{ form.password.id_for_label }}">
+                Password
+            </label>
+
+            <div class="password-field">
+                {{ form.password }}
+
+                <button
+                    type="button"
+                    class="password-toggle"
+                    data-password-toggle
+                >
+                    Show
+                </button>
+            </div>
+
+            {% for error in form.password.errors %}
+                <span class="field-error">{{ error }}</span>
+            {% endfor %}
+        </div>
+
+        {% if next %}
+            <input
+                type="hidden"
+                name="next"
+                value="{{ next }}"
+            >
+        {% endif %}
+
+        <button
+            type="submit"
+            class="button button-primary button-block"
+        >
+            Sign In
         </button>
     </form>
+
+    <div class="auth-links">
+        <a href="{% url 'password_reset' %}">
+            Forgot password?
+        </a>
+
+        <a href="{% url 'account-pending' %}">
+            Account pending approval?
+        </a>
+    </div>
+</div>
 {% endblock %}

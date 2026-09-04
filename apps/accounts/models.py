@@ -7,6 +7,7 @@ from django.contrib.auth.models import (
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
@@ -32,6 +33,11 @@ class UserManager(BaseUserManager):
             "DISTRIBUTOR",
         }
 
+        if (not extra_fields.get("company") and not extra_fields.get("company_id")):
+            raise ValueError(
+                "A company is required for a business user."
+            )
+
         if role not in valid_roles:
             raise ValueError(
                 "Role must be OWNER or DISTRIBUTOR."
@@ -53,16 +59,47 @@ class UserManager(BaseUserManager):
             **extra_fields,
         )
 
-    def create_superuser(self, email, password=None, **extra_fields):
-        extra_fields["role"] = "OWNER"
-        extra_fields["is_staff"] = True
-        extra_fields["is_superuser"] = True
+    def create_superuser(self, email, password=None, **extra_fields,):
+        extra_fields.setdefault(
+            "role",
+            "OWNER",
+        )
+        extra_fields.setdefault(
+            "is_staff",
+            True,
+        )
+        extra_fields.setdefault(
+            "is_superuser",
+            True,
+        )
+
+        if extra_fields["role"] != "OWNER":
+            raise ValueError(
+                "A superuser must have the OWNER role."
+            )
+
+        if extra_fields["is_staff"] is not True:
+            raise ValueError(
+                "A superuser must have is_staff=True."
+            )
+
+        if extra_fields["is_superuser"] is not True:
+            raise ValueError(
+                "A superuser must have "
+                "is_superuser=True."
+            )
 
         return self._create_user(
             email,
             password,
             **extra_fields,
         )
+
+    def save(self, *args, **kwargs):
+        if self.email:
+            self.email = self.email.lower()
+
+        super().save(*args, **kwargs)
 
 
 class User(AbstractUser):
@@ -74,6 +111,17 @@ class User(AbstractUser):
     username = None
     email = models.EmailField(unique=True, db_index=True,)
     role = models.CharField(max_length=20, choices=Role.choices)
+    company = models.ForeignKey(
+        "core.Company",
+        on_delete=models.PROTECT,
+        related_name="users",
+        null=True,
+        blank=True,
+    )
+    phone = models.CharField(max_length=30, blank=True)
+    must_change_password = models.BooleanField(default=False)
+    last_password_changed_at = models.DateTimeField(null=True, blank=True,)
+
     objects = UserManager()
 
     USERNAME_FIELD = "email"
@@ -81,6 +129,21 @@ class User(AbstractUser):
 
     class Meta:
         ordering = ["email"]
+
+        permissions = [
+            (
+                "manage_owner_accounts",
+                "Can manage Owner accounts",
+            ),
+            (
+                "manage_distributor_accounts",
+                "Can manage Distributor accounts",
+            ),
+            (
+                "approve_distributor_accounts",
+                "Can approve Distributor accounts",
+            ),
+        ]
 
         constraints = [
             models.CheckConstraint(
@@ -104,7 +167,13 @@ class User(AbstractUser):
     def clean(self):
         super().clean()
 
-        if self.is_superuser and self.role != self.Role.OWNER:
+        if self.email:
+            self.email = self.email.lower()
+
+        if (
+            self.is_superuser
+            and self.role != self.Role.OWNER
+        ):
             raise ValidationError(
                 {
                     "role": (
@@ -113,6 +182,12 @@ class User(AbstractUser):
                     )
                 }
             )
+        
+    def set_password(self, raw_password):
+        super().set_password(raw_password)
+
+        if raw_password:
+            self.last_password_changed_at = timezone.now()
 
     @property
     def is_owner(self):

@@ -1,3 +1,4 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -5,43 +6,196 @@
 
     <meta
         name="viewport"
-        content="width=device-width, initial-scale=1.0"
+        content="width=device-width, initial-scale=1"
     >
 
     <title>
         {% block title %}
-            Distribution & Finance Platform
+            Distribution Platform
         {% endblock %}
     </title>
+
+    <link
+        rel="stylesheet"
+        href="{% static 'css/app.css' %}"
+    >
+
+    <script
+        src="{% static 'js/app.js' %}"
+        defer
+    ></script>
 </head>
 
 <body>
-    <nav>
-        <a href="{% url 'dashboard' %}">
-            Dashboard
-        </a>
+<div class="app-layout">
+    {% if request.user.is_authenticated %}
+        <aside
+            class="sidebar"
+            id="sidebar"
+        >
+            <div class="brand">
+                <div class="brand-mark">DF</div>
 
+                <div>
+                    <strong>Distribution</strong>
+                    <span>Finance Platform</span>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav">
+                {% if request.user.is_owner %}
+                    <a
+                        href="{% url 'owner-dashboard' %}"
+                        class="{% if request.resolver_match.url_name == 'owner-dashboard' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">⌂</span>
+                        Dashboard
+                    </a>
+
+                    <a
+                        href="{% url 'company-profile' %}"
+                        class="{% if request.resolver_match.url_name == 'company-profile' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">▣</span>
+                        Company
+                    </a>
+
+                    <a
+                        href="{% url 'owner-user-list' %}"
+                        class="{% if request.resolver_match.url_name == 'owner-user-list' or request.resolver_match.url_name == 'distributor-invite' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">♙</span>
+                        Users
+                    </a>
+
+                    <a
+                        href="{% url 'fiscal-period-list' %}"
+                        class="{% if request.resolver_match.url_name == 'fiscal-period-list' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">◫</span>
+                        Fiscal Periods
+                    </a>
+
+                    <a
+                        href="{% url 'document-sequence-list' %}"
+                        class="{% if request.resolver_match.url_name == 'document-sequence-list' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">№</span>
+                        Sequences
+                    </a>
+
+                    <a
+                        href="{% url 'audit-event-list' %}"
+                        class="{% if request.resolver_match.url_name == 'audit-event-list' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">✓</span>
+                        Audit Events
+                    </a>
+                {% else %}
+                    <a
+                        href="{% url 'distributor-dashboard' %}"
+                        class="{% if request.resolver_match.url_name == 'distributor-dashboard' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">⌂</span>
+                        Dashboard
+                    </a>
+
+                    <a
+                        href="{% url 'distributor-profile' %}"
+                        class="{% if request.resolver_match.url_name == 'distributor-profile' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">♙</span>
+                        My Profile
+                    </a>
+                {% endif %}
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-user">
+                    <div class="avatar">
+                        {{ request.user.email|slice:":1"|upper }}
+                    </div>
+
+                    <div>
+                        <strong>
+                            {{ request.user.get_full_name|default:request.user.email }}
+                        </strong>
+
+                        <span>
+                            {{ request.user.get_role_display }}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    {% endif %}
+
+    <div class="page-shell">
         {% if request.user.is_authenticated %}
-            <span>
-                {{ request.user.email }}
-            </span>
-
-            <form
-                method="post"
-                action="{% url 'logout' %}"
-            >
-                {% csrf_token %}
-
-                <button type="submit">
-                    Logout
+            <header class="topbar">
+                <button
+                    type="button"
+                    class="mobile-menu-button"
+                    id="mobileMenuButton"
+                    aria-label="Open navigation"
+                >
+                    ☰
                 </button>
-            </form>
-        {% endif %}
-    </nav>
 
-    <main>
-        {% block content %}
-        {% endblock %}
-    </main>
+                <div class="topbar-company">
+                    <strong>
+                        {{ request.user.company.name }}
+                    </strong>
+
+                    <span>
+                        {{ request.user.company.base_currency }}
+                    </span>
+                </div>
+
+                <form
+                    method="post"
+                    action="{% url 'logout' %}"
+                >
+                    {% csrf_token %}
+
+                    <button
+                        type="submit"
+                        class="button button-secondary button-small"
+                    >
+                        Sign out
+                    </button>
+                </form>
+            </header>
+        {% endif %}
+
+        <main class="{% if request.user.is_authenticated %}main-content{% else %}auth-main{% endif %}">
+            {% if messages %}
+                <div class="messages">
+                    {% for message in messages %}
+                        <div class="alert alert-{{ message.tags|default:'info' }}">
+                            <span>{{ message }}</span>
+
+                            <button
+                                type="button"
+                                class="alert-close"
+                                aria-label="Close"
+                            >
+                                ×
+                            </button>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+
+            {% block content %}
+            {% endblock %}
+        </main>
+    </div>
+</div>
+
+<div
+    class="sidebar-overlay"
+    id="sidebarOverlay"
+></div>
 </body>
 </html>

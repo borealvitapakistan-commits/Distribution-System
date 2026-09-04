@@ -34,9 +34,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
+    "rest_framework",
+    "rest_framework.authtoken",
     "apps.accounts.apps.AccountsConfig",
     "apps.core.apps.CoreConfig",
+    "apps.audit.apps.AuditConfig",
 ]
 
 
@@ -132,8 +134,16 @@ USE_TZ = True
 
 
 # Static files
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+
+STATICFILES_DIRS = [
+    BASE_DIR / "static",
+]
+
 STATIC_ROOT = BASE_DIR / "staticfiles"
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 
 # Default primary key

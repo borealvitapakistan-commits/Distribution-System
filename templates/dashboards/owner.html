@@ -5,14 +5,117 @@
 {% endblock %}
 
 {% block content %}
-    <h1>Owner Dashboard</h1>
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Overview</p>
+        <h1>Owner Dashboard</h1>
+        <p>
+            Company identity, users, fiscal control
+            and system activity.
+        </p>
+    </div>
 
-    <p>
-        Welcome,
-        {{ request.user.get_full_name|default:request.user.email }}
-    </p>
+    <a
+        href="{% url 'distributor-invite' %}"
+        class="button button-primary"
+    >
+        Invite Distributor
+    </a>
+</div>
 
-    <p>
-        You have complete system access.
-    </p>
+<div class="stats-grid">
+    <article class="stat-card">
+        <span class="stat-label">Active Owners</span>
+        <strong>{{ owner_count }}</strong>
+        <span class="stat-detail">Company administrators</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Distributors</span>
+        <strong>{{ distributor_count }}</strong>
+        <span class="stat-detail">Approved accounts</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Pending Approval</span>
+        <strong>{{ pending_count }}</strong>
+        <span class="stat-detail">Inactive invitations</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Audit Events</span>
+        <strong>{{ audit_count }}</strong>
+        <span class="stat-detail">Recorded activities</span>
+    </article>
+</div>
+
+<div class="content-grid">
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Current Fiscal Period</h2>
+                <p>Current posting control status</p>
+            </div>
+        </div>
+
+        {% if current_period %}
+            <div class="period-summary">
+                <div>
+                    <span>Period</span>
+                    <strong>
+                        {{ current_period.year }}-{{ current_period.month|stringformat:"02d" }}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Date range</span>
+                    <strong>
+                        {{ current_period.start_date }}
+                        —
+                        {{ current_period.end_date }}
+                    </strong>
+                </div>
+
+                <span class="badge badge-open">
+                    {{ current_period.get_status_display }}
+                </span>
+            </div>
+        {% else %}
+            <div class="empty-state">
+                No open fiscal period is available.
+            </div>
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Quick Actions</h2>
+                <p>Stage 2 management tools</p>
+            </div>
+        </div>
+
+        <div class="quick-links">
+            <a href="{% url 'company-profile' %}">
+                <strong>Company Profile</strong>
+                <span>Update company information</span>
+            </a>
+
+            <a href="{% url 'owner-user-list' %}">
+                <strong>User Management</strong>
+                <span>Approve or deactivate users</span>
+            </a>
+
+            <a href="{% url 'fiscal-period-list' %}">
+                <strong>Fiscal Periods</strong>
+                <span>Review and close periods</span>
+            </a>
+
+            <a href="{% url 'audit-event-list' %}">
+                <strong>Audit Events</strong>
+                <span>Review recorded changes</span>
+            </a>
+        </div>
+    </section>
+</div>
 {% endblock %}

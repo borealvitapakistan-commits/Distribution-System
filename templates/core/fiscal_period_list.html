@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Fiscal Periods
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Period Control</p>
+        <h1>Fiscal Periods</h1>
+        <p>
+            Review posting periods and close completed periods.
+        </p>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Period</th>
+                    <th>Date Range</th>
+                    <th>Status</th>
+                    <th>Closed By</th>
+                    <th class="table-actions">Actions</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for period in periods %}
+                    <tr>
+                        <td>
+                            <strong>
+                                {{ period.year }}-{{ period.month|stringformat:"02d" }}
+                            </strong>
+                        </td>
+
+                        <td>
+                            {{ period.start_date }}
+                            —
+                            {{ period.end_date }}
+                        </td>
+
+                        <td>
+                            {% if period.status == "OPEN" %}
+                                <span class="badge badge-open">Open</span>
+                            {% elif period.status == "CLOSED" %}
+                                <span class="badge badge-closed">Closed</span>
+                            {% else %}
+                                <span class="badge badge-locked">Locked</span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{ period.closed_by|default:"—" }}
+                        </td>
+
+                        <td class="table-actions">
+                            {% if period.status == "OPEN" %}
+                                <button
+                                    type="button"
+                                    class="button button-danger button-small close-period-button"
+                                    data-url="{% url 'api-fiscal-period-close' period.id %}"
+                                    data-period="{{ period.year }}-{{ period.month|stringformat:'02d' }}"
+                                >
+                                    Close Period
+                                </button>
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td
+                            colspan="5"
+                            class="empty-table"
+                        >
+                            No fiscal periods found.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<dialog
+    class="modal"
+    id="closePeriodModal"
+>
+    <form
+        method="dialog"
+        id="closePeriodForm"
+    >
+        {% csrf_token %}
+
+        <div class="modal-header">
+            <div>
+                <p class="eyebrow">Confirmation</p>
+                <h2>Close Fiscal Period</h2>
+            </div>
+
+            <button
+                type="button"
+                class="modal-close"
+                id="closePeriodModalButton"
+            >
+                ×
+            </button>
+        </div>
+
+        <p>
+            You are closing
+            <strong id="closePeriodLabel"></strong>.
+            Posting into this period will be blocked.
+        </p>
+
+        <div class="form-group">
+            <label for="closePeriodReason">
+                Closing reason
+            </label>
+
+            <textarea
+                id="closePeriodReason"
+                rows="4"
+                required
+                placeholder="Enter the month-end closing reason"
+            ></textarea>
+
+            <span
+                class="field-error"
+                id="closePeriodError"
+            ></span>
+        </div>
+
+        <div class="modal-actions">
+            <button
+                type="button"
+                class="button button-secondary"
+                id="cancelClosePeriod"
+            >
+                Cancel
+            </button>
+
+            <button
+                type="submit"
+                class="button button-danger"
+                id="confirmClosePeriod"
+            >
+                Close Period
+            </button>
+        </div>
+    </form>
+</dialog>
+{% endblock %}

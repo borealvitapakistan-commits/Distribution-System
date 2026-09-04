@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Audit Events
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Security & Activity</p>
+        <h1>Audit Events</h1>
+        <p>
+            Immutable history of important system actions.
+        </p>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date and Time</th>
+                    <th>Actor</th>
+                    <th>Action</th>
+                    <th>Object</th>
+                    <th>Reason</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for event in events %}
+                    <tr>
+                        <td>
+                            {{ event.created_at|date:"M d, Y H:i:s" }}
+                        </td>
+
+                        <td>
+                            {{ event.actor|default:"System" }}
+                        </td>
+
+                        <td>
+                            <span class="badge badge-neutral">
+                                {{ event.action }}
+                            </span>
+                        </td>
+
+                        <td>
+                            <strong>
+                                {{ event.object_label|default:event.object_type }}
+                            </strong>
+
+                            <small class="table-secondary">
+                                {{ event.object_type }}
+                            </small>
+                        </td>
+
+                        <td>
+                            {{ event.reason|default:"—" }}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td
+                            colspan="5"
+                            class="empty-table"
+                        >
+                            No audit events found.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if is_paginated %}
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+                <a
+                    href="?page={{ page_obj.previous_page_number }}"
+                    class="button button-secondary button-small"
+                >
+                    Previous
+                </a>
+            {% endif %}
+
+            <span>
+                Page {{ page_obj.number }}
+                of {{ page_obj.paginator.num_pages }}
+            </span>
+
+            {% if page_obj.has_next %}
+                <a
+                    href="?page={{ page_obj.next_page_number }}"
+                    class="button button-secondary button-small"
+                >
+                    Next
+                </a>
+            {% endif %}
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

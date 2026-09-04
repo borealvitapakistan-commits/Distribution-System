@@ -5,14 +5,74 @@
 {% endblock %}
 
 {% block content %}
-    <h1>Distributor Portal</h1>
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Distributor Portal</p>
+        <h1>Welcome</h1>
+        <p>
+            Your account has restricted distributor access.
+        </p>
+    </div>
 
-    <p>
-        Welcome,
-        {{ request.user.get_full_name|default:request.user.email }}
-    </p>
+    <a
+        href="{% url 'distributor-profile' %}"
+        class="button button-primary"
+    >
+        Update Profile
+    </a>
+</div>
 
-    <p>
-        You have restricted distributor access.
-    </p>
+<div class="content-grid">
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Account Information</h2>
+                <p>Your current Stage 2 identity details</p>
+            </div>
+        </div>
+
+        <dl class="details-list">
+            <div>
+                <dt>Email</dt>
+                <dd>{{ request.user.email }}</dd>
+            </div>
+
+            <div>
+                <dt>Name</dt>
+                <dd>
+                    {{ request.user.get_full_name|default:"Not provided" }}
+                </dd>
+            </div>
+
+            <div>
+                <dt>Phone</dt>
+                <dd>
+                    {{ request.user.phone|default:"Not provided" }}
+                </dd>
+            </div>
+
+            <div>
+                <dt>Status</dt>
+                <dd>
+                    <span class="badge badge-open">Active</span>
+                </dd>
+            </div>
+        </dl>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Coming in Stage 3</h2>
+                <p>Distributor-specific business data</p>
+            </div>
+        </div>
+
+        <div class="empty-state">
+            Products, distributor pricing, agreements and
+            delivery details will become available after the
+            Distributor Party model is implemented.
+        </div>
+    </section>
+</div>
 {% endblock %}
