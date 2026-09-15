@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Products
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Products</p>
+        <h1>Products</h1>
+        <p>Manage SKUs, formulations, reorder defaults and activation.</p>
+    </div>
+
+    <div>
+        <a
+            class="button button-secondary"
+            href="{% url 'product-csv-export' %}"
+        >
+            Export to Shopify CSV
+        </a>
+        <a
+            class="button button-primary"
+            href="{% url 'product-create' %}"
+        >
+            New Product
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Product</th>
+                    <th>Category</th>
+                    <th>UOM</th>
+                    <th>Retail price</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for product in products %}
+                    <tr>
+                        <td>
+                            <strong>{{ product.sku }}</strong>
+                        </td>
+
+                        <td>{{ product.name }}</td>
+                        <td>{{ product.category.name|default:"—" }}</td>
+                        <td>{{ product.get_unit_of_measure_display }}</td>
+                        <td>
+                            {{ product.base_retail_price }}
+                            {{ product.currency }}
+                        </td>
+
+                        <td>
+                            {% if product.active %}
+                                <span class="badge badge-open">
+                                    Active
+                                </span>
+                            {% else %}
+                                <span class="badge badge-pending">
+                                    Inactive
+                                </span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <a
+                                class="button button-secondary button-small"
+                                href="{% url 'product-detail' product.pk %}"
+                            >
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="empty-table">
+                            No products found.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

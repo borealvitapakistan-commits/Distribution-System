@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Add Owner
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Accounts</p>
+        <h1>Add Owner</h1>
+        <p>The new Owner can log in immediately, including to the Django admin.</p>
+    </div>
+
+    <a href="{% url 'owner-list' %}" class="button button-secondary">
+        Back to Owners
+    </a>
+</div>
+
+<section class="panel form-panel form-panel-narrow">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="form-errors">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        {% for field in form %}
+            <div class="form-group">
+                <label for="{{ field.id_for_label }}">
+                    {{ field.label }}
+                </label>
+
+                {{ field }}
+
+                {% for error in field.errors %}
+                    <span class="field-error">{{ error }}</span>
+                {% endfor %}
+            </div>
+        {% endfor %}
+
+        <div class="form-actions">
+            <button type="submit" class="button button-primary">
+                Add Owner
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

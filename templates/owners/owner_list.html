@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block title %}Owners{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Accounts</p>
+        <h1>Owners</h1>
+        <p>Manage Owner accounts. Owner logins also work on the Django admin.</p>
+    </div>
+
+    <a href="{% url 'owner-create' %}" class="button button-primary">
+        Add Owner
+    </a>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Owner</th>
+                    <th>Login</th>
+                    <th>Status</th>
+                    <th>Last Login</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for account in owners %}
+                    <tr>
+                        <td><strong>{{ account.owner_profile.name|default:"—" }}</strong></td>
+
+                        <td>
+                            <div class="user-cell">
+                                <div class="avatar avatar-small">
+                                    {{ account.email|slice:":1"|upper }}
+                                </div>
+
+                                <div>
+                                    <strong>
+                                        {{ account.get_full_name|default:account.email }}
+                                    </strong>
+                                    <span>{{ account.email }}</span>
+                                </div>
+                            </div>
+                        </td>
+
+                        <td>
+                            {% if account.is_active %}
+                                <span class="badge badge-open">Active</span>
+                            {% else %}
+                                <span class="badge badge-pending">Deactivated</span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{ account.last_login|date:"M d, Y H:i"|default:"Never" }}
+                        </td>
+
+                        <td class="table-actions">
+                            {% if account.is_active and account.id != request.user.id %}
+                                <form
+                                    method="post"
+                                    action="{% url 'deactivate-owner' account.id %}"
+                                    class="inline-form confirm-form"
+                                    data-confirm="Deactivate this Owner immediately?"
+                                >
+                                    {% csrf_token %}
+                                    <button
+                                        type="submit"
+                                        class="button button-danger button-small"
+                                    >
+                                        Deactivate
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5" class="empty-table">
+                            No owners found.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

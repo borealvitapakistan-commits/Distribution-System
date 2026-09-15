@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {{ product.name }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Product Detail</p>
+        <h1>{{ product.name }}</h1>
+        <p>
+            {{ product.sku }} ·
+            {{ product.get_unit_of_measure_display }}
+        </p>
+    </div>
+
+    <div>
+        <a
+            class="button button-secondary"
+            href="{% url 'product-list' %}"
+        >
+            Back
+        </a>
+
+        <a
+            class="button button-primary"
+            href="{% url 'product-edit' product.pk %}"
+        >
+            Edit
+        </a>
+    </div>
+</div>
+
+<div class="content-grid">
+    <section class="panel">
+        <h2>Product information</h2>
+
+        <dl class="details-list">
+            <div>
+                <dt>SKU</dt>
+                <dd>{{ product.sku }}</dd>
+            </div>
+
+            <div>
+                <dt>Barcode</dt>
+                <dd>{{ product.barcode|default:"—" }}</dd>
+            </div>
+
+            <div>
+                <dt>Category</dt>
+                <dd>{{ product.category.name|default:"—" }}</dd>
+            </div>
+
+            <div>
+                <dt>Retail price</dt>
+                <dd>
+                    {{ product.base_retail_price }}
+                    {{ product.currency }}
+                </dd>
+            </div>
+
+            <div>
+                <dt>Reorder point</dt>
+                <dd>{{ product.default_reorder_point }}</dd>
+            </div>
+
+            <div>
+                <dt>Reorder quantity</dt>
+                <dd>{{ product.default_reorder_quantity }}</dd>
+            </div>
+        </dl>
+    </section>
+
+    <section class="panel">
+        <h2>Ingredients</h2>
+
+        {% for row in product.ingredients.all %}
+            <p>
+                <strong>{{ row.ingredient.name }}</strong>
+
+                {% if row.strength %}
+                    · {{ row.strength }} {{ row.unit }}
+                {% endif %}
+
+                {% if row.is_medicinal %}
+                    <span class="badge badge-open">
+                        Medicinal
+                    </span>
+                {% endif %}
+            </p>
+        {% empty %}
+            <div class="empty-state">
+                No ingredients configured.
+            </div>
+        {% endfor %}
+    </section>
+</div>
+{% endblock %}

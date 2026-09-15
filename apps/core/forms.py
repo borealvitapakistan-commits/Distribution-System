@@ -1,10 +1,10 @@
 from django import forms
-from .models import Company
+from .models import Brand
 
 
-class CompanyForm(forms.ModelForm):
+class BrandForm(forms.ModelForm):
     class Meta:
-        model = Company
+        model = Brand
 
         fields = [
             "name",
@@ -29,13 +29,13 @@ class CompanyForm(forms.ModelForm):
                 attrs={
                     "rows": 4,
                     "placeholder": (
-                        "Enter the company address"
+                        "Enter the brand address"
                     ),
                 }
             ),
             "name": forms.TextInput(
                 attrs={
-                    "placeholder": "Company name"
+                    "placeholder": "Brand name"
                 }
             ),
             "legal_name": forms.TextInput(
@@ -45,7 +45,7 @@ class CompanyForm(forms.ModelForm):
             ),
             "email": forms.EmailInput(
                 attrs={
-                    "placeholder": "company@example.com"
+                    "placeholder": "brand@example.com"
                 }
             ),
             "phone": forms.TextInput(

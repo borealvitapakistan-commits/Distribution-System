@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Add Distributor
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Distributors</p>
+        <h1>Add Distributor</h1>
+        <p>Set the commission now — the account stays inactive until approved.</p>
+    </div>
+
+    <a href="{% url 'distributor-list' %}" class="button button-secondary">
+        Back to Distributors
+    </a>
+</div>
+
+<section class="panel form-panel form-panel-narrow">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="form-errors">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        {% for field in form %}
+            <div class="form-group">
+                <label for="{{ field.id_for_label }}">
+                    {{ field.label }}
+                </label>
+
+                {{ field }}
+
+                {% for error in field.errors %}
+                    <span class="field-error">{{ error }}</span>
+                {% endfor %}
+            </div>
+        {% endfor %}
+
+        <div class="form-actions">
+            <button type="submit" class="button button-primary">
+                Add Distributor
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

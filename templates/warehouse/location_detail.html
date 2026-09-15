@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {{ location.name }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Location Detail</p>
+        <h1>{{ location.name }}</h1>
+        <p>
+            {{ location.code }} · {{ location.get_location_type_display }}
+        </p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'location-list' %}">
+            Back
+        </a>
+
+        <a class="button button-primary" href="{% url 'location-edit' location.pk %}">
+            Edit
+        </a>
+    </div>
+</div>
+
+<div class="content-grid">
+    <section class="panel">
+        <h2>Location configuration</h2>
+
+        <dl class="details-list">
+            <div>
+                <dt>Linked to</dt>
+                <dd>
+                    {% firstof location.manufacturer.name location.distributor_profile.name location.customer.name "—" %}
+                </dd>
+            </div>
+
+            <div>
+                <dt>On book</dt>
+                <dd>{{ location.on_book|yesno:"Yes,No" }}</dd>
+            </div>
+
+            <div>
+                <dt>Physical</dt>
+                <dd>{{ location.is_physical|yesno:"Yes,No" }}</dd>
+            </div>
+
+            <div>
+                <dt>Sellable</dt>
+                <dd>{{ location.is_sellable|yesno:"Yes,No" }}</dd>
+            </div>
+
+            <div>
+                <dt>Address</dt>
+                <dd>{{ location.address|default:"—" }}</dd>
+            </div>
+        </dl>
+    </section>
+
+    <section class="panel">
+        <h2>Utilization warning</h2>
+
+        <dl class="details-list">
+            <div>
+                <dt>On hand</dt>
+                <dd>{{ utilization.quantity_on_hand }}</dd>
+            </div>
+
+            <div>
+                <dt>Capacity</dt>
+                <dd>{{ utilization.capacity_units }}</dd>
+            </div>
+
+            <div>
+                <dt>Utilization</dt>
+                <dd>
+                    {% if utilization.utilization_percentage %}
+                        {{ utilization.utilization_percentage|floatformat:2 }}%
+                    {% else %}
+                        Not configured
+                    {% endif %}
+                </dd>
+            </div>
+        </dl>
+
+        {% if utilization.warning %}
+            <div class="alert alert-warning">
+                On-hand quantity exceeds advisory capacity.
+            </div>
+        {% else %}
+            <p class="empty-state">No capacity warning.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

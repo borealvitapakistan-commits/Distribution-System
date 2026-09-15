@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Products
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Distributor Portal</p>
+        <h1>Eligible Products</h1>
+        <p>
+            Products available to sell, with the current retail price.
+        </p>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>SKU</th>
+                    <th>Product</th>
+                    <th>Category</th>
+                    <th>Pack</th>
+                    <th>Price</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for product in products %}
+                    <tr>
+                        <td>
+                            <strong>{{ product.sku }}</strong>
+                        </td>
+
+                        <td>{{ product.name }}</td>
+                        <td>{{ product.category.name|default:"—" }}</td>
+                        <td>{{ product.pack_size|default:"—" }}</td>
+
+                        <td>
+                            {{ product.base_retail_price }}
+                            {{ product.currency }}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5" class="empty-table">
+                            No products are currently available to you.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

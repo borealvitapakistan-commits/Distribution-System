@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}
+    My Requests
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Requests</p>
+        <h1>My Requests</h1>
+        <p>Products you've asked the Owner for, and their status.</p>
+    </div>
+
+    <a
+        class="button button-primary"
+        href="{% url 'stock-request-create' %}"
+    >
+        New Request
+    </a>
+</div>
+
+{% for stock_request in requests %}
+    <section class="panel" style="margin-bottom: 16px;">
+        <div class="panel-header">
+            <div>
+                <strong>Request #{{ stock_request.id|stringformat:"s"|slice:":8" }}</strong>
+                <span>{{ stock_request.created_at }}</span>
+            </div>
+
+            {% if stock_request.status == "PENDING" %}
+                <span class="badge badge-pending">Pending</span>
+            {% elif stock_request.status == "PARTIALLY_FULFILLED" %}
+                <span class="badge badge-neutral">Partially fulfilled</span>
+            {% elif stock_request.status == "FULFILLED" %}
+                <span class="badge badge-open">Fulfilled</span>
+            {% else %}
+                <span class="badge badge-closed">Declined</span>
+            {% endif %}
+        </div>
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Requested</th>
+                        <th>Fulfilled</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for item in stock_request.items.all %}
+                        <tr>
+                            <td>{{ item.product.name }}</td>
+                            <td>{{ item.quantity_requested }}</td>
+                            <td>{{ item.quantity_fulfilled }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {% if stock_request.owner_comment %}
+            <p><strong>Owner comment:</strong> {{ stock_request.owner_comment }}</p>
+        {% endif %}
+    </section>
+{% empty %}
+    <section class="panel">
+        <p class="empty-table">You haven't made any requests yet.</p>
+    </section>
+{% endfor %}
+{% endblock %}

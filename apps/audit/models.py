@@ -2,17 +2,11 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from apps.core.models import (
-    Company,
-    TimeStampedModel,
-    UUIDModel,
-)
-from apps.core.querysets import (
-    CompanyScopedQuerySet,
-)
+from apps.core.models import TimeStampedModel, UUIDModel
+from apps.core.querysets import OwnerManagedQuerySet
 
 
-class AuditEventQuerySet(CompanyScopedQuerySet):
+class AuditEventQuerySet(OwnerManagedQuerySet):
     def update(self, **kwargs):
         raise ValidationError(
             "Audit events are immutable."
@@ -25,14 +19,6 @@ class AuditEventQuerySet(CompanyScopedQuerySet):
 
 
 class AuditEvent(UUIDModel, TimeStampedModel):
-    company = models.ForeignKey(
-        Company,
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="audit_events",
-    )
-
     actor = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL,

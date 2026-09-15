@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {{ customer.name }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Customer Detail</p>
+        <h1>{{ customer.name }}</h1>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'customer-list' %}">
+            Back
+        </a>
+
+        <a class="button button-primary" href="{% url 'customer-edit' customer.pk %}">
+            Edit
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Customer information</h2>
+        </div>
+    </div>
+
+    <dl class="details-list">
+        <div>
+            <dt>Email</dt>
+            <dd>{{ customer.email|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Phone</dt>
+            <dd>{{ customer.phone|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Address</dt>
+            <dd>{{ customer.address|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Notes</dt>
+            <dd>{{ customer.notes|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Status</dt>
+            <dd>
+                {% if customer.active %}
+                    <span class="badge badge-open">Active</span>
+                {% else %}
+                    <span class="badge badge-pending">Retired</span>
+                {% endif %}
+            </dd>
+        </div>
+    </dl>
+</section>
+{% endblock %}

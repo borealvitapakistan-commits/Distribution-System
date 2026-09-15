@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Manufacturers
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Master Data</p>
+        <h1>Manufacturers</h1>
+        <p>Who the Owner buys products from.</p>
+    </div>
+
+    <a class="button button-primary" href="{% url 'manufacturer-create' %}">
+        Add Manufacturer
+    </a>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Contact</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for manufacturer in manufacturers %}
+                    <tr>
+                        <td><strong>{{ manufacturer.name }}</strong></td>
+
+                        <td>
+                            {{ manufacturer.email|default:manufacturer.phone|default:"—" }}
+                        </td>
+
+                        <td>
+                            {% if manufacturer.active %}
+                                <span class="badge badge-open">Active</span>
+                            {% else %}
+                                <span class="badge badge-pending">Retired</span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            <a
+                                class="button button-secondary button-small"
+                                href="{% url 'manufacturer-detail' manufacturer.pk %}"
+                            >
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="4" class="empty-table">
+                            No manufacturers found.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

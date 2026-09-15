@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if object %}Edit Location{% else %}New Location{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Warehouse</p>
+        <h1>
+            {% if object %}Edit Location{% else %}New Location{% endif %}
+        </h1>
+        <p>Flags for fixed location types are derived by the service.</p>
+    </div>
+
+    <a class="button button-secondary" href="{% url 'location-list' %}">
+        Back
+    </a>
+</div>
+
+<section class="panel form-panel form-panel-narrow">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="form-errors">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        {% for field in form %}
+            <div class="form-group">
+                <label for="{{ field.id_for_label }}">
+                    {{ field.label }}
+                </label>
+
+                {{ field }}
+
+                {% for error in field.errors %}
+                    <span class="field-error">{{ error }}</span>
+                {% endfor %}
+            </div>
+        {% endfor %}
+
+        <button class="button button-primary">
+            Save Location
+        </button>
+    </form>
+</section>
+{% endblock %}

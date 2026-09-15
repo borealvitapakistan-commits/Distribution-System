@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if object %}Edit Manufacturer{% else %}Add Manufacturer{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Master Data</p>
+        <h1>
+            {% if object %}Edit Manufacturer{% else %}Add Manufacturer{% endif %}
+        </h1>
+        <p>Who the Owner buys products from.</p>
+    </div>
+
+    <a class="button button-secondary" href="{% url 'manufacturer-list' %}">
+        Back
+    </a>
+</div>
+
+<section class="panel form-panel">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="form-errors">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        {% for field in form %}
+            <div class="form-group">
+                <label for="{{ field.id_for_label }}">
+                    {{ field.label }}
+                </label>
+
+                {{ field }}
+
+                {% for error in field.errors %}
+                    <span class="field-error">{{ error }}</span>
+                {% endfor %}
+            </div>
+        {% endfor %}
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                Save Manufacturer
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

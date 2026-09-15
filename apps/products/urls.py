@@ -1,0 +1,62 @@
+from django.urls import path
+
+from .views import (
+    CategoryCreateView,
+    CategoryListView,
+    DistributorProductListView,
+    IngredientCreateView,
+    ProductCreateView,
+    ProductCSVExportView,
+    ProductDetailView,
+    ProductListView,
+    ProductUpdateView,
+)
+
+
+urlpatterns = [
+    path(
+        "distributor/products/",
+        DistributorProductListView.as_view(),
+        name="distributor-product-list",
+    ),
+    path(
+        "owner/products/categories/",
+        CategoryListView.as_view(),
+        name="category-list",
+    ),
+    path(
+        "owner/products/categories/new/",
+        CategoryCreateView.as_view(),
+        name="category-create",
+    ),
+    path(
+        "owner/products/ingredients/new/",
+        IngredientCreateView.as_view(),
+        name="ingredient-create",
+    ),
+    path(
+        "owner/products/",
+        ProductListView.as_view(),
+        name="product-list",
+    ),
+    path(
+        "owner/products/new/",
+        ProductCreateView.as_view(),
+        name="product-create",
+    ),
+    path(
+        "owner/products/export/",
+        ProductCSVExportView.as_view(),
+        name="product-csv-export",
+    ),
+    path(
+        "owner/products/<uuid:pk>/",
+        ProductDetailView.as_view(),
+        name="product-detail",
+    ),
+    path(
+        "owner/products/<uuid:pk>/edit/",
+        ProductUpdateView.as_view(),
+        name="product-edit",
+    ),
+]

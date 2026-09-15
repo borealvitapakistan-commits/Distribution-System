@@ -1,10 +1,10 @@
 from rest_framework import serializers
-from .models import Company, FiscalPeriod
+from .models import Brand
 
 
-class CompanySerializer(serializers.ModelSerializer):
+class BrandSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Company
+        model = Brand
 
         fields = [
             "id",
@@ -29,47 +29,3 @@ class CompanySerializer(serializers.ModelSerializer):
             "id",
             "active",
         ]
-
-
-class FiscalPeriodSerializer(serializers.ModelSerializer):
-    closed_by = serializers.StringRelatedField()
-    locked_by = serializers.StringRelatedField()
-
-    class Meta:
-        model = FiscalPeriod
-
-        fields = [
-            "id",
-            "year",
-            "month",
-            "start_date",
-            "end_date",
-            "status",
-            "closed_by",
-            "closed_at",
-            "locked_by",
-            "locked_at",
-            "notes",
-        ]
-
-        read_only_fields = [
-            "id",
-            "year",
-            "month",
-            "start_date",
-            "end_date",
-            "status",
-            "closed_by",
-            "closed_at",
-            "locked_by",
-            "locked_at",
-            "notes",
-        ]
-
-
-class PeriodActionSerializer(serializers.Serializer):
-    reason = serializers.CharField(
-        max_length=1000,
-        allow_blank=False,
-        trim_whitespace=True,
-    )

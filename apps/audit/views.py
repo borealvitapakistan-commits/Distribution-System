@@ -12,8 +12,5 @@ class AuditEventListView(OwnerRequiredMixin, ListView):
         return (
             AuditEvent.objects
             .for_user(self.request.user)
-            .select_related(
-                "actor",
-                "company",
-            )
+            .select_related("actor")
         )

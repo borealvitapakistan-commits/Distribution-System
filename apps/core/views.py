@@ -6,7 +6,6 @@ from django.core.exceptions import PermissionDenied
 from django.shortcuts import redirect
 from django.urls import reverse_lazy
 from django.views.generic import (
-    ListView,
     TemplateView,
     UpdateView,
 )
@@ -19,25 +18,17 @@ from apps.accounts.models import User
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_audit_event
 
-from .forms import CompanyForm
-from .models import (
-    Company,
-    DocumentSequence,
-    FiscalPeriod,
-)
+from .forms import BrandForm
+from .models import Brand
 
 
 @login_required
 def dashboard_redirect(request):
     user = request.user
 
-    if (
-        not user.is_active
-        or not user.company_id
-        or not user.company.active
-    ):
+    if not user.is_active:
         raise PermissionDenied(
-            "An active company account is required."
+            "An active account is required."
         )
 
     if user.is_owner:
@@ -59,60 +50,24 @@ class OwnerDashboardView(OwnerRequiredMixin, TemplateView):
             **kwargs
         )
 
-        user = self.request.user
+        context["owner_count"] = User.objects.filter(
+            role=User.Role.OWNER,
+            is_active=True,
+        ).count()
 
-        periods = FiscalPeriod.objects.for_user(
-            user
-        )
+        context["distributor_count"] = User.objects.filter(
+            role=User.Role.DISTRIBUTOR,
+            is_active=True,
+        ).count()
 
-        context["current_period"] = (
-            periods
-            .filter(
-                status=FiscalPeriod.Status.OPEN
-            )
-            .first()
-        )
-
-        company_users = User.objects.filter(
-            company_id=user.company_id
-        )
-
-        context["owner_count"] = (
-            company_users
-            .filter(
-                role=User.Role.OWNER,
-                is_active=True,
-            )
-            .count()
-        )
-
-        context["distributor_count"] = (
-            company_users
-            .filter(
-                role=User.Role.DISTRIBUTOR,
-                is_active=True,
-            )
-            .count()
-        )
-
-        context["pending_count"] = (
-            company_users
-            .filter(
-                role=User.Role.DISTRIBUTOR,
-                is_active=False,
-            )
-            .count()
-        )
-
-        context["sequence_count"] = (
-            DocumentSequence.objects
-            .for_user(user)
-            .count()
-        )
+        context["pending_count"] = User.objects.filter(
+            role=User.Role.DISTRIBUTOR,
+            is_active=False,
+        ).count()
 
         context["audit_count"] = (
             AuditEvent.objects
-            .for_user(user)
+            .for_user(self.request.user)
             .count()
         )
 
@@ -123,21 +78,25 @@ class DistributorDashboardView(DistributorRequiredMixin, TemplateView,):
     template_name = "dashboards/distributor.html"
 
 
-class CompanyProfileView(OwnerRequiredMixin, UpdateView):
-    model = Company
-    form_class = CompanyForm
-    template_name = "core/company_profile.html"
-    
+class BrandProfileView(OwnerRequiredMixin, UpdateView):
+    """Brand is an effective singleton: get the one row, or create it
+    on first visit, rather than requiring a separate "create" step."""
+
+    model = Brand
+    form_class = BrandForm
+    template_name = "core/brand_profile.html"
+
     success_url = reverse_lazy(
-        "company-profile"
+        "brand-profile"
     )
 
     def get_object(self, queryset=None):
-        return (
-            Company.objects
-            .for_user(self.request.user)
-            .get()
-        )
+        brand = Brand.objects.for_user(self.request.user).first()
+
+        if brand is None:
+            brand = Brand.objects.create(name="My Brand")
+
+        return brand
 
     def form_valid(self, form):
         changed_fields = list(form.changed_data)
@@ -169,36 +128,13 @@ class CompanyProfileView(OwnerRequiredMixin, UpdateView):
         if changed_fields:
             record_audit_event(
                 user=self.request.user,
-                action="company.updated",
+                action="brand.updated",
                 instance=self.object,
                 before_data=before_data,
                 after_data=after_data,
                 request=self.request,
             )
 
-        messages.success(self.request, "Company profile updated successfully.")
+        messages.success(self.request, "Brand profile updated successfully.")
 
         return response
-
-
-class FiscalPeriodListView(OwnerRequiredMixin, ListView):
-    template_name = "core/fiscal_period_list.html"
-    context_object_name = "periods"
-
-    def get_queryset(self):
-        return (
-            FiscalPeriod.objects
-            .for_user(self.request.user)
-            .select_related(
-                "closed_by",
-                "locked_by",
-            )
-        )
-
-
-class DocumentSequenceListView(OwnerRequiredMixin, ListView,):
-    template_name = "core/document_sequence_list.html"
-    context_object_name = "sequences"
-
-    def get_queryset(self):
-        return (DocumentSequence.objects.for_user(self.request.user))

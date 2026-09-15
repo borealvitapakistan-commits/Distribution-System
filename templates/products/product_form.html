@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if object %}Edit Product{% else %}New Product{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Products</p>
+        <h1>
+            {% if object %}Edit Product{% else %}New Product{% endif %}
+        </h1>
+        <p>
+            SKU and ingredient changes are validated by the product service.
+        </p>
+    </div>
+
+    <a
+        class="button button-secondary"
+        href="{% url 'product-list' %}"
+    >
+        Back
+    </a>
+</div>
+
+<section class="panel form-panel">
+    <form method="post" class="form-layout" enctype="multipart/form-data">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="form-errors">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        <div class="form-grid">
+            {% for field in form %}
+                <div class="form-group">
+                    <label for="{{ field.id_for_label }}">
+                        {{ field.label }}
+                    </label>
+
+                    {{ field }}
+
+                    {% for error in field.errors %}
+                        <span class="field-error">
+                            {{ error }}
+                        </span>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <hr>
+
+        <h2>Ingredients</h2>
+
+        {{ ingredient_formset.management_form }}
+
+        {% if ingredient_formset.non_form_errors %}
+            <div class="form-errors">
+                {{ ingredient_formset.non_form_errors }}
+            </div>
+        {% endif %}
+
+        {% for ingredient_form in ingredient_formset %}
+            <div class="form-grid nested-form">
+                <div class="form-group">
+                    <label>Ingredient</label>
+                    {{ ingredient_form.ingredient }}
+                </div>
+
+                <div class="form-group">
+                    <label>Strength</label>
+                    {{ ingredient_form.strength }}
+                </div>
+
+                <div class="form-group">
+                    <label>Unit</label>
+                    {{ ingredient_form.unit }}
+                </div>
+
+                <div class="form-group">
+                    <label>Medicinal</label>
+                    {{ ingredient_form.is_medicinal }}
+                </div>
+
+                <div class="form-group">
+                    <label>Extract ratio</label>
+                    {{ ingredient_form.extract_ratio }}
+                </div>
+
+                <div class="form-group">
+                    <label>Equivalent to</label>
+                    {{ ingredient_form.equivalent_to }}
+                </div>
+
+                <div class="form-group">
+                    <label>Order</label>
+                    {{ ingredient_form.sort_order }}
+                </div>
+
+                {% if ingredient_form.DELETE %}
+                    <div class="form-group">
+                        <label>Remove</label>
+                        {{ ingredient_form.DELETE }}
+                    </div>
+                {% endif %}
+
+                {% for hidden in ingredient_form.hidden_fields %}
+                    {{ hidden }}
+                {% endfor %}
+            </div>
+
+            {% for error in ingredient_form.non_field_errors %}
+                <span class="field-error">
+                    {{ error }}
+                </span>
+            {% endfor %}
+        {% endfor %}
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                Save Product
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

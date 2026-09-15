@@ -41,16 +41,7 @@ def redact_sensitive_data(data):
 
 
 def record_audit_event(*, user, action, instance, before_data=None, after_data=None, reason="", request=None):
-    company = getattr(instance, "company", None)
-
-    if company is None:
-        if instance._meta.label_lower == "core.company":
-            company = instance
-        elif user:
-            company = user.company
-
     return AuditEvent.objects.create(
-        company=company,
         actor=user,
         action=action,
         object_type=instance._meta.label_lower,

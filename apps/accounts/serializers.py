@@ -37,17 +37,6 @@ class LoginSerializer(serializers.Serializer):
                 "This account is inactive."
             )
 
-        if not user.company_id:
-            raise serializers.ValidationError(
-                "No company is assigned "
-                "to this account."
-            )
-
-        if not user.company.active:
-            raise serializers.ValidationError(
-                "The assigned company is inactive."
-            )
-
         if user.role not in {
             User.Role.OWNER,
             User.Role.DISTRIBUTOR,
@@ -62,15 +51,6 @@ class LoginSerializer(serializers.Serializer):
 
 
 class UserSerializer(serializers.ModelSerializer):
-    company_id = serializers.UUIDField(
-        read_only=True
-    )
-
-    company_name = serializers.CharField(
-        source="company.name",
-        read_only=True,
-    )
-
     role_display = serializers.CharField(
         source="get_role_display",
         read_only=True,
@@ -87,8 +67,6 @@ class UserSerializer(serializers.ModelSerializer):
             "phone",
             "role",
             "role_display",
-            "company_id",
-            "company_name",
             "is_active",
             "must_change_password",
             "last_password_changed_at",
@@ -99,8 +77,6 @@ class UserSerializer(serializers.ModelSerializer):
             "email",
             "role",
             "role_display",
-            "company_id",
-            "company_name",
             "is_active",
             "must_change_password",
             "last_password_changed_at",

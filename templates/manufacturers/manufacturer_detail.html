@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {{ manufacturer.name }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Manufacturer Detail</p>
+        <h1>{{ manufacturer.name }}</h1>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'manufacturer-list' %}">
+            Back
+        </a>
+
+        <a class="button button-primary" href="{% url 'manufacturer-edit' manufacturer.pk %}">
+            Edit
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Manufacturer information</h2>
+        </div>
+    </div>
+
+    <dl class="details-list">
+        <div>
+            <dt>Email</dt>
+            <dd>{{ manufacturer.email|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Phone</dt>
+            <dd>{{ manufacturer.phone|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Address</dt>
+            <dd>{{ manufacturer.address|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Notes</dt>
+            <dd>{{ manufacturer.notes|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Status</dt>
+            <dd>
+                {% if manufacturer.active %}
+                    <span class="badge badge-open">Active</span>
+                {% else %}
+                    <span class="badge badge-pending">Retired</span>
+                {% endif %}
+            </dd>
+        </div>
+    </dl>
+</section>
+{% endblock %}

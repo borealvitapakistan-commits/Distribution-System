@@ -28,7 +28,25 @@ urlpatterns = [
     path("api/v1/auth/", include("apps.accounts.api_urls")),
     path("api/v1/", include("apps.core.api_urls")),
     path("api/v1/", include("apps.audit.api_urls")),
+    path("api/v1/", include("apps.owners.api_urls")),
+    path("api/v1/", include("apps.distributors.api_urls")),
+    path("api/v1/", include("apps.customers.api_urls")),
+    path("api/v1/", include("apps.manufacturers.api_urls")),
+    path("api/v1/", include("apps.products.api_urls")),
+    path("api/v1/", include("apps.warehouse.api_urls")),
+    path("api/v1/", include("apps.inventory.api_urls")),
+    path("api/v1/", include("apps.requests.api_urls")),
+
     path("", include("apps.core.urls")),
+    path("", include("apps.owners.urls")),
+    path("", include("apps.distributors.urls")),
+    path("", include("apps.customers.urls")),
+    path("", include("apps.manufacturers.urls")),
+    path("", include("apps.products.urls")),
+    path("", include("apps.warehouse.urls")),
+    path("", include("apps.inventory.urls")),
+    path("", include("apps.requests.urls")),
+    path("", include("apps.finance.urls")),
 ]
 
 

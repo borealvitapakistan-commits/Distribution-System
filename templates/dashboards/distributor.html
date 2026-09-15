@@ -63,16 +63,17 @@
     <section class="panel">
         <div class="panel-header">
             <div>
-                <h2>Coming in Stage 3</h2>
-                <p>Distributor-specific business data</p>
+                <h2>Stock</h2>
+                <p>Products currently held by you</p>
             </div>
         </div>
 
-        <div class="empty-state">
-            Products, distributor pricing, agreements and
-            delivery details will become available after the
-            Distributor Party model is implemented.
-        </div>
+        <a
+            href="{% url 'distributor-inventory-list' %}"
+            class="button button-secondary"
+        >
+            View Stock
+        </a>
     </section>
 </div>
 {% endblock %}

@@ -1,21 +1,6 @@
 from rest_framework.permissions import BasePermission
 
 
-class IsActiveCompanyUser(BasePermission):
-    message = "An Active Company Account is Required"
-
-    def has_permission(self, request, view):
-        user = request.user
-
-        return bool(
-            user
-            and user.is_authenticated
-            and user.is_active
-            and user.company_id
-        )
-
-
-
 class IsOwner(BasePermission):
     message = "Only an Owner can perform this action."
 
@@ -26,7 +11,6 @@ class IsOwner(BasePermission):
             user
             and user.is_authenticated
             and user.is_active
-            and user.company_id
             and user.is_owner
         )
 
@@ -37,10 +21,18 @@ class IsDistributor(BasePermission):
     def has_permission(self, request, view):
         user = request.user
 
-        return bool(
+        basic = bool(
             user
             and user.is_authenticated
             and user.is_active
-            and user.company_id
             and user.is_distributor
+        )
+        if not basic:
+            return False
+
+        profile = getattr(user, "distributor_profile", None)
+
+        return bool(
+            profile
+            and profile.approval_status == "APPROVED"
         )

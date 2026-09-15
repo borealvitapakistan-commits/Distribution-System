@@ -28,17 +28,33 @@ ALLOWED_HOSTS = env.list(
 
 # Applications
 INSTALLED_APPS = [
+    # Django applications
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+
+    # Django REST Framework
     "rest_framework",
     "rest_framework.authtoken",
+
+    # Project applications
     "apps.accounts.apps.AccountsConfig",
     "apps.core.apps.CoreConfig",
     "apps.audit.apps.AuditConfig",
+
+    # Business applications
+    "apps.owners.apps.OwnersConfig",
+    "apps.distributors.apps.DistributorsConfig",
+    "apps.customers.apps.CustomersConfig",
+    "apps.manufacturers.apps.ManufacturersConfig",
+    "apps.products.apps.ProductsConfig",
+    "apps.warehouse.apps.WarehouseConfig",
+    "apps.inventory.apps.InventoryConfig",
+    "apps.requests.apps.RequestsConfig",
+    "apps.finance.apps.FinanceConfig",
 ]
 
 
@@ -61,18 +77,16 @@ ROOT_URLCONF = "config.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-
         "DIRS": [
             BASE_DIR / "templates",
         ],
-
         "APP_DIRS": True,
-
         "OPTIONS": {
             "context_processors": [
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
+                "apps.core.context_processors.brand",
             ],
         },
     },
@@ -142,6 +156,8 @@ STATICFILES_DIRS = [
 
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+
+# Media files
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
 
@@ -158,3 +174,15 @@ AUTH_USER_MODEL = "accounts.User"
 LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
+
+
+# Django REST Framework
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.TokenAuthentication",
+        "rest_framework.authentication.SessionAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+}

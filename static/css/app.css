@@ -130,6 +130,9 @@ button {
     display: grid;
     gap: 6px;
     padding: 20px 14px;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
 }
 
 .sidebar-nav a {
@@ -558,10 +561,11 @@ button {
     font-weight: 700;
 }
 
-.form-group input,
+/* Normal form controls only */
+.form-group input:not([type="checkbox"]),
 .form-group select,
 .form-group textarea,
-.auth-form input {
+.auth-form input:not([type="checkbox"]) {
     width: 100%;
     min-height: 44px;
     padding: 10px 12px;
@@ -583,10 +587,10 @@ button {
     padding: 8px;
 }
 
-.form-group input:focus,
+.form-group input:not([type="checkbox"]):focus,
 .form-group select:focus,
 .form-group textarea:focus,
-.auth-form input:focus {
+.auth-form input:not([type="checkbox"]):focus {
     border-color: var(--blue-600);
     box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.13);
 }
@@ -1013,4 +1017,87 @@ code {
     color: var(--slate-500);
     font-size: 12px;
     line-height: 1.6;
+}
+/* FINAL FIX: small aligned party checkboxes */
+
+.form-group input[type="checkbox"],
+input[type="checkbox"] {
+    appearance: auto !important;
+    display: inline-block !important;
+
+    width: 14px !important;
+    min-width: 14px !important;
+    max-width: 14px !important;
+
+    height: 14px !important;
+    min-height: 14px !important;
+    max-height: 14px !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    border: 0 !important;
+    box-shadow: none !important;
+    vertical-align: middle !important;
+
+    accent-color: #2563eb;
+    cursor: pointer;
+}
+
+#id_role_codes {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 7px !important;
+
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+#id_role_codes > div,
+#id_role_codes > li {
+    display: flex !important;
+    align-items: center !important;
+
+    width: fit-content !important;
+    min-height: 0 !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+#id_role_codes label {
+    display: inline-flex !important;
+    align-items: center !important;
+    gap: 7px !important;
+
+    width: fit-content !important;
+    min-height: 0 !important;
+
+    margin: 0 !important;
+    padding: 0 !important;
+
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+    cursor: pointer;
+}
+
+#id_role_codes input[type="checkbox"] {
+    width: 14px !important;
+    height: 14px !important;
+    min-width: 14px !important;
+    min-height: 14px !important;
+    max-width: 14px !important;
+    max-height: 14px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+/* Stop the normal input rule from enlarging checkboxes */
+.form-group input:not([type="checkbox"]),
+.auth-form input:not([type="checkbox"]) {
+    width: 100%;
+    min-height: 44px;
+    padding: 10px 12px;
 }

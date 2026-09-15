@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Requests
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Requests</p>
+        <h1>Requests</h1>
+        <p>Stock requests submitted by Distributors.</p>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Distributor</th>
+                    <th>Submitted</th>
+                    <th>Items</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for stock_request in requests %}
+                    <tr>
+                        <td>{{ stock_request.distributor_profile.name }}</td>
+                        <td>{{ stock_request.created_at }}</td>
+                        <td>{{ stock_request.items.count }}</td>
+                        <td>
+                            {% if stock_request.status == "PENDING" %}
+                                <span class="badge badge-pending">Pending</span>
+                            {% elif stock_request.status == "PARTIALLY_FULFILLED" %}
+                                <span class="badge badge-neutral">Partially fulfilled</span>
+                            {% elif stock_request.status == "FULFILLED" %}
+                                <span class="badge badge-open">Fulfilled</span>
+                            {% else %}
+                                <span class="badge badge-closed">Declined</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a
+                                class="button button-secondary button-small"
+                                href="{% url 'owner-stock-request-detail' stock_request.pk %}"
+                            >
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5" class="empty-table">
+                            No requests yet.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

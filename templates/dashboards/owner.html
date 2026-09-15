@@ -10,8 +10,7 @@
         <p class="eyebrow">Overview</p>
         <h1>Owner Dashboard</h1>
         <p>
-            Company identity, users, fiscal control
-            and system activity.
+            Brand identity, users and system activity.
         </p>
     </div>
 
@@ -27,7 +26,7 @@
     <article class="stat-card">
         <span class="stat-label">Active Owners</span>
         <strong>{{ owner_count }}</strong>
-        <span class="stat-detail">Company administrators</span>
+        <span class="stat-detail">Administrators</span>
     </article>
 
     <article class="stat-card">
@@ -53,62 +52,24 @@
     <section class="panel">
         <div class="panel-header">
             <div>
-                <h2>Current Fiscal Period</h2>
-                <p>Current posting control status</p>
-            </div>
-        </div>
-
-        {% if current_period %}
-            <div class="period-summary">
-                <div>
-                    <span>Period</span>
-                    <strong>
-                        {{ current_period.year }}-{{ current_period.month|stringformat:"02d" }}
-                    </strong>
-                </div>
-
-                <div>
-                    <span>Date range</span>
-                    <strong>
-                        {{ current_period.start_date }}
-                        —
-                        {{ current_period.end_date }}
-                    </strong>
-                </div>
-
-                <span class="badge badge-open">
-                    {{ current_period.get_status_display }}
-                </span>
-            </div>
-        {% else %}
-            <div class="empty-state">
-                No open fiscal period is available.
-            </div>
-        {% endif %}
-    </section>
-
-    <section class="panel">
-        <div class="panel-header">
-            <div>
                 <h2>Quick Actions</h2>
-                <p>Stage 2 management tools</p>
             </div>
         </div>
 
         <div class="quick-links">
-            <a href="{% url 'company-profile' %}">
-                <strong>Company Profile</strong>
-                <span>Update company information</span>
+            <a href="{% url 'brand-profile' %}">
+                <strong>Brand Profile</strong>
+                <span>Update brand information</span>
             </a>
 
-            <a href="{% url 'owner-user-list' %}">
-                <strong>User Management</strong>
-                <span>Approve or deactivate users</span>
+            <a href="{% url 'owner-list' %}">
+                <strong>Owners</strong>
+                <span>Manage Owner accounts</span>
             </a>
 
-            <a href="{% url 'fiscal-period-list' %}">
-                <strong>Fiscal Periods</strong>
-                <span>Review and close periods</span>
+            <a href="{% url 'distributor-list' %}">
+                <strong>Distributors</strong>
+                <span>Approve or suspend Distributors</span>
             </a>
 
             <a href="{% url 'audit-event-list' %}">

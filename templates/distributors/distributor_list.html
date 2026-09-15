@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}Distributors{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Distributors</p>
+        <h1>Distributors</h1>
+        <p>Manage Distributor accounts, approval and commission.</p>
+    </div>
+
+    <a href="{% url 'distributor-invite' %}" class="button button-primary">
+        Add Distributor
+    </a>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Distributor</th>
+                    <th>Login</th>
+                    <th>Commission %</th>
+                    <th>Status</th>
+                    <th>Last Login</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for account in distributors %}
+                    <tr>
+                        <td>
+                            <strong>{{ account.distributor_profile.name|default:"—" }}</strong>
+                            <br>
+                            <span>{{ account.distributor_profile.territory }}</span>
+                        </td>
+
+                        <td>
+                            <div class="user-cell">
+                                <div class="avatar avatar-small">
+                                    {{ account.email|slice:":1"|upper }}
+                                </div>
+
+                                <div>
+                                    <strong>
+                                        {{ account.get_full_name|default:account.email }}
+                                    </strong>
+                                    <span>{{ account.email }}</span>
+                                </div>
+                            </div>
+                        </td>
+
+                        <td>
+                            {{ account.distributor_profile.commission_percentage|default:"0.00" }}%
+                        </td>
+
+                        <td>
+                            <span class="badge badge-neutral">
+                                {{ account.distributor_profile.get_approval_status_display }}
+                            </span>
+                        </td>
+
+                        <td>
+                            {{ account.last_login|date:"M d, Y H:i"|default:"Never" }}
+                        </td>
+
+                        <td class="table-actions">
+                            {% if account.distributor_profile.approval_status == "PENDING" %}
+                                <form
+                                    method="post"
+                                    action="{% url 'approve-distributor' account.id %}"
+                                    class="inline-form"
+                                >
+                                    {% csrf_token %}
+                                    <button
+                                        type="submit"
+                                        class="button button-success button-small"
+                                    >
+                                        Approve
+                                    </button>
+                                </form>
+
+                                <form
+                                    method="post"
+                                    action="{% url 'reject-distributor' account.id %}"
+                                    class="inline-form confirm-form"
+                                    data-confirm="Reject this Distributor?"
+                                >
+                                    {% csrf_token %}
+                                    <input
+                                        type="hidden"
+                                        name="reason"
+                                        value="Rejected by Owner"
+                                    >
+                                    <button
+                                        type="submit"
+                                        class="button button-danger button-small"
+                                    >
+                                        Reject
+                                    </button>
+                                </form>
+                            {% elif account.is_active %}
+                                <form
+                                    method="post"
+                                    action="{% url 'suspend-distributor' account.id %}"
+                                    class="inline-form confirm-form"
+                                    data-confirm="Suspend this Distributor immediately?"
+                                >
+                                    {% csrf_token %}
+                                    <input
+                                        type="hidden"
+                                        name="reason"
+                                        value="Suspended by Owner"
+                                    >
+                                    <button
+                                        type="submit"
+                                        class="button button-danger button-small"
+                                    >
+                                        Suspend
+                                    </button>
+                                </form>
+                            {% elif account.distributor_profile.approval_status == "SUSPENDED" %}
+                                <form
+                                    method="post"
+                                    action="{% url 'approve-distributor' account.id %}"
+                                    class="inline-form"
+                                >
+                                    {% csrf_token %}
+                                    <button
+                                        type="submit"
+                                        class="button button-success button-small"
+                                    >
+                                        Reactivate
+                                    </button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="empty-table">
+                            No distributors found.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

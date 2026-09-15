@@ -83,7 +83,46 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
     initializeFiscalPeriodModal();
+    initializeDynamicFormsets();
 });
+
+
+function initializeDynamicFormsets() {
+    document
+        .querySelectorAll("[data-formset]")
+        .forEach((container) => {
+            const prefix = container.dataset.formsetPrefix;
+            const rows = container.querySelector(
+                "[data-formset-rows]"
+            );
+            const template = container.querySelector(
+                "[data-formset-empty-form]"
+            );
+            const addButton = container.querySelector(
+                "[data-formset-add]"
+            );
+            const totalForms = document.getElementById(
+                `id_${prefix}-TOTAL_FORMS`
+            );
+
+            if (!rows || !template || !addButton || !totalForms) {
+                return;
+            }
+
+            addButton.addEventListener("click", () => {
+                const index = parseInt(totalForms.value, 10);
+
+                const html = template.innerHTML.replace(
+                    /__prefix__/g,
+                    index
+                );
+
+                rows.insertAdjacentHTML("beforeend", html);
+
+                totalForms.value = index + 1;
+            });
+        });
+}
 
 
 function getCookie(name) {

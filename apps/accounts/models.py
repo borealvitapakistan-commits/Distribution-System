@@ -33,11 +33,6 @@ class UserManager(BaseUserManager):
             "DISTRIBUTOR",
         }
 
-        if (not extra_fields.get("company") and not extra_fields.get("company_id")):
-            raise ValueError(
-                "A company is required for a business user."
-            )
-
         if role not in valid_roles:
             raise ValueError(
                 "Role must be OWNER or DISTRIBUTOR."
@@ -111,13 +106,7 @@ class User(AbstractUser):
     username = None
     email = models.EmailField(unique=True, db_index=True,)
     role = models.CharField(max_length=20, choices=Role.choices)
-    company = models.ForeignKey(
-        "core.Company",
-        on_delete=models.PROTECT,
-        related_name="users",
-        null=True,
-        blank=True,
-    )
+
     phone = models.CharField(max_length=30, blank=True)
     must_change_password = models.BooleanField(default=False)
     last_password_changed_at = models.DateTimeField(null=True, blank=True,)
@@ -182,7 +171,7 @@ class User(AbstractUser):
                     )
                 }
             )
-        
+
     def set_password(self, raw_password):
         super().set_password(raw_password)
 
