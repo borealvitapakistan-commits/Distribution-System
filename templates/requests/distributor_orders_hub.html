@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Orders
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Orders</p>
+        <h1>Orders</h1>
+        <p>Ask the Owner for stock, or check on what you've already asked for.</p>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="hub-grid">
+        <a class="hub-card" href="{% url 'purchase-order-create' %}">
+            <span class="hub-card-icon">+</span>
+            <span class="hub-card-title">Place Order</span>
+            <span class="hub-card-desc">Ask the Owner for products and quantities.</span>
+        </a>
+
+        <a class="hub-card" href="{% url 'distributor-purchase-order-list' %}">
+            <span class="hub-card-icon">▤</span>
+            <span class="hub-card-title">View Orders</span>
+            <span class="hub-card-desc">See the status of orders you've already placed.</span>
+        </a>
+    </div>
+</section>
+{% endblock %}

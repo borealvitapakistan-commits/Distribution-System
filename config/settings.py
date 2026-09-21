@@ -49,12 +49,18 @@ INSTALLED_APPS = [
     "apps.owners.apps.OwnersConfig",
     "apps.distributors.apps.DistributorsConfig",
     "apps.customers.apps.CustomersConfig",
+    "apps.batches.apps.BatchesConfig",
     "apps.manufacturers.apps.ManufacturersConfig",
     "apps.products.apps.ProductsConfig",
-    "apps.warehouse.apps.WarehouseConfig",
-    "apps.inventory.apps.InventoryConfig",
+    "apps.owner_warehouse.apps.OwnerWarehouseConfig",
+    "apps.owner_inventory.apps.OwnerInventoryConfig",
     "apps.requests.apps.RequestsConfig",
     "apps.finance.apps.FinanceConfig",
+
+    # Distributor-only inventory/warehouse (fully separate from the
+    # Owner's — different tables, no FK relationship between them).
+    "apps.distributor_warehouse.apps.DistributorWarehouseConfig",
+    "apps.distributor_inventory.apps.DistributorInventoryConfig",
 ]
 
 
@@ -87,6 +93,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.core.context_processors.brand",
+                "apps.core.context_processors.owner_notifications",
             ],
         },
     },

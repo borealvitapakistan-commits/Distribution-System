@@ -51,8 +51,8 @@
                     </a>
 
                     <a
-                        href="{% url 'brand-profile' %}"
-                        class="{% if request.resolver_match.url_name == 'brand-profile' %}active{% endif %}"
+                        href="{% url 'brand-list' %}"
+                        class="{% if request.resolver_match.url_name == 'brand-list' or request.resolver_match.url_name == 'brand-create' or request.resolver_match.url_name == 'brand-detail' or request.resolver_match.url_name == 'brand-edit' %}active{% endif %}"
                     >
                         <span class="nav-icon">▣</span>
                         Brand
@@ -115,16 +115,8 @@
                     </a>
 
                     <a
-                        href="{% url 'location-list' %}"
-                        class="{% if request.resolver_match.url_name == 'location-list' or request.resolver_match.url_name == 'location-create' or request.resolver_match.url_name == 'location-detail' or request.resolver_match.url_name == 'location-edit' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">▤</span>
-                        Warehouse
-                    </a>
-
-                    <a
                         href="{% url 'inventory-list' %}"
-                        class="{% if request.resolver_match.url_name == 'inventory-list' or request.resolver_match.url_name == 'inventory-add' or request.resolver_match.url_name == 'inventory-give' %}active{% endif %}"
+                        class="{% if request.resolver_match.url_name == 'inventory-list' or request.resolver_match.url_name == 'inventory-create' or request.resolver_match.url_name == 'inventory-detail' or request.resolver_match.url_name == 'inventory-edit' or request.resolver_match.url_name == 'location-list' or request.resolver_match.url_name == 'location-create' or request.resolver_match.url_name == 'location-detail' or request.resolver_match.url_name == 'location-edit' or request.resolver_match.url_name == 'stock-balance-list' or request.resolver_match.url_name == 'inventory-add' or request.resolver_match.url_name == 'inventory-give' or request.resolver_match.url_name == 'stock-batch-list' %}active{% endif %}"
                     >
                         <span class="nav-icon">▥</span>
                         Inventory
@@ -139,11 +131,14 @@
                     </a>
 
                     <a
-                        href="{% url 'owner-stock-request-list' %}"
-                        class="{% if request.resolver_match.url_name == 'owner-stock-request-list' or request.resolver_match.url_name == 'owner-stock-request-detail' %}active{% endif %}"
+                        href="{% url 'owner-purchase-orders-hub' %}"
+                        class="{% if request.resolver_match.url_name == 'owner-purchase-orders-hub' or request.resolver_match.url_name == 'owner-purchase-order-list' or request.resolver_match.url_name == 'owner-purchase-order-detail' or request.resolver_match.url_name == 'manufacturer-order-list' or request.resolver_match.url_name == 'manufacturer-order-create' or request.resolver_match.url_name == 'manufacturer-order-detail' %}active{% endif %}"
                     >
                         <span class="nav-icon">✉</span>
-                        Requests
+                        Purchase Orders
+                        {% if new_purchase_orders_count %}
+                            <span class="nav-badge">{{ new_purchase_orders_count }}</span>
+                        {% endif %}
                     </a>
 
                     <a
@@ -171,16 +166,24 @@
                     </a>
 
                     <a
-                        href="{% url 'distributor-stock-request-list' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-stock-request-list' or request.resolver_match.url_name == 'stock-request-create' %}active{% endif %}"
+                        href="{% url 'distributor-orders-hub' %}"
+                        class="{% if request.resolver_match.url_name == 'distributor-orders-hub' or request.resolver_match.url_name == 'distributor-purchase-order-list' or request.resolver_match.url_name == 'distributor-purchase-order-detail' or request.resolver_match.url_name == 'purchase-order-create' %}active{% endif %}"
                     >
                         <span class="nav-icon">✉</span>
-                        My Requests
+                        Orders
                     </a>
 
                     <a
-                        href="{% url 'distributor-inventory-list' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-inventory-list' %}active{% endif %}"
+                        href="{% url 'distributor-region-list' %}"
+                        class="{% if request.resolver_match.url_name == 'distributor-region-list' or request.resolver_match.url_name == 'distributor-region-create' or request.resolver_match.url_name == 'distributor-region-detail' or request.resolver_match.url_name == 'distributor-region-edit' or request.resolver_match.url_name == 'distributor-warehouse-list' or request.resolver_match.url_name == 'distributor-warehouse-create' or request.resolver_match.url_name == 'distributor-warehouse-detail' or request.resolver_match.url_name == 'distributor-warehouse-edit' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">◈</span>
+                        Inventory
+                    </a>
+
+                    <a
+                        href="{% url 'distributor-stock-balance-list' %}"
+                        class="{% if request.resolver_match.url_name == 'distributor-stock-balance-list' or request.resolver_match.url_name == 'distributor-stock-batch-list' or request.resolver_match.url_name == 'distributor-stock-movement-list' or request.resolver_match.url_name == 'distributor-stock-receive' %}active{% endif %}"
                     >
                         <span class="nav-icon">▥</span>
                         My Stock

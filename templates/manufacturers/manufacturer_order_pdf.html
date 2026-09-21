@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: A4; margin: 2cm; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 11pt; color: #0f172a; }
+    h1 { font-size: 20pt; color: #2563eb; margin: 0 0 4px 0; }
+    .doc-type { font-size: 13pt; color: #475569; margin: 0 0 20px 0; }
+    table.meta { width: 100%; margin-bottom: 20px; }
+    table.meta td { vertical-align: top; padding: 0; }
+    .label { color: #64748b; font-size: 9pt; text-transform: uppercase; }
+    table.items { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    table.items th { background: #f1f5f9; text-align: left; padding: 6px 8px; font-size: 9pt; text-transform: uppercase; color: #475569; }
+    table.items td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
+    table.totals { width: 40%; margin-left: 60%; }
+    table.totals td { padding: 4px 0; }
+    table.totals td.value { text-align: right; }
+    .grand-total { font-size: 13pt; font-weight: bold; border-top: 1px solid #0f172a; }
+</style>
+</head>
+<body>
+    <h1>
+        {% if order.brand %}{{ order.brand.name }}{% else %}{{ brand.name|default:"—" }}{% endif %}
+    </h1>
+    <p class="doc-type">Purchase Order — {{ order.po_number }}</p>
+
+    <table class="meta">
+        <tr>
+            <td width="50%">
+                <div class="label">Manufacturer</div>
+                {{ order.manufacturer.name }}
+                {% if order.manufacturer.address %}<br>{{ order.manufacturer.address }}{% endif %}
+            </td>
+            <td width="50%">
+                <div class="label">Date</div>
+                {{ order.created_at|date:"Y-m-d" }}
+                <div class="label" style="margin-top:8px;">Status</div>
+                {{ order.get_status_display }}
+            </td>
+        </tr>
+    </table>
+
+    <table class="items">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in order.items.all %}
+                <tr>
+                    <td>{{ item.product.name }} ({{ item.product.sku }})</td>
+                    <td>{{ item.quantity }}</td>
+                    <td>{{ item.unit_price }}</td>
+                    <td>{{ item.line_total }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <table class="totals">
+        <tr>
+            <td>Subtotal</td>
+            <td class="value">{{ order.subtotal }}</td>
+        </tr>
+        <tr>
+            <td>Tax ({{ order.tax_percentage }}%)</td>
+            <td class="value">{{ order.tax_amount }}</td>
+        </tr>
+        <tr>
+            <td>Shipping</td>
+            <td class="value">{{ order.shipping_amount }}</td>
+        </tr>
+        <tr class="grand-total">
+            <td>Grand Total</td>
+            <td class="value">{{ order.grand_total }}</td>
+        </tr>
+    </table>
+
+    {% if order.owner_note %}
+        <p><strong>Note:</strong> {{ order.owner_note }}</p>
+    {% endif %}
+</body>
+</html>

@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    Manufacturer Purchase Orders
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Manufacturers</p>
+        <h1>Purchase Orders</h1>
+        <p>Orders you've placed with Manufacturers.</p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'owner-purchase-orders-hub' %}">
+            Back
+        </a>
+        <a class="button button-primary" href="{% url 'manufacturer-order-create' %}">
+            New Order
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>PO Number</th>
+                    <th>Manufacturer</th>
+                    <th>Brand</th>
+                    <th>Created</th>
+                    <th>Items</th>
+                    <th>Grand Total</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for order in orders %}
+                    <tr>
+                        <td><strong>{{ order.po_number }}</strong></td>
+                        <td>{{ order.manufacturer.name }}</td>
+                        <td>{{ order.brand.name|default:"—" }}</td>
+                        <td>{{ order.created_at|date:"M d, Y" }}</td>
+                        <td>{{ order.items.count }}</td>
+                        <td>{{ order.grand_total|money }}</td>
+                        <td>
+                            {% if order.status == "SENT" %}
+                                <span class="badge badge-neutral">Sent</span>
+                            {% elif order.status == "RECEIVED" %}
+                                <span class="badge badge-pending">Received</span>
+                            {% elif order.status == "GOOD" %}
+                                <span class="badge badge-open">Good</span>
+                            {% elif order.status == "DISPUTED" %}
+                                <span class="badge badge-pending">Under discussion</span>
+                            {% else %}
+                                <span class="badge badge-closed">Refunded</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a
+                                class="button button-secondary button-small"
+                                href="{% url 'manufacturer-order-detail' order.pk %}"
+                            >
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="8" class="empty-table">
+                            No manufacturer orders yet.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

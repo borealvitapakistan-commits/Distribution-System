@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Purchase Orders
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Purchase Orders</p>
+        <h1>Purchase Orders</h1>
+        <p>What Distributors have asked you for, and what you've ordered from Manufacturers.</p>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="hub-grid">
+        <a class="hub-card" href="{% url 'owner-purchase-order-list' %}">
+            <span class="hub-card-icon">✉</span>
+            <span class="hub-card-title">
+                Distributor's Purchase Orders
+                {% if new_purchase_orders_count %}
+                    <span class="badge badge-pending">{{ new_purchase_orders_count }} new</span>
+                {% endif %}
+            </span>
+            <span class="hub-card-desc">Orders Distributors have placed with you.</span>
+        </a>
+
+        <a class="hub-card" href="{% url 'manufacturer-order-list' %}">
+            <span class="hub-card-icon">◈</span>
+            <span class="hub-card-title">Manufacturer's Purchase Orders</span>
+            <span class="hub-card-desc">Orders you've placed with Manufacturers.</span>
+        </a>
+    </div>
+</section>
+{% endblock %}

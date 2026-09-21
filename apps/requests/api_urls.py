@@ -1,38 +1,44 @@
 from django.urls import path
 
 from .api import (
-    DistributorStockRequestListCreateAPIView,
-    OwnerStockRequestDeclineAPIView,
-    OwnerStockRequestDetailAPIView,
-    OwnerStockRequestItemFulfillAPIView,
-    OwnerStockRequestListAPIView,
+    DistributorPurchaseOrderItemReceiveAPIView,
+    DistributorPurchaseOrderListCreateAPIView,
+    OwnerPurchaseOrderDeclineAPIView,
+    OwnerPurchaseOrderDetailAPIView,
+    OwnerPurchaseOrderItemShipAPIView,
+    OwnerPurchaseOrderListAPIView,
 )
 
 
 urlpatterns = [
     path(
-        "distributor/requests/",
-        DistributorStockRequestListCreateAPIView.as_view(),
-        name="api-distributor-stock-request-list",
+        "distributor/purchase-orders/",
+        DistributorPurchaseOrderListCreateAPIView.as_view(),
+        name="api-distributor-purchase-order-list",
     ),
     path(
-        "requests/",
-        OwnerStockRequestListAPIView.as_view(),
-        name="api-owner-stock-request-list",
+        "purchase-orders/items/<uuid:item_id>/receive/",
+        DistributorPurchaseOrderItemReceiveAPIView.as_view(),
+        name="api-purchase-order-item-receive",
     ),
     path(
-        "requests/<uuid:request_id>/",
-        OwnerStockRequestDetailAPIView.as_view(),
-        name="api-owner-stock-request-detail",
+        "purchase-orders/",
+        OwnerPurchaseOrderListAPIView.as_view(),
+        name="api-owner-purchase-order-list",
     ),
     path(
-        "requests/<uuid:request_id>/decline/",
-        OwnerStockRequestDeclineAPIView.as_view(),
-        name="api-stock-request-decline",
+        "purchase-orders/<uuid:purchase_order_id>/",
+        OwnerPurchaseOrderDetailAPIView.as_view(),
+        name="api-owner-purchase-order-detail",
     ),
     path(
-        "requests/items/<uuid:item_id>/fulfill/",
-        OwnerStockRequestItemFulfillAPIView.as_view(),
-        name="api-stock-request-item-fulfill",
+        "purchase-orders/<uuid:purchase_order_id>/decline/",
+        OwnerPurchaseOrderDeclineAPIView.as_view(),
+        name="api-purchase-order-decline",
+    ),
+    path(
+        "purchase-orders/items/<uuid:item_id>/ship/",
+        OwnerPurchaseOrderItemShipAPIView.as_view(),
+        name="api-purchase-order-item-ship",
     ),
 ]

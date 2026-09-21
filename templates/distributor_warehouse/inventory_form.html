@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if object %}Edit Inventory{% else %}Add Inventory{% endif %}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Inventory</p>
+        <h1>
+            {% if object %}Edit Inventory{% else %}Add Inventory{% endif %}
+        </h1>
+        <p>A region or city — e.g. Lahore, Islamabad, Karachi.</p>
+    </div>
+
+    <a class="button button-secondary" href="{% url 'distributor-region-list' %}">
+        Back
+    </a>
+</div>
+
+<section class="panel form-panel form-panel-narrow">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="form-errors">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        {% for field in form %}
+            <div class="form-group">
+                <label for="{{ field.id_for_label }}">
+                    {{ field.label }}
+                </label>
+
+                {{ field }}
+
+                {% for error in field.errors %}
+                    <span class="field-error">{{ error }}</span>
+                {% endfor %}
+            </div>
+        {% endfor %}
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                Save Inventory
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

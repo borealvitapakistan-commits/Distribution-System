@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Receive Stock
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">My Stock</p>
+        <h1>Receive Stock</h1>
+        <p>Record stock arriving outside a Purchase Order — lands unallocated unless you pick a warehouse.</p>
+    </div>
+
+    <a class="button button-secondary" href="{% url 'distributor-stock-balance-list' %}">
+        Back
+    </a>
+</div>
+
+<section class="panel form-panel">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="form-errors">
+                {{ form.non_field_errors }}
+            </div>
+        {% endif %}
+
+        <div class="form-grid">
+            {% for field in form %}
+                <div class="form-group">
+                    <label for="{{ field.id_for_label }}">
+                        {{ field.label }}
+                    </label>
+
+                    {{ field }}
+
+                    {% if field.help_text %}
+                        <small>{{ field.help_text }}</small>
+                    {% endif %}
+
+                    {% for error in field.errors %}
+                        <span class="field-error">
+                            {{ error }}
+                        </span>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                Receive Stock
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

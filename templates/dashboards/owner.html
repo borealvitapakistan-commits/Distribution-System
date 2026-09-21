@@ -22,6 +22,23 @@
     </a>
 </div>
 
+{% if new_purchase_orders %}
+    <div class="notification-card">
+        <h2>
+            {{ new_purchase_orders_count }} new Purchase Order{{ new_purchase_orders_count|pluralize }}
+        </h2>
+
+        <div class="notification-list">
+            {% for order in new_purchase_orders %}
+                <a href="{% url 'owner-purchase-order-detail' order.pk %}">
+                    <span><strong>{{ order.po_number }}</strong> — {{ order.distributor_profile.name }}</span>
+                    <span>{{ order.created_at|date:"M d, Y H:i" }}</span>
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+{% endif %}
+
 <div class="stats-grid">
     <article class="stat-card">
         <span class="stat-label">Active Owners</span>
@@ -57,9 +74,9 @@
         </div>
 
         <div class="quick-links">
-            <a href="{% url 'brand-profile' %}">
-                <strong>Brand Profile</strong>
-                <span>Update brand information</span>
+            <a href="{% url 'brand-list' %}">
+                <strong>Brands</strong>
+                <span>Manage brand information</span>
             </a>
 
             <a href="{% url 'owner-list' %}">

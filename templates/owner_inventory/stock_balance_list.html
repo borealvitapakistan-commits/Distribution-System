@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Stock Balances
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Warehouse</p>
+        <h1>Stock Balances</h1>
+        <p>Current stock balance for every product at every location.</p>
+    </div>
+
+    <div>
+        <a
+            class="button button-secondary"
+            href="{% url 'inventory-list' %}"
+        >
+            Back to Inventory
+        </a>
+        <a
+            class="button button-secondary"
+            href="{% url 'stock-batch-list' %}"
+        >
+            View Batches
+        </a>
+        <a
+            class="button button-secondary"
+            href="{% url 'stock-movement-list' %}"
+        >
+            View Stock Movements
+        </a>
+        <a
+            class="button button-secondary"
+            href="{% url 'inventory-give' %}"
+        >
+            Give to Distributor
+        </a>
+        <a
+            class="button button-primary"
+            href="{% url 'inventory-add' %}"
+        >
+            Add Inventory
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>SKU</th>
+                    <th>Batch</th>
+                    <th>Location</th>
+                    <th>Type</th>
+                    <th>Quantity</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for balance in balances %}
+                    <tr>
+                        <td>{{ balance.product.name }}</td>
+                        <td>{{ balance.product.sku }}</td>
+                        <td>{{ balance.batch_codes|join:", "|default:"—" }}</td>
+                        <td>{{ balance.location.name }}</td>
+                        <td>{{ balance.location.get_location_type_display }}</td>
+                        <td>{{ balance.quantity }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="empty-table">
+                            No stock recorded yet.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

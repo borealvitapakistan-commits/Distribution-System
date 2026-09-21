@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Stock Movements
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Records</p>
+        <h1>Stock Movements</h1>
+        <p>Every transaction — stock received, given to a Distributor, or adjusted.</p>
+    </div>
+
+    <a
+        class="button button-secondary"
+        href="{% url 'stock-balance-list' %}"
+    >
+        View Stock Balances
+    </a>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date and Time</th>
+                    <th>Product</th>
+                    <th>Type</th>
+                    <th>Quantity</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>By</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for movement in movements %}
+                    <tr>
+                        <td>
+                            {{ movement.created_at|date:"M d, Y H:i:s" }}
+                        </td>
+
+                        <td>
+                            {{ movement.product.name }}
+                            <small class="table-secondary">
+                                {{ movement.product.sku }}
+                            </small>
+                        </td>
+
+                        <td>
+                            <span class="badge badge-neutral">
+                                {{ movement.get_movement_type_display }}
+                            </span>
+                        </td>
+
+                        <td>{{ movement.quantity }}</td>
+                        <td>{{ movement.from_location.name|default:"—" }}</td>
+                        <td>{{ movement.to_location.name|default:"—" }}</td>
+                        <td>{{ movement.created_by|default:"—" }}</td>
+                        <td>{{ movement.reference|default:"—" }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="8" class="empty-table">
+                            No stock movements recorded yet.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if is_paginated %}
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+                <a
+                    href="?page={{ page_obj.previous_page_number }}"
+                    class="button button-secondary button-small"
+                >
+                    Previous
+                </a>
+            {% endif %}
+
+            <span>
+                Page {{ page_obj.number }}
+                of {{ page_obj.paginator.num_pages }}
+            </span>
+
+            {% if page_obj.has_next %}
+                <a
+                    href="?page={{ page_obj.next_page_number }}"
+                    class="button button-secondary button-small"
+                >
+                    Next
+                </a>
+            {% endif %}
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

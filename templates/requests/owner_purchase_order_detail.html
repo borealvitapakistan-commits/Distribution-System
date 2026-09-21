@@ -1,0 +1,302 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    {{ purchase_order.po_number }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Purchase Orders</p>
+        <h1>{{ purchase_order.po_number }} — {{ purchase_order.distributor_profile.name }}</h1>
+        <p>Submitted {{ purchase_order.created_at|date:"M d, Y H:i" }}</p>
+    </div>
+
+    <div>
+        <a
+            class="button button-secondary"
+            href="{% url 'purchase-order-pdf' purchase_order.pk %}"
+            target="_blank"
+        >
+            View PDF
+        </a>
+        <a
+            class="button button-secondary"
+            href="{% url 'purchase-order-pdf' purchase_order.pk %}?download=1"
+        >
+            Download PDF
+        </a>
+        <a
+            class="button button-secondary"
+            href="{% url 'owner-purchase-order-list' %}"
+        >
+            Back
+        </a>
+    </div>
+</div>
+
+{% if was_new %}
+    <div class="notification-card">
+        <h2>This is a new order you haven't opened before.</h2>
+    </div>
+{% endif %}
+
+{% if not purchase_order.upfront_amount_satisfied and purchase_order.status != "DECLINED" %}
+    <div class="notification-card">
+        <h2>
+            Shipping is on hold — this Distributor's terms require
+            {{ purchase_order.distributor_profile.upfront_payment_percentage }}%
+            ({{ purchase_order.required_upfront_amount|money }}) confirmed paid first.
+            {{ purchase_order.total_paid|money }} confirmed so far.
+        </h2>
+    </div>
+{% endif %}
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Requested</th>
+                    <th>Unit Price</th>
+                    <th>Shipped</th>
+                    <th>Received</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for item, ship_form in items_with_ship_forms %}
+                    <tr>
+                        <td>{{ item.product.name }} ({{ item.product.sku }})</td>
+                        <td>{{ item.quantity_requested }}</td>
+                        <td>{{ item.unit_price|money }}</td>
+                        <td>{{ item.quantity_shipped }}</td>
+                        <td>{{ item.quantity_received }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+{% if purchase_order.status != "DECLINED" and purchase_order.upfront_amount_satisfied %}
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Ship stock</h2>
+                <p>
+                    Pull whatever amount you want from each warehouse that
+                    holds the product — split across as many as you like.
+                </p>
+            </div>
+        </div>
+
+        {% for item, ship_form in items_with_ship_forms %}
+            {% if item.quantity_to_ship_remaining > 0 %}
+                <div class="ship-item-block">
+                    <h3>
+                        {{ item.product.name }} ({{ item.product.sku }}) —
+                        {{ item.quantity_to_ship_remaining }} left to ship
+                    </h3>
+
+                    {% if ship_form.batches %}
+                        <form
+                            method="post"
+                            action="{% url 'purchase-order-item-ship' purchase_order.pk item.pk %}"
+                            class="form-layout"
+                        >
+                            {% csrf_token %}
+
+                            <div class="table-wrapper">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Warehouse / batch</th>
+                                            <th>Quantity to ship</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for field in ship_form %}
+                                            <tr>
+                                                <td>{{ field.label }}</td>
+                                                <td>{{ field }}</td>
+                                            </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div class="form-actions">
+                                <button class="button button-primary button-small" type="submit">
+                                    Ship
+                                </button>
+                            </div>
+                        </form>
+                    {% else %}
+                        <p class="field-error">No batches with stock left for this product.</p>
+
+                        {% if item.manufacturer_order_items.all %}
+                            <p class="stat-detail">
+                                Already ordered from a Manufacturer:
+                                {% for mo_item in item.manufacturer_order_items.all %}
+                                    <a href="{% url 'manufacturer-order-detail' mo_item.order.pk %}">
+                                        {{ mo_item.order.po_number }}
+                                    </a>
+                                    ({{ mo_item.order.get_status_display }}){% if not forloop.last %}, {% endif %}
+                                {% endfor %}
+                            </p>
+                        {% endif %}
+
+                        <a
+                            class="button button-secondary button-small"
+                            href="{% url 'manufacturer-order-create' %}?product={{ item.product.pk }}&quantity={{ item.quantity_to_ship_remaining }}&source_item={{ item.pk }}"
+                        >
+                            Manufacturer's Purchase Order
+                        </a>
+                    {% endif %}
+                </div>
+            {% endif %}
+        {% endfor %}
+    </section>
+{% endif %}
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Totals</h2>
+        </div>
+    </div>
+
+    <dl class="details-list">
+        <div><dt>Subtotal</dt><dd>{{ purchase_order.subtotal|money }}</dd></div>
+        <div><dt>Tax ({{ purchase_order.tax_percentage }}%)</dt><dd>{{ purchase_order.tax_amount|money }}</dd></div>
+        <div><dt>Shipping</dt><dd>{{ purchase_order.shipping_amount|money }}</dd></div>
+        <div><dt>Grand Total</dt><dd>{{ purchase_order.grand_total|money }}</dd></div>
+        <div><dt>Paid</dt><dd>{{ purchase_order.total_paid|money }}</dd></div>
+    </dl>
+
+    <form method="post" action="{% url 'purchase-order-update-pricing' purchase_order.pk %}" class="form-layout" style="margin-top: 16px;">
+        {% csrf_token %}
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Tax %</label>
+                {{ pricing_form.tax_percentage }}
+            </div>
+            <div class="form-group">
+                <label>Shipping</label>
+                {{ pricing_form.shipping_amount }}
+            </div>
+        </div>
+        <div class="form-actions">
+            <button class="button button-secondary" type="submit">
+                Update Tax &amp; Shipping
+            </button>
+        </div>
+    </form>
+
+    {% if purchase_order.payments.all %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Amount</th>
+                        <th>Note</th>
+                        <th>Proof</th>
+                        <th>Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for payment in purchase_order.payments.all %}
+                        <tr>
+                            <td>{{ payment.paid_at }}</td>
+                            <td>{{ payment.amount|money }}</td>
+                            <td>{{ payment.note|default:"—" }}</td>
+                            <td><a href="{{ payment.proof.url }}" target="_blank">View</a></td>
+                            <td>
+                                {% if payment.status == "PENDING" %}
+                                    <span class="badge badge-pending">Pending confirmation</span>
+                                {% elif payment.status == "CONFIRMED" %}
+                                    <span class="badge badge-open">Confirmed</span>
+                                {% else %}
+                                    <span class="badge badge-closed">Rejected</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if payment.status == "PENDING" %}
+                                    <form
+                                        method="post"
+                                        action="{% url 'purchase-order-payment-confirm' purchase_order.pk payment.pk %}"
+                                        class="inline-form"
+                                    >
+                                        {% csrf_token %}
+                                        <button class="button button-success button-small" type="submit">
+                                            Confirm
+                                        </button>
+                                    </form>
+
+                                    <form
+                                        method="post"
+                                        action="{% url 'purchase-order-payment-reject' purchase_order.pk payment.pk %}"
+                                        class="inline-form"
+                                    >
+                                        {% csrf_token %}
+                                        {{ reject_payment_form.reason }}
+                                        <button class="button button-danger button-small" type="submit">
+                                            Reject
+                                        </button>
+                                    </form>
+                                {% elif payment.status == "REJECTED" %}
+                                    <span class="stat-detail">{{ payment.rejection_reason }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</section>
+
+<section class="panel form-panel">
+    <h2>Comment to Distributor</h2>
+    <p>Visible on the Distributor's own Purchase Orders page.</p>
+
+    <form method="post" action="{% url 'purchase-order-comment' purchase_order.pk %}" class="form-layout">
+        {% csrf_token %}
+        {{ comment_form.comment }}
+
+        <div class="form-actions">
+            <button class="button button-secondary" type="submit">
+                Save Comment
+            </button>
+        </div>
+    </form>
+</section>
+
+{% if purchase_order.status != "DECLINED" %}
+    <section class="panel form-panel">
+        <h2>Decline Purchase Order</h2>
+        <p>Closes out whatever's left unshipped. Already-shipped items are not affected.</p>
+
+        <form
+            method="post"
+            action="{% url 'purchase-order-decline' purchase_order.pk %}"
+            class="form-layout confirm-form"
+            data-confirm="Decline the remaining items on this purchase order?"
+        >
+            {% csrf_token %}
+            {{ decline_form.comment }}
+
+            <div class="form-actions">
+                <button class="button button-danger" type="submit">
+                    Decline Purchase Order
+                </button>
+            </div>
+        </form>
+    </section>
+{% endif %}
+{% endblock %}

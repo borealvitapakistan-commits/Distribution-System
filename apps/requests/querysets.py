@@ -3,7 +3,7 @@ from django.db import models
 from apps.distributors.querysets import is_approved_distributor
 
 
-class StockRequestQuerySet(models.QuerySet):
+class PurchaseOrderQuerySet(models.QuerySet):
     def for_user(self, user):
         if not (
             user
@@ -21,3 +21,6 @@ class StockRequestQuerySet(models.QuerySet):
             )
 
         return self.none()
+
+    def unseen_by_owner(self):
+        return self.filter(owner_viewed_at__isnull=True)

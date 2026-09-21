@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    {{ purchase_order.po_number }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Purchase Orders</p>
+        <h1>{{ purchase_order.po_number }}</h1>
+        <p>Submitted {{ purchase_order.created_at|date:"M d, Y H:i" }}</p>
+    </div>
+
+    <div>
+        <a
+            class="button button-secondary"
+            href="{% url 'purchase-order-pdf' purchase_order.pk %}"
+            target="_blank"
+        >
+            View PDF
+        </a>
+        <a
+            class="button button-secondary"
+            href="{% url 'purchase-order-pdf' purchase_order.pk %}?download=1"
+        >
+            Download PDF
+        </a>
+        <a
+            class="button button-secondary"
+            href="{% url 'distributor-purchase-order-list' %}"
+        >
+            Back
+        </a>
+    </div>
+</div>
+
+{% if purchase_order.owner_comment %}
+    <section class="panel">
+        <p><strong>Owner comment:</strong> {{ purchase_order.owner_comment }}</p>
+    </section>
+{% endif %}
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Requested</th>
+                    <th>Unit Price</th>
+                    <th>Shipped</th>
+                    <th>Received</th>
+                    <th>Confirm receipt</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for item in purchase_order.items.all %}
+                    <tr>
+                        <td>{{ item.product.name }} ({{ item.product.sku }})</td>
+                        <td>{{ item.quantity_requested }}</td>
+                        <td>{{ item.unit_price|money }}</td>
+                        <td>{{ item.quantity_shipped }}</td>
+                        <td>{{ item.quantity_received }}</td>
+                        <td>
+                            {% if item.quantity_to_receive_remaining > 0 %}
+                                <form
+                                    method="post"
+                                    action="{% url 'purchase-order-item-receive' purchase_order.pk item.pk %}"
+                                    class="inline-form"
+                                >
+                                    {% csrf_token %}
+
+                                    <input
+                                        type="number"
+                                        name="quantity"
+                                        step="0.0001"
+                                        min="0.0001"
+                                        max="{{ item.quantity_to_receive_remaining }}"
+                                        placeholder="Qty"
+                                        required
+                                    >
+
+                                    <button class="button button-primary button-small" type="submit">
+                                        Received
+                                    </button>
+                                </form>
+                            {% else %}
+                                &mdash;
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Totals</h2>
+        </div>
+    </div>
+
+    <dl class="details-list">
+        <div><dt>Subtotal</dt><dd>{{ purchase_order.subtotal|money }}</dd></div>
+        <div><dt>Tax ({{ purchase_order.tax_percentage }}%)</dt><dd>{{ purchase_order.tax_amount|money }}</dd></div>
+        <div><dt>Shipping</dt><dd>{{ purchase_order.shipping_amount|money }}</dd></div>
+        <div><dt>Grand Total</dt><dd>{{ purchase_order.grand_total|money }}</dd></div>
+        <div><dt>Confirmed Paid</dt><dd>{{ purchase_order.total_paid|money }}</dd></div>
+    </dl>
+
+    {% if purchase_order.distributor_profile.upfront_payment_percentage > 0 and not purchase_order.upfront_amount_satisfied %}
+        <p class="field-error">
+            Your terms require {{ purchase_order.distributor_profile.upfront_payment_percentage }}%
+            ({{ purchase_order.required_upfront_amount|money }}) confirmed paid before the Owner will ship.
+        </p>
+    {% endif %}
+
+    {% if purchase_order.payments.all %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Amount</th>
+                        <th>Note</th>
+                        <th>Proof</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for payment in purchase_order.payments.all %}
+                        <tr>
+                            <td>{{ payment.paid_at }}</td>
+                            <td>{{ payment.amount|money }}</td>
+                            <td>{{ payment.note|default:"—" }}</td>
+                            <td><a href="{{ payment.proof.url }}" target="_blank">View</a></td>
+                            <td>
+                                {% if payment.status == "PENDING" %}
+                                    <span class="badge badge-pending">Pending confirmation</span>
+                                {% elif payment.status == "CONFIRMED" %}
+                                    <span class="badge badge-open">Confirmed</span>
+                                {% else %}
+                                    <span class="badge badge-closed" title="{{ payment.rejection_reason }}">Rejected</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+</section>
+
+{% if not purchase_order.is_fully_paid %}
+    <section class="panel form-panel">
+        <h2>Record a Payment</h2>
+        <p>Enter what you paid and upload proof (bank slip, screenshot, etc.).</p>
+
+        <form
+            method="post"
+            action="{% url 'purchase-order-record-payment' purchase_order.pk %}"
+            class="form-layout"
+            enctype="multipart/form-data"
+        >
+            {% csrf_token %}
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Amount</label>
+                    {{ payment_form.amount }}
+                </div>
+                <div class="form-group">
+                    <label>Date paid</label>
+                    {{ payment_form.paid_at }}
+                </div>
+                <div class="form-group">
+                    <label>Proof</label>
+                    {{ payment_form.proof }}
+                </div>
+                <div class="form-group">
+                    <label>Note</label>
+                    {{ payment_form.note }}
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button class="button button-primary" type="submit">
+                    Record Payment
+                </button>
+            </div>
+        </form>
+    </section>
+{% endif %}
+{% endblock %}

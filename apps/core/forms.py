@@ -9,18 +9,15 @@ class BrandForm(forms.ModelForm):
         fields = [
             "name",
             "legal_name",
-            "enlistment_number",
-            "ntn",
-            "strn",
             "base_currency",
             "timezone",
             "fiscal_year_start_month",
             "default_country",
-            "default_low_stock_threshold",
             "logo",
             "address",
             "phone",
             "email",
+            "active",
         ]
 
 

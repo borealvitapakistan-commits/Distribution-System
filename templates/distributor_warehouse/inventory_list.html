@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Inventory
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Inventory</p>
+        <h1>Inventory</h1>
+        <p>Your regions, and stock that's arrived but isn't placed anywhere yet.</p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'distributor-stock-balance-list' %}">
+            Stock Balances
+        </a>
+        <a class="button button-secondary" href="{% url 'distributor-warehouse-list' %}">
+            All Warehouses
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="hub-grid">
+        {% for inventory in inventories %}
+            <a class="hub-card" href="{% url 'distributor-region-detail' inventory.pk %}">
+                <span class="hub-card-icon">◈</span>
+                <span class="hub-card-title">{{ inventory.name }}</span>
+                <span class="hub-card-desc">{{ inventory.code }} — {{ inventory.warehouses.count }} warehouse{{ inventory.warehouses.count|pluralize }}</span>
+            </a>
+        {% endfor %}
+
+        <a class="hub-card" href="{% url 'distributor-region-create' %}">
+            <span class="hub-card-icon">+</span>
+            <span class="hub-card-title">Add Inventory</span>
+            <span class="hub-card-desc">A new region, e.g. Lahore or Islamabad.</span>
+        </a>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Not allocated to any region</h2>
+            <p>Stock received from the Owner sits here until you send it somewhere.</p>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Batch Number</th>
+                    <th>Product</th>
+                    <th>Received</th>
+                    <th>Expiry</th>
+                    <th>Quantity</th>
+                    <th>Allocate to a region</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for batch, allocate_form in unallocated_rows %}
+                    <tr>
+                        <td>{{ batch.batch_number|default:"—" }}</td>
+                        <td>{{ batch.product.name }} ({{ batch.product.sku }})</td>
+                        <td>{{ batch.received_date }}</td>
+                        <td>{{ batch.expiry_date|default:"—" }}</td>
+                        <td>{{ batch.quantity_remaining }}</td>
+                        <td>
+                            {% if allocate_form.fields %}
+                                <form
+                                    method="post"
+                                    action="{% url 'distributor-warehouse-allocate' batch.pk %}"
+                                    class="form-layout"
+                                >
+                                    {% csrf_token %}
+                                    <input type="hidden" name="return_to" value="distributor-region-list">
+
+                                    <div class="table-wrapper">
+                                        <table>
+                                            <tbody>
+                                                {% for field in allocate_form %}
+                                                    <tr>
+                                                        <td>{{ field.label }}</td>
+                                                        <td>{{ field }}</td>
+                                                    </tr>
+                                                {% endfor %}
+                                            </tbody>
+                                        </table>
+                                    </div>
+
+                                    <button class="button button-primary button-small" type="submit">
+                                        Allocate
+                                    </button>
+                                </form>
+                            {% else %}
+                                <span class="stat-detail">Add an Inventory first.</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="empty-table">
+                            Nothing unallocated right now.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

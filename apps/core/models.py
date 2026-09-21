@@ -2,7 +2,6 @@ import uuid
 from django.db import models
 from django.conf import settings
 from django.core.validators import MaxValueValidator, MinValueValidator
-from decimal import Decimal
 from apps.core.querysets import OwnerManagedQuerySet
 
 
@@ -49,20 +48,13 @@ class AuditedModel(UUIDModel, TimeStampedModel):
 
 
 class Brand(UUIDModel, TimeStampedModel):
-    """Standalone brand/business info. Not linked to any other model —
-    this system runs for a single brand, so there's no scoping to do."""
+    """Effective singleton: standalone brand/business info for the one
+    brand this system runs for. Other models may still reference it
+    (e.g. Product, ManufacturerOrder) to record which brand a record
+    belongs to."""
 
     name = models.CharField(max_length=200)
     legal_name = models.CharField(max_length=200, blank=True)
-    enlistment_number = models.CharField(
-        max_length=100,
-        blank=True,
-    )
-    ntn = models.CharField(max_length=50, blank=True)
-    strn = models.CharField(
-        max_length=50,
-        blank=True,
-    )
     base_currency = models.CharField(max_length=3, default="PKR")
     timezone = models.CharField(max_length=50, default="Asia/Karachi")
     fiscal_year_start_month = models.PositiveSmallIntegerField(
@@ -72,12 +64,6 @@ class Brand(UUIDModel, TimeStampedModel):
     default_country = models.CharField(
         max_length=2,
         default="PK",
-    )
-    default_low_stock_threshold = models.DecimalField(
-        max_digits=18,
-        decimal_places=4,
-        default=Decimal("0.0000"),
-        validators=[MinValueValidator(Decimal("0"))]
     )
 
     logo = models.ImageField(

@@ -3,9 +3,12 @@ from django.contrib.auth.decorators import (
     login_required,
 )
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import redirect
-from django.urls import reverse_lazy
+from django.shortcuts import redirect, render
+from django.urls import reverse
+from django.views import View
 from django.views.generic import (
+    DetailView,
+    ListView,
     TemplateView,
     UpdateView,
 )
@@ -78,25 +81,63 @@ class DistributorDashboardView(DistributorRequiredMixin, TemplateView,):
     template_name = "dashboards/distributor.html"
 
 
-class BrandProfileView(OwnerRequiredMixin, UpdateView):
-    """Brand is an effective singleton: get the one row, or create it
-    on first visit, rather than requiring a separate "create" step."""
+class BrandListView(OwnerRequiredMixin, ListView):
+    template_name = "core/brand_list.html"
+    context_object_name = "brands"
 
+    def get_queryset(self):
+        return Brand.objects.for_user(self.request.user)
+
+
+class BrandCreateView(OwnerRequiredMixin, View):
+    template_name = "core/brand_form.html"
+
+    def get(self, request):
+        return render(request, self.template_name, {"form": BrandForm()})
+
+    def post(self, request):
+        form = BrandForm(request.POST, request.FILES)
+
+        if not form.is_valid():
+            return render(request, self.template_name, {"form": form})
+
+        brand = form.save()
+
+        record_audit_event(
+            user=request.user,
+            action="brand.created",
+            instance=brand,
+            after_data={
+                field: str(getattr(brand, field, ""))
+                for field in form.changed_data
+            },
+            request=request,
+        )
+
+        messages.success(request, "Brand created successfully.")
+        return redirect("brand-detail", pk=brand.pk)
+
+
+class BrandDetailView(OwnerRequiredMixin, DetailView):
+    model = Brand
+    template_name = "core/brand_detail.html"
+    context_object_name = "brand_obj"
+
+    def get_queryset(self):
+        return Brand.objects.for_user(self.request.user)
+
+
+class BrandUpdateView(OwnerRequiredMixin, UpdateView):
     model = Brand
     form_class = BrandForm
-    template_name = "core/brand_profile.html"
+    template_name = "core/brand_form.html"
+    context_object_name = "brand_obj"
 
-    success_url = reverse_lazy(
-        "brand-profile"
-    )
+    def get_queryset(self):
+        return Brand.objects.for_user(self.request.user)
 
-    def get_object(self, queryset=None):
-        brand = Brand.objects.for_user(self.request.user).first()
-
-        if brand is None:
-            brand = Brand.objects.create(name="My Brand")
-
-        return brand
+    def get_success_url(self):
+        return reverse("brand-detail", kwargs={"pk": self.object.pk})
 
     def form_valid(self, form):
         changed_fields = list(form.changed_data)
@@ -135,6 +176,6 @@ class BrandProfileView(OwnerRequiredMixin, UpdateView):
                 request=self.request,
             )
 
-        messages.success(self.request, "Brand profile updated successfully.")
+        messages.success(self.request, "Brand updated successfully.")
 
         return response

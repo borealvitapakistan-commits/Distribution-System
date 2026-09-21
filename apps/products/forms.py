@@ -2,7 +2,6 @@ from django import forms
 from django.forms import inlineformset_factory
 
 from apps.core.models import Brand
-from apps.manufacturers.models import Manufacturer
 
 from .models import (
     Ingredient,
@@ -47,8 +46,6 @@ class ProductForm(forms.ModelForm):
     class Meta:
         model = Product
         fields = [
-            "category",
-            "manufacturer",
             "brand",
             "sku",
             "barcode",
@@ -90,14 +87,6 @@ class ProductForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields["category"].queryset = (
-            ProductCategory.objects
-            .filter(active=True)
-        )
-        self.fields["manufacturer"].queryset = (
-            Manufacturer.objects
-            .filter(active=True)
-        )
         self.fields["brand"].queryset = (
             Brand.objects
             .filter(active=True)

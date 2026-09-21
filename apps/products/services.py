@@ -330,8 +330,8 @@ def update_product(
 
 def export_products_csv(queryset):
     """Build a Shopify-import-compatible product CSV in memory."""
-    from apps.inventory.models import StockBalance
-    from apps.warehouse.models import Location
+    from apps.owner_inventory.models import StockBalance
+    from apps.owner_warehouse.models import Location
 
     shopify_balances = dict(
         StockBalance.objects

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Warehouses
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Warehouse</p>
+        <h1>Warehouses</h1>
+        <p>Your own physical warehouses, one per region.</p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'distributor-region-list' %}">
+            Back to Inventory
+        </a>
+        <a class="button button-primary" href="{% url 'distributor-warehouse-create' %}">
+            New Warehouse
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Region</th>
+                    <th>Capacity</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for location in locations %}
+                    <tr>
+                        <td><strong>{{ location.code }}</strong></td>
+                        <td>{{ location.name }}</td>
+                        <td>{{ location.distributor_inventory.name|default:"—" }}</td>
+                        <td>{{ location.capacity_units }}</td>
+                        <td>
+                            {% if location.active %}
+                                <span class="badge badge-open">Active</span>
+                            {% else %}
+                                <span class="badge badge-pending">Inactive</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a
+                                class="button button-secondary button-small"
+                                href="{% url 'distributor-warehouse-detail' location.pk %}"
+                            >
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="empty-table">
+                            No warehouses found.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

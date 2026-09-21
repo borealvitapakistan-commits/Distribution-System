@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load money_filters %}
 
 {% block title %}Distributors{% endblock %}
 
@@ -23,6 +24,7 @@
                     <th>Distributor</th>
                     <th>Login</th>
                     <th>Commission %</th>
+                    <th>Payment Terms</th>
                     <th>Status</th>
                     <th>Last Login</th>
                     <th>Actions</th>
@@ -55,6 +57,18 @@
 
                         <td>
                             {{ account.distributor_profile.commission_percentage|default:"0.00" }}%
+                        </td>
+
+                        <td>
+                            {% with pct=account.distributor_profile.upfront_payment_percentage %}
+                                {% if pct == 0 %}
+                                    Pay after receiving
+                                {% elif pct == 100 %}
+                                    Pay 100% before shipping
+                                {% else %}
+                                    {{ pct }}% before, {{ pct|subtract_from_100 }}% after
+                                {% endif %}
+                            {% endwith %}
                         </td>
 
                         <td>
@@ -141,7 +155,7 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="6" class="empty-table">
+                        <td colspan="7" class="empty-table">
                             No distributors found.
                         </td>
                     </tr>

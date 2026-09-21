@@ -1,0 +1,214 @@
+{% extends "base.html" %}
+
+{% block title %}
+    New Manufacturer Order
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Manufacturers</p>
+        <h1>New Purchase Order</h1>
+        <p>What you're ordering from a Manufacturer, and the agreed cost.</p>
+    </div>
+
+    <a class="button button-secondary" href="{% url 'manufacturer-order-list' %}">
+        Back
+    </a>
+</div>
+
+<section class="panel form-panel">
+    <form method="post" class="form-layout" id="moForm">
+        {% csrf_token %}
+
+        {% if service_error %}
+            <div class="form-errors">
+                {{ service_error }}
+            </div>
+        {% endif %}
+
+        <div class="form-grid">
+            <div class="form-group">
+                <label>Manufacturer</label>
+                {{ form.manufacturer }}
+            </div>
+
+            <div class="form-group">
+                <label>Brand</label>
+                {{ form.brand }}
+            </div>
+        </div>
+
+        <hr>
+
+        {{ formset.management_form }}
+
+        {% if formset.non_form_errors %}
+            <div class="form-errors">
+                {{ formset.non_form_errors }}
+            </div>
+        {% endif %}
+
+        <div id="moRows">
+            {% for item_form in formset %}
+                <div class="form-grid nested-form">
+                    <div class="form-group">
+                        <label>Product</label>
+                        {{ item_form.product }}
+                    </div>
+
+                    <div class="form-group">
+                        <label>Quantity</label>
+                        {{ item_form.quantity }}
+                    </div>
+
+                    <div class="form-group">
+                        <label>Unit Price</label>
+                        {{ item_form.unit_price }}
+                    </div>
+
+                    <div class="form-group">
+                        <label>Line total</label>
+                        <span class="po-line-total">0.00</span>
+                    </div>
+
+                    {% if item_form.DELETE %}
+                        <div class="form-group">
+                            <label>Remove</label>
+                            {{ item_form.DELETE }}
+                        </div>
+                    {% endif %}
+
+                    {% for hidden in item_form.hidden_fields %}
+                        {{ hidden }}
+                    {% endfor %}
+                </div>
+
+                {% for error in item_form.non_field_errors %}
+                    <span class="field-error">
+                        {{ error }}
+                    </span>
+                {% endfor %}
+            {% endfor %}
+        </div>
+
+        <div>
+            <button type="button" class="button button-secondary" id="moAddRow">
+                + Add Product
+            </button>
+        </div>
+
+        <div class="form-actions" style="justify-content: space-between;">
+            <strong>
+                Estimated total: <span id="moEstimatedTotal">0.00</span>
+            </strong>
+
+            <button class="button button-primary" type="submit">
+                Create Order
+            </button>
+        </div>
+    </form>
+</section>
+
+<template id="moEmptyRow">
+    <div class="form-grid nested-form">
+        <div class="form-group">
+            <label>Product</label>
+            {{ formset.empty_form.product }}
+        </div>
+
+        <div class="form-group">
+            <label>Quantity</label>
+            {{ formset.empty_form.quantity }}
+        </div>
+
+        <div class="form-group">
+            <label>Unit Price</label>
+            {{ formset.empty_form.unit_price }}
+        </div>
+
+        <div class="form-group">
+            <label>Line total</label>
+            <span class="po-line-total">0.00</span>
+        </div>
+
+        {% if formset.empty_form.DELETE %}
+            <div class="form-group">
+                <label>Remove</label>
+                {{ formset.empty_form.DELETE }}
+            </div>
+        {% endif %}
+    </div>
+</template>
+
+<script>
+(function () {
+    var form = document.getElementById("moForm");
+    if (!form) { return; }
+
+    var rowsContainer = document.getElementById("moRows");
+    var addRowButton = document.getElementById("moAddRow");
+    var emptyRowTemplate = document.getElementById("moEmptyRow");
+    var totalFormsInput = form.querySelector("input[name$='-TOTAL_FORMS']");
+
+    function formatMoney(amount) {
+        var formatted = amount.toLocaleString("en-US", {
+            minimumFractionDigits: 2, maximumFractionDigits: 2,
+        });
+
+        var abs = Math.abs(amount);
+        var suffix = "";
+
+        if (abs >= 10000000) {
+            suffix = (amount / 10000000).toFixed(2) + " CR";
+        } else if (abs >= 100000) {
+            suffix = (amount / 100000).toFixed(1) + " Lakh";
+        } else if (abs >= 1000) {
+            suffix = (amount / 1000).toFixed(1) + "k";
+        }
+
+        return suffix ? formatted + " (" + suffix + ")" : formatted;
+    }
+
+    function computeTotals() {
+        var grandTotal = 0;
+
+        rowsContainer.querySelectorAll(".nested-form").forEach(function (row) {
+            var qtyInput = row.querySelector("input[name$='-quantity']");
+            var priceInput = row.querySelector("input[name$='-unit_price']");
+            var totalEl = row.querySelector(".po-line-total");
+
+            if (!qtyInput || !priceInput || !totalEl) { return; }
+
+            var qty = parseFloat(qtyInput.value || "0");
+            var price = parseFloat(priceInput.value || "0");
+            var lineTotal = (isNaN(price) || isNaN(qty)) ? 0 : price * qty;
+
+            totalEl.textContent = formatMoney(lineTotal);
+            grandTotal += lineTotal;
+        });
+
+        var totalEl = document.getElementById("moEstimatedTotal");
+        if (totalEl) { totalEl.textContent = formatMoney(grandTotal); }
+    }
+
+    if (addRowButton && emptyRowTemplate && totalFormsInput) {
+        addRowButton.addEventListener("click", function () {
+            var index = parseInt(totalFormsInput.value, 10);
+            var html = emptyRowTemplate.innerHTML.replace(/__prefix__/g, index);
+
+            var wrapper = document.createElement("div");
+            wrapper.innerHTML = html.trim();
+            rowsContainer.appendChild(wrapper.firstElementChild);
+
+            totalFormsInput.value = index + 1;
+            computeTotals();
+        });
+    }
+
+    form.addEventListener("input", computeTotals);
+    form.addEventListener("change", computeTotals);
+    computeTotals();
+})();
+</script>
+{% endblock %}

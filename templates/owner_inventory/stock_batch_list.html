@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Batches
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Warehouse</p>
+        <h1>Batches</h1>
+        <p>
+            Every lot of stock still on hand, oldest / soonest-to-expire
+            first (FEFO). This is what "Give to Distributor" and shipping
+            a Purchase Order draw from.
+        </p>
+    </div>
+
+    <a
+        class="button button-secondary"
+        href="{% url 'stock-balance-list' %}"
+    >
+        Back to Inventory
+    </a>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Batch</th>
+                    <th>Product</th>
+                    <th>Warehouse</th>
+                    <th>Received</th>
+                    <th>Expiry</th>
+                    <th>Received Qty</th>
+                    <th>Remaining Qty</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for batch in batches %}
+                    <tr>
+                        <td>{{ batch.batch_number|default:"—" }}</td>
+                        <td>{{ batch.product.name }} ({{ batch.product.sku }})</td>
+                        <td>{{ batch.location.name }}</td>
+                        <td>{{ batch.received_date }}</td>
+                        <td>
+                            {% if batch.expiry_date %}
+                                {{ batch.expiry_date }}
+                            {% else %}
+                                <span class="badge badge-pending">No expiry set</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ batch.quantity_received }}</td>
+                        <td>{{ batch.quantity_remaining }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="empty-table">
+                            No stock on hand yet.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

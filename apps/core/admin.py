@@ -7,4 +7,4 @@ from .models import Brand
 class BrandAdmin(admin.ModelAdmin):
     list_display = ("name", "legal_name", "base_currency", "timezone", "active")
     list_filter = ("active", "base_currency")
-    search_fields = ("name", "legal_name", "ntn", "strn", "enlistment_number")
+    search_fields = ("name", "legal_name")

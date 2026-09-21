@@ -84,6 +84,19 @@ class DistributorInvitationForm(forms.Form):
         initial=Decimal("0"),
     )
 
+    upfront_payment_percentage = forms.DecimalField(
+        label="Payment terms: % due before shipping",
+        help_text=(
+            "0 = pay only after receiving, 100 = pay in full before "
+            "shipping, anything in between is a split."
+        ),
+        max_digits=5,
+        decimal_places=2,
+        min_value=Decimal("0"),
+        max_value=Decimal("100"),
+        initial=Decimal("0"),
+    )
+
     temporary_password = forms.CharField(
         widget=forms.PasswordInput(
             attrs={

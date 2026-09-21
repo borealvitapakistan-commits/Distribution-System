@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    @page { size: A4; margin: 2cm; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 11pt; color: #0f172a; }
+    h1 { font-size: 20pt; color: #2563eb; margin: 0 0 4px 0; }
+    .doc-type { font-size: 13pt; color: #475569; margin: 0 0 20px 0; }
+    table.meta { width: 100%; margin-bottom: 20px; }
+    table.meta td { vertical-align: top; padding: 0; }
+    .label { color: #64748b; font-size: 9pt; text-transform: uppercase; }
+    table.items { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+    table.items th { background: #f1f5f9; text-align: left; padding: 6px 8px; font-size: 9pt; text-transform: uppercase; color: #475569; }
+    table.items td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
+    table.totals { width: 40%; margin-left: 60%; }
+    table.totals td { padding: 4px 0; }
+    table.totals td.value { text-align: right; }
+    .grand-total { font-size: 13pt; font-weight: bold; border-top: 1px solid #0f172a; }
+    table.payments { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    table.payments th { background: #f1f5f9; text-align: left; padding: 6px 8px; font-size: 9pt; text-transform: uppercase; color: #475569; }
+    table.payments td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
+</style>
+</head>
+<body>
+    <h1>{{ brand.name|default:"—" }}</h1>
+    <p class="doc-type">
+        {% if purchase_order.invoiced_at %}Invoice{% else %}Purchase Order{% endif %}
+        — {{ purchase_order.po_number }}
+    </p>
+
+    <table class="meta">
+        <tr>
+            <td width="50%">
+                <div class="label">Distributor</div>
+                {{ purchase_order.distributor_profile.name }}
+            </td>
+            <td width="50%">
+                <div class="label">Date</div>
+                {{ purchase_order.created_at|date:"Y-m-d" }}
+                <div class="label" style="margin-top:8px;">Status</div>
+                {{ purchase_order.get_status_display }}
+            </td>
+        </tr>
+    </table>
+
+    <table class="items">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Unit Price</th>
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in purchase_order.items.all %}
+                <tr>
+                    <td>{{ item.product.name }} ({{ item.product.sku }})</td>
+                    <td>{{ item.quantity_requested }}</td>
+                    <td>{{ item.unit_price }}</td>
+                    <td>{{ item.line_total }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <table class="totals">
+        <tr>
+            <td>Subtotal</td>
+            <td class="value">{{ purchase_order.subtotal }}</td>
+        </tr>
+        <tr>
+            <td>Tax ({{ purchase_order.tax_percentage }}%)</td>
+            <td class="value">{{ purchase_order.tax_amount }}</td>
+        </tr>
+        <tr>
+            <td>Shipping</td>
+            <td class="value">{{ purchase_order.shipping_amount }}</td>
+        </tr>
+        <tr class="grand-total">
+            <td>Grand Total</td>
+            <td class="value">{{ purchase_order.grand_total }}</td>
+        </tr>
+        <tr>
+            <td>Paid</td>
+            <td class="value">{{ purchase_order.total_paid }}</td>
+        </tr>
+    </table>
+
+    {% if purchase_order.payments.all %}
+        <table class="payments">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Amount</th>
+                    <th>Note</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for payment in purchase_order.payments.all %}
+                    <tr>
+                        <td>{{ payment.paid_at }}</td>
+                        <td>{{ payment.amount }}</td>
+                        <td>{{ payment.note|default:"—" }}</td>
+                        <td>{{ payment.get_status_display }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+
+    {% if purchase_order.owner_comment %}
+        <p><strong>Note:</strong> {{ purchase_order.owner_comment }}</p>
+    {% endif %}
+</body>
+</html>

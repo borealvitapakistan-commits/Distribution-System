@@ -11,9 +11,14 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import IsDistributor, IsOwner
 
-from .models import StockRequest
-from .serializers import StockRequestSerializer
-from .services import create_stock_request, decline_request, fulfill_request_item
+from .models import PurchaseOrder
+from .serializers import PurchaseOrderSerializer
+from .services import (
+    create_purchase_order,
+    decline_purchase_order,
+    receive_purchase_order_item,
+    ship_purchase_order_item,
+)
 
 
 
@@ -36,18 +41,18 @@ def raise_api_error(exc):
 
 
 
-class DistributorStockRequestListCreateAPIView(APIView):
+class DistributorPurchaseOrderListCreateAPIView(APIView):
     permission_classes = [IsDistributor]
 
     def get(self, request):
-        requests = (
-            StockRequest.objects
+        purchase_orders = (
+            PurchaseOrder.objects
             .for_user(request.user)
-            .prefetch_related("items__product")
+            .prefetch_related("items__product", "payments")
         )
 
         return Response(
-            StockRequestSerializer(requests, many=True).data
+            PurchaseOrderSerializer(purchase_orders, many=True).data
         )
 
     def post(self, request):
@@ -61,11 +66,12 @@ class DistributorStockRequestListCreateAPIView(APIView):
                 {
                     "product": product,
                     "quantity_requested": row.get("quantity_requested"),
+                    "requested_price": row.get("requested_price"),
                 }
             )
 
         try:
-            stock_request = create_stock_request(
+            purchase_order = create_purchase_order(
                 actor=request.user,
                 items=items,
             )
@@ -77,59 +83,81 @@ class DistributorStockRequestListCreateAPIView(APIView):
             raise_api_error(exc)
 
         return Response(
-            StockRequestSerializer(stock_request).data,
+            PurchaseOrderSerializer(purchase_order).data,
             status=status.HTTP_201_CREATED,
         )
 
 
-class OwnerStockRequestListAPIView(APIView):
+class DistributorPurchaseOrderItemReceiveAPIView(APIView):
+    permission_classes = [IsDistributor]
+
+    def post(self, request, item_id):
+        try:
+            item = receive_purchase_order_item(
+                actor=request.user,
+                item_id=item_id,
+                quantity=request.data.get("quantity"),
+            )
+        except (
+            DjangoPermissionDenied,
+            DjangoValidationError,
+            IntegrityError,
+        ) as exc:
+            raise_api_error(exc)
+
+        return Response(
+            PurchaseOrderSerializer(item.purchase_order).data
+        )
+
+
+class OwnerPurchaseOrderListAPIView(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
-        requests = (
-            StockRequest.objects
+        purchase_orders = (
+            PurchaseOrder.objects
             .for_user(request.user)
             .select_related("distributor_profile")
-            .prefetch_related("items__product")
+            .prefetch_related("items__product", "payments")
         )
 
         return Response(
-            StockRequestSerializer(requests, many=True).data
+            PurchaseOrderSerializer(purchase_orders, many=True).data
         )
 
 
-class OwnerStockRequestDetailAPIView(APIView):
+class OwnerPurchaseOrderDetailAPIView(APIView):
     permission_classes = [IsOwner]
 
-    def get_object(self, request, request_id):
-        stock_request = (
-            StockRequest.objects
+    def get_object(self, request, purchase_order_id):
+        purchase_order = (
+            PurchaseOrder.objects
             .for_user(request.user)
-            .filter(pk=request_id)
+            .filter(pk=purchase_order_id)
             .first()
         )
 
-        if stock_request is None:
-            raise NotFound("Request was not found in your permitted scope.")
+        if purchase_order is None:
+            raise NotFound("Purchase order was not found in your permitted scope.")
 
-        return stock_request
+        return purchase_order
 
-    def get(self, request, request_id):
+    def get(self, request, purchase_order_id):
         return Response(
-            StockRequestSerializer(
-                self.get_object(request, request_id)
+            PurchaseOrderSerializer(
+                self.get_object(request, purchase_order_id)
             ).data
         )
 
 
-class OwnerStockRequestDeclineAPIView(APIView):
+class OwnerPurchaseOrderDeclineAPIView(APIView):
     permission_classes = [IsOwner]
 
-    def post(self, request, request_id):
+    def post(self, request, purchase_order_id):
         try:
-            stock_request = decline_request(
+            purchase_order = decline_purchase_order(
                 actor=request.user,
-                request_id=request_id,
+                purchase_order_id=purchase_order_id,
                 comment=request.data.get("comment", ""),
             )
         except (
@@ -139,25 +167,27 @@ class OwnerStockRequestDeclineAPIView(APIView):
         ) as exc:
             raise_api_error(exc)
 
-        return Response(StockRequestSerializer(stock_request).data)
+        return Response(PurchaseOrderSerializer(purchase_order).data)
 
 
-class OwnerStockRequestItemFulfillAPIView(APIView):
+class OwnerPurchaseOrderItemShipAPIView(APIView):
     permission_classes = [IsOwner]
 
     def post(self, request, item_id):
-        from apps.warehouse.models import Location
+        from apps.owner_inventory.models import StockBatch
 
-        from_location = Location.objects.filter(
-            pk=request.data.get("from_location")
-        ).first()
+        allocations = []
+
+        for row in request.data.get("allocations", []):
+            batch = StockBatch.objects.filter(pk=row.get("batch")).first()
+            if batch is not None:
+                allocations.append((batch, row.get("quantity")))
 
         try:
-            item = fulfill_request_item(
+            item = ship_purchase_order_item(
                 actor=request.user,
                 item_id=item_id,
-                quantity=request.data.get("quantity"),
-                from_location=from_location,
+                allocations=allocations,
             )
         except (
             DjangoPermissionDenied,
@@ -167,5 +197,5 @@ class OwnerStockRequestItemFulfillAPIView(APIView):
             raise_api_error(exc)
 
         return Response(
-            StockRequestSerializer(item.request).data
+            PurchaseOrderSerializer(item.purchase_order).data
         )

@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Locations
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Warehouse</p>
+        <h1>Locations</h1>
+        <p>
+            Your own warehouses and the Shopify location. Distributor and
+            in-transit locations are created automatically by the system.
+        </p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'inventory-list' %}">
+            Back to Inventory
+        </a>
+        <a class="button button-primary" href="{% url 'location-create' %}">
+            New Location
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Region</th>
+                    <th>Linked to</th>
+                    <th>Flags</th>
+                    <th>Capacity</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for location in locations %}
+                    <tr>
+                        <td>
+                            <strong>{{ location.code }}</strong>
+                        </td>
+
+                        <td>{{ location.name }}</td>
+                        <td>{{ location.get_location_type_display }}</td>
+                        <td>{{ location.inventory.name|default:"—" }}</td>
+                        <td>
+                            {% firstof location.manufacturer.name location.customer.name "—" %}
+                        </td>
+
+                        <td>
+                            {% if location.on_book %}Book{% endif %}
+                            {% if location.is_physical %} · Physical{% endif %}
+                            {% if location.is_sellable %} · Sellable{% endif %}
+                        </td>
+
+                        <td>{{ location.capacity_units }}</td>
+
+                        <td>
+                            <a
+                                class="button button-secondary button-small"
+                                href="{% url 'location-detail' location.pk %}"
+                            >
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="8" class="empty-table">
+                            No locations found.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

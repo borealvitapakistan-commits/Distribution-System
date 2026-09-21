@@ -28,6 +28,7 @@ def create_distributor(
     territory="",
     address="",
     commission_percentage=Decimal("0"),
+    upfront_payment_percentage=Decimal("0"),
 ):
     """Create the Distributor's login and business profile together.
 
@@ -59,6 +60,7 @@ def create_distributor(
         territory=territory,
         address=address,
         commission_percentage=commission_percentage,
+        upfront_payment_percentage=upfront_payment_percentage,
         approval_status=DistributorProfile.ApprovalStatus.PENDING,
         created_by=actor,
         updated_by=actor,
@@ -74,6 +76,7 @@ def create_distributor(
             "user_id": str(distributor.pk),
             "name": profile.name,
             "commission_percentage": str(profile.commission_percentage),
+            "upfront_payment_percentage": str(profile.upfront_payment_percentage),
             "approval_status": profile.approval_status,
         },
     )

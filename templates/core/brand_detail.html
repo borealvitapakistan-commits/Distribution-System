@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {{ brand_obj.name }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Brand Detail</p>
+        <h1>{{ brand_obj.name }}</h1>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'brand-list' %}">
+            Back
+        </a>
+
+        <a class="button button-primary" href="{% url 'brand-edit' brand_obj.pk %}">
+            Edit
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Brand information</h2>
+        </div>
+    </div>
+
+    <dl class="details-list">
+        <div>
+            <dt>Legal name</dt>
+            <dd>{{ brand_obj.legal_name|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Base currency</dt>
+            <dd>{{ brand_obj.base_currency }}</dd>
+        </div>
+
+        <div>
+            <dt>Timezone</dt>
+            <dd>{{ brand_obj.timezone }}</dd>
+        </div>
+
+        <div>
+            <dt>Fiscal year start month</dt>
+            <dd>{{ brand_obj.fiscal_year_start_month }}</dd>
+        </div>
+
+        <div>
+            <dt>Default country</dt>
+            <dd>{{ brand_obj.default_country }}</dd>
+        </div>
+
+        <div>
+            <dt>Phone</dt>
+            <dd>{{ brand_obj.phone|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Email</dt>
+            <dd>{{ brand_obj.email|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Address</dt>
+            <dd>{{ brand_obj.address|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Status</dt>
+            <dd>
+                {% if brand_obj.active %}
+                    <span class="badge badge-open">Active</span>
+                {% else %}
+                    <span class="badge badge-pending">Inactive</span>
+                {% endif %}
+            </dd>
+        </div>
+    </dl>
+</section>
+{% endblock %}

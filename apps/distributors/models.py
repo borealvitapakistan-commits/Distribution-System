@@ -41,6 +41,23 @@ class DistributorProfile(AuditedModel):
         ],
     )
 
+    upfront_payment_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+        help_text=(
+            "How much of a Purchase Order's total this Distributor must "
+            "pay (and have it confirmed by the Owner) before the Owner "
+            "can ship anything on it. 0 = pay only after receiving, "
+            "100 = pay in full before shipping, anything in between is "
+            "a split (e.g. 30 = 30% before shipping, 70% after receiving)."
+        ),
+    )
+
     approval_status = models.CharField(
         max_length=12,
         choices=ApprovalStatus.choices,

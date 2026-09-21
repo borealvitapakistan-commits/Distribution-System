@@ -8,8 +8,8 @@ from apps.customers.services import create_customer
 from apps.distributors.services import create_distributor
 from apps.manufacturers.services import create_manufacturer
 from apps.products.services import create_product
-from apps.warehouse.models import Location
-from apps.warehouse.services import create_location
+from apps.owner_warehouse.models import Location
+from apps.owner_warehouse.services import create_inventory, create_location
 
 from .models import OwnerProfile
 from .services import create_owner, deactivate_owner, update_owner_profile
@@ -84,11 +84,15 @@ class OwnerPagesTests(TestCase):
             sku="PAGE-001",
             name="Page Product",
         )
+        self.inventory = create_inventory(
+            actor=self.owner, code="PAGE-INV", name="Page Region"
+        )
         self.location = create_location(
             actor=self.owner,
             code="PAGE-LOC",
             name="Page Location",
             location_type=Location.LocationType.OWN,
+            inventory=self.inventory,
         )
         self.distributor = create_distributor(
             actor=self.owner,
@@ -124,8 +128,16 @@ class OwnerPagesTests(TestCase):
             reverse("location-create"),
             reverse("location-detail", kwargs={"pk": self.location.pk}),
             reverse("location-edit", kwargs={"pk": self.location.pk}),
+            reverse("inventory-list"),
+            reverse("inventory-create"),
+            reverse("inventory-detail", kwargs={"pk": self.inventory.pk}),
+            reverse("inventory-edit", kwargs={"pk": self.inventory.pk}),
+            reverse("stock-balance-list"),
             reverse("owner-finance"),
-            reverse("brand-profile"),
+            reverse("brand-list"),
+            reverse("owner-purchase-orders-hub"),
+            reverse("owner-purchase-order-list"),
+            reverse("manufacturer-order-list"),
         ]
 
         for route in routes:
