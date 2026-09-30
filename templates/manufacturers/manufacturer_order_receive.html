@@ -1,0 +1,226 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    Order Received — {{ order.po_number }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Step 3 of 3 · Order received</p>
+        <h1>{{ order.po_number }} — {{ order.manufacturer.name }}</h1>
+        <p>
+            {% if needs_receipt and needs_invoice %}
+                Confirm what arrived and settle whatever is left to pay.
+            {% elif needs_invoice %}
+                The goods are already received — confirm what arrived to add it to Inventory, and settle whatever is left to pay.
+            {% else %}
+                The stock is already in Inventory — confirm the goods have arrived and settle whatever is left to pay.
+            {% endif %}
+        </p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">
+            Back
+        </a>
+    </div>
+</div>
+
+<form method="post" enctype="multipart/form-data" class="form-layout" id="receiveForm">
+    {% csrf_token %}
+
+    <section class="panel">
+        <dl class="details-list">
+            <div>
+                <dt>Order total</dt>
+                <dd data-live-total>{{ order.grand_total|money }}</dd>
+            </div>
+            <div>
+                <dt>Paid in advance</dt>
+                <dd>{{ order.advance_paid|money }} ({{ order.advance_percentage }}%)</dd>
+            </div>
+            <div>
+                <dt>Remaining to pay</dt>
+                <dd data-live-remaining>{{ order.remaining_amount|money }}</dd>
+            </div>
+        </dl>
+    </section>
+
+    {% if needs_invoice %}
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Goods received</h2>
+                    <p>
+                        Adjust each line's quantity and price to what actually arrived,
+                        and add the expiry date. Saving this puts the stock into Inventory.
+                    </p>
+                </div>
+            </div>
+
+            {% if invoice_form.non_field_errors %}
+                <div class="form-errors">{{ invoice_form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="table-wrapper">
+                <table class="input-table">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Batch</th>
+                            <th>Quantity</th>
+                            <th>Unit Price</th>
+                            <th>Expiry Date</th>
+                            <th>Line Total</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item, qty_field, price_field, expiry_field in invoice_form.item_rows %}
+                            <tr data-invoice-line>
+                                <td>
+                                    {{ item.product.name }}
+                                    <small class="table-secondary">{{ item.product.sku }}</small>
+                                </td>
+                                <td>{{ item.batch.code }}</td>
+                                <td>
+                                    {{ qty_field }}
+                                    {% for error in qty_field.errors %}
+                                        <span class="field-error">{{ error }}</span>
+                                    {% endfor %}
+                                </td>
+                                <td>
+                                    {{ price_field }}
+                                    {% for error in price_field.errors %}
+                                        <span class="field-error">{{ error }}</span>
+                                    {% endfor %}
+                                </td>
+                                <td>
+                                    {{ expiry_field }}
+                                    {% for error in expiry_field.errors %}
+                                        <span class="field-error">{{ error }}</span>
+                                    {% endfor %}
+                                </td>
+                                <td data-line-total>{{ item.line_total|money }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    {% elif order.invoice_approved_at %}
+        <section class="panel">
+            <dl class="details-list">
+                <div>
+                    <dt>Invoice</dt>
+                    <dd>
+                        Approved {{ order.invoice_approved_at|date:"M d, Y" }}
+                        {% if order.invoice_number %}({{ order.invoice_number }}){% endif %}
+                    </dd>
+                </div>
+            </dl>
+        </section>
+    {% endif %}
+
+    <section class="panel form-panel">
+        <div data-paid-full {% if order.remaining_amount > 0 %}hidden{% endif %} class="info-box">
+            <strong>Paid in full.</strong>
+            <p>What's been paid already covers the whole order, so there's nothing left to pay.</p>
+        </div>
+
+        <div data-paid-owed {% if order.remaining_amount <= 0 %}hidden{% endif %}>
+            {% with total=order.grand_total none_message="Not paid yet — you can record the remaining payment from the order page later." %}
+                {% include "core/_paid_question.html" %}
+            {% endwith %}
+        </div>
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                {% if needs_receipt and needs_invoice %}
+                    Mark Received
+                {% elif needs_invoice %}
+                    Add Stock to Inventory
+                {% else %}
+                    Mark Received
+                {% endif %}
+            </button>
+        </div>
+    </section>
+</form>
+
+<script>
+(function () {
+    // Re-works the totals as the invoiced quantity/price change, so the
+    // remaining amount (and the payment question) follow the invoice.
+    const lines = document.querySelectorAll("[data-invoice-line]");
+    if (!lines.length) {
+        return;
+    }
+
+    const taxPercentage = parseFloat("{{ order.tax_percentage|stringformat:'s' }}") || 0;
+    const shipping = parseFloat("{{ order.shipping_amount|stringformat:'s' }}") || 0;
+    const alreadyPaid = parseFloat("{{ order.total_paid|stringformat:'s' }}") || 0;
+
+    const box = document.querySelector("[data-paid-question]");
+    const fillRemaining = document.querySelector("[data-fill-amount]");
+    const owed = document.querySelector("[data-paid-owed]");
+    const full = document.querySelector("[data-paid-full]");
+    const totalCell = document.querySelector("[data-live-total]");
+    const remainingCell = document.querySelector("[data-live-remaining]");
+    const amount = document.getElementById("{{ form.amount.id_for_label }}");
+
+    // Keep the payment amount in step with the invoice until the Owner
+    // types their own figure.
+    let amountEdited = Boolean(amount && amount.value && amount.value !== "{{ order.remaining_amount|stringformat:'s' }}");
+    if (amount) {
+        amount.addEventListener("input", function () {
+            amountEdited = true;
+        });
+    }
+
+    const money = (value) => value.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+    const cents = (value) => Math.round(value * 100) / 100;
+
+    function recompute() {
+        let subtotal = 0;
+
+        lines.forEach(function (line) {
+            const inputs = line.querySelectorAll("input[type='number'], input:not([type])");
+            const quantity = parseFloat(inputs[0] && inputs[0].value) || 0;
+            const price = parseFloat(inputs[1] && inputs[1].value) || 0;
+            const lineTotal = cents(quantity * price);
+            line.querySelector("[data-line-total]").textContent = money(lineTotal);
+            subtotal += lineTotal;
+        });
+
+        const total = cents(subtotal + cents(subtotal * taxPercentage / 100) + shipping);
+        const remaining = Math.max(cents(total - alreadyPaid), 0);
+
+        totalCell.textContent = money(total);
+        remainingCell.textContent = money(remaining);
+        owed.hidden = remaining <= 0;
+        full.hidden = remaining > 0;
+
+        if (box) {
+            box.dataset.total = total;
+            if (fillRemaining) {
+                fillRemaining.dataset.fillAmount = remaining.toFixed(2);
+            }
+            if (amount && !amountEdited) {
+                amount.value = remaining.toFixed(2);
+            }
+            box.dispatchEvent(new Event("paid:refresh"));
+        }
+    }
+
+    lines.forEach(function (line) {
+        line.addEventListener("input", recompute);
+    });
+    recompute();
+})();
+</script>
+{% endblock %}

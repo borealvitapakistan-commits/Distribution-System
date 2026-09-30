@@ -51,62 +51,6 @@
                     </a>
 
                     <a
-                        href="{% url 'brand-list' %}"
-                        class="{% if request.resolver_match.url_name == 'brand-list' or request.resolver_match.url_name == 'brand-create' or request.resolver_match.url_name == 'brand-detail' or request.resolver_match.url_name == 'brand-edit' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">▣</span>
-                        Brand
-                    </a>
-
-                    <a
-                        href="{% url 'owner-list' %}"
-                        class="{% if request.resolver_match.url_name == 'owner-list' or request.resolver_match.url_name == 'owner-create' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">♙</span>
-                        Owners
-                    </a>
-
-                    <a
-                        href="{% url 'owner-profile' %}"
-                        class="{% if request.resolver_match.url_name == 'owner-profile' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">◈</span>
-                        My Profile
-                    </a>
-
-                    <a
-                        href="{% url 'distributor-list' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-list' or request.resolver_match.url_name == 'distributor-invite' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">✓</span>
-                        Distributors
-                    </a>
-
-                    <a
-                        href="{% url 'audit-event-list' %}"
-                        class="{% if request.resolver_match.url_name == 'audit-event-list' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">✓</span>
-                        Audit Events
-                    </a>
-
-                    <a
-                        href="{% url 'manufacturer-list' %}"
-                        class="{% if request.resolver_match.url_name == 'manufacturer-list' or request.resolver_match.url_name == 'manufacturer-create' or request.resolver_match.url_name == 'manufacturer-detail' or request.resolver_match.url_name == 'manufacturer-edit' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">◉</span>
-                        Manufacturers
-                    </a>
-
-                    <a
-                        href="{% url 'customer-list' %}"
-                        class="{% if request.resolver_match.url_name == 'customer-list' or request.resolver_match.url_name == 'customer-create' or request.resolver_match.url_name == 'customer-detail' or request.resolver_match.url_name == 'customer-edit' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">◎</span>
-                        Customers
-                    </a>
-
-                    <a
                         href="{% url 'product-list' %}"
                         class="{% if request.resolver_match.url_name == 'product-list' or request.resolver_match.url_name == 'product-create' or request.resolver_match.url_name == 'product-detail' or request.resolver_match.url_name == 'product-edit' or request.resolver_match.url_name == 'category-list' or request.resolver_match.url_name == 'category-create' %}active{% endif %}"
                     >
@@ -116,18 +60,26 @@
 
                     <a
                         href="{% url 'inventory-list' %}"
-                        class="{% if request.resolver_match.url_name == 'inventory-list' or request.resolver_match.url_name == 'inventory-create' or request.resolver_match.url_name == 'inventory-detail' or request.resolver_match.url_name == 'inventory-edit' or request.resolver_match.url_name == 'location-list' or request.resolver_match.url_name == 'location-create' or request.resolver_match.url_name == 'location-detail' or request.resolver_match.url_name == 'location-edit' or request.resolver_match.url_name == 'stock-balance-list' or request.resolver_match.url_name == 'inventory-add' or request.resolver_match.url_name == 'inventory-give' or request.resolver_match.url_name == 'stock-batch-list' %}active{% endif %}"
+                        class="{% if request.resolver_match.url_name == 'inventory-list' or request.resolver_match.url_name == 'inventory-create' or request.resolver_match.url_name == 'inventory-detail' or request.resolver_match.url_name == 'inventory-edit' or request.resolver_match.url_name == 'location-list' or request.resolver_match.url_name == 'location-create' or request.resolver_match.url_name == 'location-detail' or request.resolver_match.url_name == 'location-edit' or request.resolver_match.url_name == 'stock-balance-list' or request.resolver_match.url_name == 'inventory-add' or request.resolver_match.url_name == 'inventory-give' %}active{% endif %}"
                     >
                         <span class="nav-icon">▥</span>
                         Inventory
                     </a>
 
                     <a
-                        href="{% url 'stock-movement-list' %}"
-                        class="{% if request.resolver_match.url_name == 'stock-movement-list' %}active{% endif %}"
+                        href="{% url 'stock-batch-list' %}"
+                        class="{% if request.resolver_match.url_name == 'stock-batch-list' %}active{% endif %}"
                     >
-                        <span class="nav-icon">☰</span>
-                        Records
+                        <span class="nav-icon">▤</span>
+                        Stock / Batches
+                    </a>
+
+                    <a
+                        href="{% url 'batch-trace' %}"
+                        class="{% if request.resolver_match.url_name == 'batch-trace' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">⌕</span>
+                        Batch Trace
                     </a>
 
                     <a
@@ -188,6 +140,14 @@
                         <span class="nav-icon">▥</span>
                         My Stock
                     </a>
+
+                    <a
+                        href="{% url 'distributor-sale-list' %}"
+                        class="{% if request.resolver_match.url_name == 'distributor-sale-list' or request.resolver_match.url_name == 'distributor-sale-create' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">⇢</span>
+                        Sales
+                    </a>
                 {% endif %}
             </nav>
 
@@ -233,16 +193,91 @@
                     </span>
                 </div>
 
-                <form method="post" action="{% url 'logout' %}">
-                    {% csrf_token %}
+                <div class="topbar-actions">
+                    {% if request.user.is_owner %}
+                        <div class="settings-menu" data-settings-menu>
+                            <button
+                                type="button"
+                                class="button button-secondary button-small settings-toggle{% if request.resolver_match.url_name in "brand-list brand-create brand-detail brand-edit owner-list owner-create owner-profile distributor-list distributor-invite audit-event-list manufacturer-list manufacturer-create manufacturer-detail manufacturer-edit stock-movement-list" %} active{% endif %}"
+                                aria-haspopup="true"
+                                aria-expanded="false"
+                                data-settings-toggle
+                            >
+                                <span aria-hidden="true">⚙</span>
+                                Settings
+                            </button>
 
-                    <button
-                        type="submit"
-                        class="button button-secondary button-small"
-                    >
-                        Sign out
-                    </button>
-                </form>
+                            <nav class="settings-dropdown" data-settings-dropdown hidden>
+                                <a
+                                    href="{% url 'brand-list' %}"
+                                    class="{% if request.resolver_match.url_name == 'brand-list' or request.resolver_match.url_name == 'brand-create' or request.resolver_match.url_name == 'brand-detail' or request.resolver_match.url_name == 'brand-edit' %}active{% endif %}"
+                                >
+                                    <span class="nav-icon">▣</span>
+                                    Brand
+                                </a>
+
+                                <a
+                                    href="{% url 'owner-list' %}"
+                                    class="{% if request.resolver_match.url_name == 'owner-list' or request.resolver_match.url_name == 'owner-create' %}active{% endif %}"
+                                >
+                                    <span class="nav-icon">♙</span>
+                                    Owners
+                                </a>
+
+                                <a
+                                    href="{% url 'owner-profile' %}"
+                                    class="{% if request.resolver_match.url_name == 'owner-profile' %}active{% endif %}"
+                                >
+                                    <span class="nav-icon">◈</span>
+                                    My Profile
+                                </a>
+
+                                <a
+                                    href="{% url 'distributor-list' %}"
+                                    class="{% if request.resolver_match.url_name == 'distributor-list' or request.resolver_match.url_name == 'distributor-invite' %}active{% endif %}"
+                                >
+                                    <span class="nav-icon">✓</span>
+                                    Distributors
+                                </a>
+
+                                <a
+                                    href="{% url 'audit-event-list' %}"
+                                    class="{% if request.resolver_match.url_name == 'audit-event-list' %}active{% endif %}"
+                                >
+                                    <span class="nav-icon">✓</span>
+                                    Audit Events
+                                </a>
+
+                                <a
+                                    href="{% url 'manufacturer-list' %}"
+                                    class="{% if request.resolver_match.url_name == 'manufacturer-list' or request.resolver_match.url_name == 'manufacturer-create' or request.resolver_match.url_name == 'manufacturer-detail' or request.resolver_match.url_name == 'manufacturer-edit' %}active{% endif %}"
+                                >
+                                    <span class="nav-icon">◉</span>
+                                    Manufacturers
+                                </a>
+
+                                <a
+                                    href="{% url 'stock-movement-list' %}"
+                                    class="{% if request.resolver_match.url_name == 'stock-movement-list' %}active{% endif %}"
+                                >
+                                    <span class="nav-icon">☰</span>
+                                    Records
+                                </a>
+                            </nav>
+                        </div>
+                    {% endif %}
+
+                    <form method="post" action="{% url 'logout' %}">
+                        {% csrf_token %}
+
+                        <button
+                            type="submit"
+                            class="button button-secondary button-small"
+                        >
+                            Sign out
+                        </button>
+                    </form>
+                </div>
             </header>
         {% endif %}
 

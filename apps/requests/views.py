@@ -1,7 +1,7 @@
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.http import HttpResponse
+from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
 from django.views import View
 from django.views.generic import DetailView, ListView, TemplateView
@@ -14,22 +14,24 @@ from apps.core.utils import render_pdf
 
 from .forms import (
     DeclinePurchaseOrderForm,
+    DistributorAdvancePaymentForm,
     OwnerCommentForm,
     PricingForm,
     PurchaseOrderItemFormSet,
-    ReceivePurchaseOrderItemForm,
+    PurchaseOrderReceiveForm,
     RecordPaymentForm,
     RejectPaymentForm,
     ShipPurchaseOrderItemForm,
 )
-from .models import PurchaseOrder, PurchaseOrderItem
+from .models import PurchaseOrder, PurchaseOrderItem, PurchaseOrderPayment
 from .services import (
     add_owner_comment,
     confirm_payment,
     create_purchase_order,
     decline_purchase_order,
     mark_purchase_order_viewed,
-    receive_purchase_order_item,
+    receive_purchase_order,
+    record_advance_decision,
     record_payment,
     reject_payment,
     ship_purchase_order_item,
@@ -87,7 +89,7 @@ class PurchaseOrderCreateView(DistributorRequiredMixin, View):
             )
 
         try:
-            create_purchase_order(
+            purchase_order = create_purchase_order(
                 actor=request.user,
                 items=purchase_order_item_rows(formset),
             )
@@ -98,8 +100,8 @@ class PurchaseOrderCreateView(DistributorRequiredMixin, View):
                 {"formset": formset, "service_error": exc},
             )
 
-        messages.success(request, "Purchase order submitted successfully.")
-        return redirect("distributor-purchase-order-list")
+        messages.success(request, f"Purchase order {purchase_order.po_number} submitted.")
+        return redirect("distributor-purchase-order-advance", pk=purchase_order.pk)
 
 
 class DistributorOrdersHubView(DistributorRequiredMixin, TemplateView):
@@ -131,7 +133,6 @@ class DistributorPurchaseOrderDetailView(DistributorRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["receive_form"] = ReceivePurchaseOrderItemForm()
         context["payment_form"] = RecordPaymentForm()
         return context
 
@@ -240,26 +241,170 @@ class ShipPurchaseOrderItemView(OwnerRequiredMixin, View):
         return redirect("owner-purchase-order-detail", pk=pk)
 
 
-class ReceivePurchaseOrderItemView(DistributorRequiredMixin, View):
-    def post(self, request, pk, item_id):
-        form = ReceivePurchaseOrderItemForm(request.POST)
+def _get_distributor_order(request, pk):
+    purchase_order = (
+        PurchaseOrder.objects
+        .for_user(request.user)
+        .select_related("distributor_profile")
+        .filter(pk=pk)
+        .first()
+    )
+
+    if purchase_order is None:
+        raise Http404
+
+    return purchase_order
+
+
+class DistributorPurchaseOrderAdvanceView(DistributorRequiredMixin, View):
+    """Step two of placing an order: "Are you paying in advance?"."""
+
+    template_name = "requests/purchase_order_advance.html"
+
+    def _render(self, request, purchase_order, form):
+        fill_amounts = []
+        percentage = purchase_order.distributor_profile.upfront_payment_percentage
+
+        if 0 < percentage < 100:
+            fill_amounts.append(
+                {
+                    "label": f"Required {percentage.normalize():f}% ({purchase_order.required_upfront_amount})",
+                    "value": purchase_order.required_upfront_amount,
+                }
+            )
+
+        fill_amounts.append({"label": "Full amount (100%)", "value": purchase_order.grand_total})
+
+        return render(
+            request,
+            self.template_name,
+            {"purchase_order": purchase_order, "form": form, "fill_amounts": fill_amounts},
+        )
+
+    def _already_answered(self, request, purchase_order):
+        if (
+            purchase_order.status != PurchaseOrder.Status.PENDING
+            or purchase_order.pays_advance is not None
+        ):
+            messages.info(request, "The advance payment for this order is already answered.")
+            return redirect("distributor-purchase-order-detail", pk=purchase_order.pk)
+        return None
+
+    def get(self, request, pk):
+        purchase_order = _get_distributor_order(request, pk)
+        return self._already_answered(request, purchase_order) or self._render(
+            request,
+            purchase_order,
+            DistributorAdvancePaymentForm(
+                initial={"amount": purchase_order.required_upfront_amount or None}
+            ),
+        )
+
+    def post(self, request, pk):
+        purchase_order = _get_distributor_order(request, pk)
+        answered = self._already_answered(request, purchase_order)
+        if answered:
+            return answered
+
+        form = DistributorAdvancePaymentForm(request.POST, request.FILES)
 
         if not form.is_valid():
-            messages.error(request, "Please provide a valid quantity.")
-            return redirect("distributor-purchase-order-detail", pk=pk)
+            return self._render(request, purchase_order, form)
 
         try:
-            receive_purchase_order_item(
+            record_advance_decision(
                 actor=request.user,
-                item_id=item_id,
-                quantity=form.cleaned_data["quantity"],
+                purchase_order_id=purchase_order.pk,
+                pays_advance=form.cleaned_data["answer"],
+                amount=form.cleaned_data["amount"],
+                paid_at=form.cleaned_data["paid_at"],
+                proof=form.cleaned_data["proof"],
+                note=form.cleaned_data["note"],
             )
         except (PermissionDenied, ValidationError) as exc:
-            messages.error(request, str(exc))
-            return redirect("distributor-purchase-order-detail", pk=pk)
+            form.add_error(None, exc)
+            return self._render(request, purchase_order, form)
+
+        messages.success(
+            request,
+            "Advance payment recorded — the Owner will confirm it." if form.cleaned_data["answer"]
+            else "No advance payment — the full amount is due when the order arrives.",
+        )
+        return redirect("distributor-purchase-order-detail", pk=purchase_order.pk)
+
+
+class DistributorPurchaseOrderReceiveView(DistributorRequiredMixin, View):
+    """Step three: the goods arrived — confirm what came on each line
+    (this puts it into your stock) and settle whatever is left to pay."""
+
+    template_name = "requests/purchase_order_receive.html"
+
+    def _render(self, request, purchase_order, form):
+        return render(
+            request,
+            self.template_name,
+            {
+                "purchase_order": purchase_order,
+                "form": form,
+                "fill_amounts": [
+                    {"label": "Remaining amount", "value": purchase_order.remaining_amount}
+                ],
+            },
+        )
+
+    def _nothing_to_receive(self, request, purchase_order):
+        if not purchase_order.awaiting_receipt:
+            messages.info(request, "There's nothing shipped on this order waiting to be received.")
+            return redirect("distributor-purchase-order-detail", pk=purchase_order.pk)
+        return None
+
+    def get(self, request, pk):
+        purchase_order = _get_distributor_order(request, pk)
+        return self._nothing_to_receive(request, purchase_order) or self._render(
+            request,
+            purchase_order,
+            PurchaseOrderReceiveForm(
+                purchase_order=purchase_order,
+                initial={"amount": purchase_order.remaining_amount},
+            ),
+        )
+
+    def post(self, request, pk):
+        purchase_order = _get_distributor_order(request, pk)
+        nothing = self._nothing_to_receive(request, purchase_order)
+        if nothing:
+            return nothing
+
+        form = PurchaseOrderReceiveForm(
+            request.POST, request.FILES, purchase_order=purchase_order
+        )
+
+        if form.is_valid():
+            if not form.quantities():
+                form.add_error(None, "Enter the quantity that arrived on at least one line.")
+            elif purchase_order.remaining_amount > 0 and form.cleaned_data["answer"] is None:
+                form.add_error("answer", "Please answer — is the remaining amount paid?")
+
+        if form.errors:
+            return self._render(request, purchase_order, form)
+
+        try:
+            receive_purchase_order(
+                actor=request.user,
+                purchase_order_id=purchase_order.pk,
+                quantities=form.quantities(),
+                paid_remaining=bool(form.cleaned_data["answer"]),
+                amount=form.cleaned_data["amount"],
+                paid_at=form.cleaned_data["paid_at"],
+                proof=form.cleaned_data["proof"],
+                note=form.cleaned_data["note"],
+            )
+        except (PermissionDenied, ValidationError) as exc:
+            form.add_error(None, exc)
+            return self._render(request, purchase_order, form)
 
         messages.success(request, "Receipt confirmed — your stock has been updated.")
-        return redirect("distributor-purchase-order-detail", pk=pk)
+        return redirect("distributor-purchase-order-detail", pk=purchase_order.pk)
 
 
 class DeclinePurchaseOrderView(OwnerRequiredMixin, View):
@@ -314,6 +459,8 @@ class RecordPaymentView(DistributorRequiredMixin, View):
             messages.error(request, "Please check the payment details and try again.")
             return redirect("distributor-purchase-order-detail", pk=pk)
 
+        purchase_order = _get_distributor_order(request, pk)
+
         try:
             record_payment(
                 actor=request.user,
@@ -321,6 +468,14 @@ class RecordPaymentView(DistributorRequiredMixin, View):
                 amount=form.cleaned_data["amount"],
                 paid_at=form.cleaned_data["paid_at"],
                 proof=form.cleaned_data["proof"],
+                # Before anything ships it's (still) the advance — e.g.
+                # paying again after the Owner rejected one; after, it's
+                # the final payment.
+                kind=(
+                    PurchaseOrderPayment.Kind.ADVANCE
+                    if purchase_order.status == PurchaseOrder.Status.PENDING
+                    else PurchaseOrderPayment.Kind.FINAL
+                ),
                 note=form.cleaned_data["note"],
             )
         except (PermissionDenied, ValidationError) as exc:

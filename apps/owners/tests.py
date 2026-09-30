@@ -4,7 +4,6 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.customers.services import create_customer
 from apps.distributors.services import create_distributor
 from apps.manufacturers.services import create_manufacturer
 from apps.products.services import create_product
@@ -78,7 +77,6 @@ class OwnerPagesTests(TestCase):
             is_active=True,
         )
         self.manufacturer = create_manufacturer(actor=self.owner, name="Page Manufacturer")
-        self.customer = create_customer(actor=self.owner, name="Page Customer")
         self.product = create_product(
             actor=self.owner,
             sku="PAGE-001",
@@ -113,10 +111,6 @@ class OwnerPagesTests(TestCase):
             reverse("manufacturer-create"),
             reverse("manufacturer-detail", kwargs={"pk": self.manufacturer.pk}),
             reverse("manufacturer-edit", kwargs={"pk": self.manufacturer.pk}),
-            reverse("customer-list"),
-            reverse("customer-create"),
-            reverse("customer-detail", kwargs={"pk": self.customer.pk}),
-            reverse("customer-edit", kwargs={"pk": self.customer.pk}),
             reverse("category-list"),
             reverse("category-create"),
             reverse("ingredient-create"),
@@ -162,7 +156,6 @@ class ApiWiringTests(TestCase):
             reverse("api-owner-list"),
             reverse("api-owner-profile"),
             reverse("api-manufacturer-list"),
-            reverse("api-customer-list"),
             reverse("api-category-list"),
             reverse("api-ingredient-list"),
             reverse("api-product-list"),

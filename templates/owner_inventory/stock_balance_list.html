@@ -9,7 +9,7 @@
     <div>
         <p class="eyebrow">Warehouse</p>
         <h1>Stock Balances</h1>
-        <p>Current stock balance for every product at every location.</p>
+        <p>Every batch on hand, soonest-to-expire first. Each batch keeps its own quantity and expiry — batches of the same product are never added together.</p>
     </div>
 
     <div>
@@ -53,26 +53,35 @@
                 <tr>
                     <th>Product</th>
                     <th>SKU</th>
-                    <th>Batch</th>
                     <th>Location</th>
                     <th>Type</th>
+                    <th>Batch</th>
+                    <th>Received</th>
+                    <th>Expiry</th>
                     <th>Quantity</th>
                 </tr>
             </thead>
-
             <tbody>
-                {% for balance in balances %}
+                {% for batch in batches %}
                     <tr>
-                        <td>{{ balance.product.name }}</td>
-                        <td>{{ balance.product.sku }}</td>
-                        <td>{{ balance.batch_codes|join:", "|default:"—" }}</td>
-                        <td>{{ balance.location.name }}</td>
-                        <td>{{ balance.location.get_location_type_display }}</td>
-                        <td>{{ balance.quantity }}</td>
+                        <td>{{ batch.product.name }}</td>
+                        <td>{{ batch.product.sku }}</td>
+                        <td>{{ batch.location.name }}</td>
+                        <td>{{ batch.location.get_location_type_display }}</td>
+                        <td class="nowrap">{{ batch.batch_number|default:"No batch number" }}</td>
+                        <td>{{ batch.received_date|date:"M d, Y" }}</td>
+                        <td>
+                            {% if batch.expiry_date %}
+                                {{ batch.expiry_date|date:"M d, Y" }}
+                            {% else %}
+                                <span class="badge badge-pending">No expiry set</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ batch.quantity_remaining }}</td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="6" class="empty-table">
+                        <td colspan="8" class="empty-table">
                             No stock recorded yet.
                         </td>
                     </tr>

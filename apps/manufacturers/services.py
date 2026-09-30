@@ -398,20 +398,40 @@ def set_manufacturer_order_outcome(*, actor, order_id, outcome, note=""):
 
 
 @transaction.atomic
-def record_manufacturer_payment(*, actor, order_id, amount, paid_at, note=""):
+def record_manufacturer_payment(
+    *,
+    actor,
+    order_id,
+    amount,
+    paid_at,
+    proof,
+    kind=ManufacturerOrderPayment.Kind.FINAL,
+    note="",
+):
+    """One payment to the Manufacturer, always with proof. Can't take the
+    order past what it costs."""
     require_owner(actor)
 
     order = _get_order_for_update(order_id)
-
     amount = _as_decimal(amount)
 
     if amount <= 0:
         raise ValidationError("Payment amount must be greater than zero.")
 
+    if not proof:
+        raise ValidationError("Upload a proof of payment.")
+
+    if amount > order.remaining_amount:
+        raise ValidationError(
+            f"Only {order.remaining_amount} is left to pay on this order."
+        )
+
     payment = ManufacturerOrderPayment(
         order=order,
+        kind=kind,
         amount=amount,
         paid_at=paid_at,
+        proof=proof,
         note=(note or "").strip(),
         created_by=actor,
         updated_by=actor,
@@ -423,7 +443,129 @@ def record_manufacturer_payment(*, actor, order_id, amount, paid_at, note=""):
         user=actor,
         action="manufacturer.order_payment_recorded",
         instance=payment,
-        after_data={"amount": str(amount), "paid_at": str(paid_at)},
+        after_data={
+            "kind": kind,
+            "amount": str(amount),
+            "paid_at": str(paid_at),
+        },
     )
 
     return payment
+
+
+@transaction.atomic
+def record_advance_decision(
+    *, actor, order_id, pays_advance, amount=None, paid_at=None, proof=None, note=""
+):
+    """Step two of placing an order: "Are you paying in advance?" — asked
+    once, while the order is still out with the Manufacturer. Yes records
+    the advance (anything up to the whole order) with its proof; No just
+    notes that the full amount is due on receipt."""
+    require_owner(actor)
+
+    order = _get_order_for_update(order_id)
+
+    if order.status != ManufacturerOrder.Status.SENT:
+        raise ValidationError(
+            "An advance can only be recorded before the order is received."
+        )
+
+    if order.pays_advance is not None:
+        raise ValidationError("The advance payment has already been answered.")
+
+    order.pays_advance = bool(pays_advance)
+    order.updated_by = actor
+    order.save(update_fields=["pays_advance", "updated_at", "updated_by"])
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.order_advance_decided",
+        instance=order,
+        after_data={"pays_advance": order.pays_advance},
+    )
+
+    if order.pays_advance:
+        return record_manufacturer_payment(
+            actor=actor,
+            order_id=order.pk,
+            amount=amount,
+            paid_at=paid_at,
+            proof=proof,
+            kind=ManufacturerOrderPayment.Kind.ADVANCE,
+            note=note,
+        )
+
+    return None
+
+
+def receiving_steps(order):
+    """What's still to do on an order's Order Received page: confirm the
+    goods arrived, and/or approve the Manufacturer's invoice (which is
+    what puts the stock into Inventory). An order can have one without
+    the other — older orders were sometimes invoiced before arriving,
+    or received and never invoiced."""
+    needs_receipt = order.status == ManufacturerOrder.Status.SENT
+    needs_invoice = (
+        order.invoice_approved_at is None
+        and order.status != ManufacturerOrder.Status.REFUNDED
+    )
+    return needs_receipt, needs_invoice
+
+
+@transaction.atomic
+def receive_manufacturer_order(
+    *,
+    actor,
+    order_id,
+    invoice_number="",
+    invoice_file=None,
+    item_prices=None,
+    paid_remaining=False,
+    amount=None,
+    paid_at=None,
+    proof=None,
+    note="",
+):
+    """Step three: the goods have arrived. In one go, marks the order
+    received, approves the Manufacturer's invoice — the actual quantity,
+    price and expiry per line, which is what creates the stock — and, if
+    anything is still owed on the invoiced total and the Owner has paid
+    it, records that final payment with its proof. Whichever of these is
+    already done is skipped; if any part fails, none of it is saved."""
+    require_owner(actor)
+
+    order = _get_order_for_update(order_id)
+    needs_receipt, needs_invoice = receiving_steps(order)
+
+    if not needs_receipt and not needs_invoice:
+        raise ValidationError("This order has already been received and invoiced.")
+
+    if needs_receipt:
+        order = mark_manufacturer_order_received(actor=actor, order_id=order.pk)
+
+    if needs_invoice:
+        order = record_manufacturer_invoice(
+            actor=actor,
+            order_id=order.pk,
+            invoice_file=invoice_file,
+            invoice_number=invoice_number,
+            item_prices=item_prices,
+        )
+
+    if order.pays_advance is None:
+        order.pays_advance = False
+        order.save(update_fields=["pays_advance"])
+
+    if paid_remaining and order.remaining_amount > 0:
+        record_manufacturer_payment(
+            actor=actor,
+            order_id=order.pk,
+            amount=amount,
+            paid_at=paid_at,
+            proof=proof,
+            kind=ManufacturerOrderPayment.Kind.FINAL,
+            note=note,
+        )
+
+    order.stock_created = needs_invoice
+    return order

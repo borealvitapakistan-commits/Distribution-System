@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Sale to {{ sale.sub_distributor_name }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Sales</p>
+        <h1>Sale to {{ sale.sub_distributor_name }}</h1>
+        <p>{{ sale.quantity }} × {{ sale.product.name }} on {{ sale.sale_date|date:"M d, Y" }}</p>
+    </div>
+
+    <a class="button button-secondary" href="{% url 'distributor-sale-list' %}">
+        Back
+    </a>
+</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Sale details</h2>
+        </div>
+    </div>
+
+    <dl class="details-list">
+        <div>
+            <dt>Sub-distributor</dt>
+            <dd>{{ sale.sub_distributor_name }}</dd>
+        </div>
+
+        <div>
+            <dt>Sale date</dt>
+            <dd>{{ sale.sale_date|date:"M d, Y" }}</dd>
+        </div>
+
+        <div>
+            <dt>Recorded at</dt>
+            <dd>{{ sale.created_at|date:"M d, Y H:i:s" }}</dd>
+        </div>
+
+        <div>
+            <dt>Recorded by</dt>
+            <dd>{{ sale.created_by|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Inventory</dt>
+            <dd>{{ sale.from_location.distributor_inventory.name|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Location</dt>
+            <dd>{{ sale.from_location.name }}</dd>
+        </div>
+
+        <div>
+            <dt>Product</dt>
+            <dd>{{ sale.product.name }} ({{ sale.product.sku }})</dd>
+        </div>
+
+        <div>
+            <dt>Quantity</dt>
+            <dd>{{ sale.quantity }}</dd>
+        </div>
+
+        <div>
+            <dt>Batch</dt>
+            <dd>
+                {% if sale.batch %}
+                    {{ sale.batch.batch_number|default:"No batch number" }}
+                {% else %}
+                    —
+                {% endif %}
+            </dd>
+        </div>
+
+        <div>
+            <dt>Batch received</dt>
+            <dd>{{ sale.batch.received_date|date:"M d, Y"|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Batch expiry</dt>
+            <dd>{{ sale.batch.expiry_date|date:"M d, Y"|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Note</dt>
+            <dd>{{ sale.note|default:"—" }}</dd>
+        </div>
+
+        <div>
+            <dt>Payment proof</dt>
+            <dd>
+                {% if sale.payment_proof %}
+                    <a href="{{ sale.payment_proof.url }}" target="_blank" rel="noopener">View proof</a>
+                {% else %}
+                    <span class="badge badge-pending">Not received</span>
+                {% endif %}
+            </dd>
+        </div>
+    </dl>
+
+    <form
+        method="post"
+        enctype="multipart/form-data"
+        action="{% url 'distributor-sale-payment-proof' sale.pk %}"
+        class="form-layout panel-body"
+    >
+        {% csrf_token %}
+        <h3>{% if sale.payment_proof %}Replace payment proof{% else %}Add payment proof{% endif %}</h3>
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="{{ proof_form.proof.id_for_label }}">{{ proof_form.proof.label }}</label>
+                {{ proof_form.proof }}
+                <small>{{ proof_form.proof.help_text }}{% if sale.sale_group %} Applies to every batch of this sale.{% endif %}</small>
+            </div>
+        </div>
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">Upload</button>
+        </div>
+    </form>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Batch history</h2>
+            <p>Everything recorded against this batch in your stock — how it arrived, where it was placed, and what left from it.</p>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date and Time</th>
+                    <th>Type</th>
+                    <th>Quantity</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>By</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for movement in batch_movements %}
+                    <tr>
+                        <td>{{ movement.created_at|date:"M d, Y H:i:s" }}</td>
+                        <td>
+                            <span class="badge badge-neutral">
+                                {{ movement.get_movement_type_display }}
+                            </span>
+                        </td>
+                        <td>{{ movement.quantity }}</td>
+                        <td>{{ movement.from_location.name|default:"—" }}</td>
+                        <td>{{ movement.to_location.name|default:"—" }}</td>
+                        <td>{{ movement.created_by|default:"—" }}</td>
+                        <td>{{ movement.reference|default:"—" }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="empty-table">
+                            No batch history recorded.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

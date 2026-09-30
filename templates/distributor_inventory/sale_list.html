@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Sales
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Sales</p>
+        <h1>Sub-Distributor Sales</h1>
+        <p>Record of the products you have given to sub-distributors.</p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'distributor-stock-balance-list' %}">
+            My Stock
+        </a>
+        <a class="button button-primary" href="{% url 'distributor-sale-create' %}">
+            Sell Product
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Recorded At</th>
+                    <th>Sub-Distributor</th>
+                    <th>Inventory</th>
+                    <th>Location</th>
+                    <th>Product</th>
+                    <th>Batch</th>
+                    <th>Quantity</th>
+                    <th>Payment Proof</th>
+                    <th>By</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for sale in sales %}
+                    <tr>
+                        <td>{{ sale.sale_date|date:"M d, Y" }}</td>
+                        <td>{{ sale.created_at|date:"M d, Y H:i" }}</td>
+                        <td>{{ sale.sub_distributor_name }}</td>
+                        <td>{{ sale.from_location.distributor_inventory.name|default:"—" }}</td>
+                        <td>{{ sale.from_location.name }}</td>
+                        <td>
+                            {{ sale.product.name }}
+                            <small class="table-secondary">{{ sale.product.sku }}</small>
+                        </td>
+                        <td>
+                            {% if sale.batch %}
+                                {{ sale.batch.batch_number|default:"No batch number" }}
+                                {% if sale.batch.expiry_date %}
+                                    <small class="table-secondary">Expires {{ sale.batch.expiry_date|date:"M d, Y" }}</small>
+                                {% endif %}
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                        <td>{{ sale.quantity }}</td>
+                        <td>
+                            {% if sale.payment_proof %}
+                                <a href="{{ sale.payment_proof.url }}" target="_blank" rel="noopener">View proof</a>
+                            {% else %}
+                                <span class="badge badge-pending">Not received</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ sale.created_by|default:"—" }}</td>
+                        <td>
+                            <a class="button button-secondary button-small" href="{% url 'distributor-sale-detail' sale.pk %}">
+                                View
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="11" class="empty-table">
+                            No sales recorded yet.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if is_paginated %}
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+                <a href="?page={{ page_obj.previous_page_number }}" class="button button-secondary button-small">
+                    Previous
+                </a>
+            {% endif %}
+
+            <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+
+            {% if page_obj.has_next %}
+                <a href="?page={{ page_obj.next_page_number }}" class="button button-secondary button-small">
+                    Next
+                </a>
+            {% endif %}
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

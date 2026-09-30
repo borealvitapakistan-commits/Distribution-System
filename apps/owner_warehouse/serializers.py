@@ -8,7 +8,6 @@ class LocationSerializer(serializers.ModelSerializer):
     location_type_display = serializers.CharField(source="get_location_type_display", read_only=True)
     inventory_name = serializers.CharField(source="inventory.name", read_only=True, allow_null=True)
     manufacturer_name = serializers.CharField(source="manufacturer.name", read_only=True, allow_null=True)
-    customer_name = serializers.CharField(source="customer.name", read_only=True, allow_null=True)
     utilization = serializers.SerializerMethodField()
 
     class Meta:
@@ -23,8 +22,6 @@ class LocationSerializer(serializers.ModelSerializer):
             "inventory_name",
             "manufacturer",
             "manufacturer_name",
-            "customer",
-            "customer_name",
             "on_book",
             "is_physical",
             "is_sellable",
@@ -39,7 +36,6 @@ class LocationSerializer(serializers.ModelSerializer):
             "location_type_display",
             "inventory_name",
             "manufacturer_name",
-            "customer_name",
             "on_book",
             "is_physical",
             "utilization",
@@ -48,14 +44,12 @@ class LocationSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        from apps.customers.models import Customer
         from apps.manufacturers.models import Manufacturer
 
         from .models import Inventory
 
         self.fields["inventory"].queryset = (Inventory.objects.filter(active=True))
         self.fields["manufacturer"].queryset = (Manufacturer.objects.filter(active=True))
-        self.fields["customer"].queryset = (Customer.objects.filter(active=True))
 
     def get_utilization(self, obj):
         data = location_utilization(obj)

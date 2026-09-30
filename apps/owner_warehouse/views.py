@@ -225,7 +225,7 @@ class LocationListView(OwnerRequiredMixin, ListView):
         return (
             Location.objects
             .for_user(self.request.user)
-            .select_related("inventory", "manufacturer", "customer")
+            .select_related("inventory", "manufacturer")
         )
 
 
@@ -390,11 +390,11 @@ class LocationDetailView(OwnerRequiredMixin, DetailView):
         return (
             Location.objects
             .for_user(self.request.user)
-            .select_related("manufacturer", "customer")
+            .select_related("manufacturer")
         )
 
     def get_context_data(self, **kwargs):
-        from apps.owner_inventory.models import StockBalance, StockBatch
+        from apps.owner_inventory.models import StockBatch
 
         context = super().get_context_data(**kwargs)
 
@@ -402,26 +402,12 @@ class LocationDetailView(OwnerRequiredMixin, DetailView):
             self.object
         )
 
-        balances = list(
-            StockBalance.objects
-            .filter(location=self.object, quantity__gt=0)
+        context["batches"] = (
+            StockBatch.objects
+            .filter(location=self.object)
             .select_related("product")
-            .order_by("product__name")
+            .available()
+            .fefo_ordered()
         )
-
-        for balance in balances:
-            balance.batch_codes = list(
-                StockBatch.objects
-                .filter(
-                    product=balance.product,
-                    location=self.object,
-                    quantity_remaining__gt=0,
-                )
-                .exclude(batch_number="")
-                .values_list("batch_number", flat=True)
-                .distinct()
-            )
-
-        context["balances"] = balances
 
         return context

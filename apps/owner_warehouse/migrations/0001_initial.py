@@ -13,7 +13,6 @@ class Migration(migrations.Migration):
     initial = True
 
     dependencies = [
-        ('customers', '0001_initial'),
         ('distributors', '0001_initial'),
         ('manufacturers', '0001_initial'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
@@ -37,7 +36,6 @@ class Migration(migrations.Migration):
                 ('capacity_units', models.DecimalField(decimal_places=4, default=Decimal('0.0000'), max_digits=18, validators=[django.core.validators.MinValueValidator(Decimal('0'))])),
                 ('active', models.BooleanField(default=True)),
                 ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to=settings.AUTH_USER_MODEL)),
-                ('customer', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='locations', to='customers.customer')),
                 ('distributor_profile', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='locations', to='distributors.distributorprofile')),
                 ('manufacturer', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='locations', to='manufacturers.manufacturer')),
                 ('updated_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to=settings.AUTH_USER_MODEL)),

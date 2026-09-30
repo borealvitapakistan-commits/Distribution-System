@@ -237,6 +237,7 @@ def ship_purchase_order_item(
             from_location=batch.location,
             batch=batch,
             reference=f"Purchase order {purchase_order.po_number} shipped",
+            shipped_for=item,
         )
 
     item.quantity_shipped += total_quantity
@@ -308,6 +309,7 @@ def receive_purchase_order_item(*, actor, item_id, quantity):
         product=item.product,
         quantity=quantity,
         reference=reference,
+        shipped_for=item,
     )
 
     # A receipt can span more than one originating batch (if separate
@@ -446,7 +448,19 @@ def add_owner_comment(*, actor, purchase_order_id, comment):
 
 
 @transaction.atomic
-def record_payment(*, actor, purchase_order_id, amount, paid_at, proof, note=""):
+def record_payment(
+    *,
+    actor,
+    purchase_order_id,
+    amount,
+    paid_at,
+    proof,
+    kind=PurchaseOrderPayment.Kind.FINAL,
+    note="",
+):
+    """A Distributor's payment toward their order, always with proof. It
+    only counts as paid once the Owner confirms it; it can't claim more
+    than what's still owed."""
     require_approved_distributor(actor)
 
     purchase_order = (
@@ -470,8 +484,14 @@ def record_payment(*, actor, purchase_order_id, amount, paid_at, proof, note="")
     if not proof:
         raise ValidationError("A proof of payment file is required.")
 
+    if amount > purchase_order.remaining_amount:
+        raise ValidationError(
+            f"Only {purchase_order.remaining_amount} is left to pay on this order."
+        )
+
     payment = PurchaseOrderPayment(
         purchase_order=purchase_order,
+        kind=kind,
         amount=amount,
         paid_at=paid_at,
         proof=proof,
@@ -487,6 +507,7 @@ def record_payment(*, actor, purchase_order_id, amount, paid_at, proof, note="")
         action="requests.purchase_order_payment_recorded",
         instance=payment,
         after_data={
+            "kind": kind,
             "amount": str(amount),
             "paid_at": str(paid_at),
             "status": payment.status,
@@ -494,6 +515,120 @@ def record_payment(*, actor, purchase_order_id, amount, paid_at, proof, note="")
     )
 
     return payment
+
+
+def _get_own_order_for_update(actor, purchase_order_id):
+    purchase_order = (
+        PurchaseOrder.objects
+        .select_for_update()
+        .filter(pk=purchase_order_id)
+        .first()
+    )
+
+    if purchase_order is None:
+        raise ValidationError("Purchase order was not found.")
+
+    if purchase_order.distributor_profile_id != actor.distributor_profile.pk:
+        raise ValidationError("You can only manage your own purchase orders.")
+
+    return purchase_order
+
+
+@transaction.atomic
+def record_advance_decision(
+    *, actor, purchase_order_id, pays_advance, amount=None, paid_at=None, proof=None, note=""
+):
+    """Step two of placing an order: "Are you paying in advance?" — asked
+    once, before the Owner ships anything. Yes records the advance
+    (anything up to the whole order) with its proof, for the Owner to
+    confirm; No notes that the full amount is due on receipt."""
+    require_approved_distributor(actor)
+
+    purchase_order = _get_own_order_for_update(actor, purchase_order_id)
+
+    if purchase_order.status != PurchaseOrder.Status.PENDING:
+        raise ValidationError(
+            "An advance can only be recorded before the order is shipped."
+        )
+
+    if purchase_order.pays_advance is not None:
+        raise ValidationError("The advance payment has already been answered.")
+
+    purchase_order.pays_advance = bool(pays_advance)
+    purchase_order.updated_by = actor
+    purchase_order.save(update_fields=["pays_advance", "updated_at", "updated_by"])
+
+    record_audit_event(
+        user=actor,
+        action="requests.purchase_order_advance_decided",
+        instance=purchase_order,
+        after_data={"pays_advance": purchase_order.pays_advance},
+    )
+
+    if purchase_order.pays_advance:
+        return record_payment(
+            actor=actor,
+            purchase_order_id=purchase_order.pk,
+            amount=amount,
+            paid_at=paid_at,
+            proof=proof,
+            kind=PurchaseOrderPayment.Kind.ADVANCE,
+            note=note,
+        )
+
+    return None
+
+
+@transaction.atomic
+def receive_purchase_order(
+    *,
+    actor,
+    purchase_order_id,
+    quantities,
+    paid_remaining=False,
+    amount=None,
+    paid_at=None,
+    proof=None,
+    note="",
+):
+    """Step three: the goods have arrived. In one go, confirms what
+    arrived on each line (quantities: {item_id: quantity}) — which puts
+    each shipped batch into the Distributor's own stock — and, if
+    anything is still owed and they've paid it, records that final
+    payment with its proof. If any part fails, none of it is saved."""
+    require_approved_distributor(actor)
+
+    purchase_order = _get_own_order_for_update(actor, purchase_order_id)
+    received_any = False
+
+    for item in purchase_order.items.all():
+        quantity = (quantities or {}).get(str(item.pk))
+
+        if quantity:
+            receive_purchase_order_item(actor=actor, item_id=item.pk, quantity=quantity)
+            received_any = True
+
+    if not received_any:
+        raise ValidationError("Enter the quantity that arrived on at least one line.")
+
+    purchase_order.refresh_from_db()
+
+    if purchase_order.pays_advance is None:
+        purchase_order.pays_advance = False
+        purchase_order.save(update_fields=["pays_advance"])
+
+    if paid_remaining and purchase_order.remaining_amount > 0:
+        record_payment(
+            actor=actor,
+            purchase_order_id=purchase_order.pk,
+            amount=amount,
+            paid_at=paid_at,
+            proof=proof,
+            kind=PurchaseOrderPayment.Kind.FINAL,
+            note=note,
+        )
+
+    return purchase_order
 
 
 @transaction.atomic

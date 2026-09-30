@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    Advance Payment — {{ order.po_number }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Step 2 of 3 · Advance payment</p>
+        <h1>{{ order.po_number }} — {{ order.manufacturer.name }}</h1>
+        <p>Order placed. Tell us whether you're paying anything up front.</p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">
+            Skip for now
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <dl class="details-list">
+        <div><dt>Order total</dt><dd>{{ order.grand_total|money }}</dd></div>
+        {% if order.manufacturer.upfront_payment_percentage > 0 %}
+            <div>
+                <dt>{{ order.manufacturer.name }}'s usual advance</dt>
+                <dd>{{ order.manufacturer.upfront_payment_percentage }}% ({{ order.required_upfront_amount|money }})</dd>
+            </div>
+        {% endif %}
+    </dl>
+</section>
+
+<section class="panel form-panel">
+    <form method="post" enctype="multipart/form-data" class="form-layout">
+        {% csrf_token %}
+
+        {% with total=order.grand_total none_message="No advance payment — the full amount will be paid when the order arrives." %}
+            {% include "core/_paid_question.html" %}
+        {% endwith %}
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                Save
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

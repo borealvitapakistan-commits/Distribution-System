@@ -1,0 +1,117 @@
+{% comment %}
+A Yes/No payment question. "Yes" reveals amount, date and proof; "No"
+hides them. Expects `form` (a PaidQuestionForm), `total` (the full
+order amount, for the percentage shown next to the amount),
+`none_message` (shown on "No") and optionally `fill_amounts`
+([{label, value}] quick buttons that fill in the amount).
+
+The page can change the total later: set `data-total` on the
+[data-paid-question] box, update a button's `data-fill-amount`, then
+dispatch a "paid:refresh" event on the box.
+{% endcomment %}
+<div class="form-layout" data-paid-question data-total="{{ total|stringformat:'s' }}">
+{% if form.non_field_errors %}
+    <div class="form-errors">
+        {{ form.non_field_errors }}
+    </div>
+{% endif %}
+
+<div class="form-group">
+    <label>{{ form.answer.label }}</label>
+
+    <div class="choice-row" data-paid-answer>
+        {% for choice in form.answer %}
+            <label class="choice-pill">
+                {{ choice.tag }}
+                {{ choice.choice_label }}
+            </label>
+        {% endfor %}
+    </div>
+
+    {% for error in form.answer.errors %}
+        <span class="field-error">{{ error }}</span>
+    {% endfor %}
+</div>
+
+<div class="form-grid" data-paid-details hidden>
+    <div class="form-group">
+        <label for="{{ form.amount.id_for_label }}">Amount</label>
+        {{ form.amount }}
+        <small data-paid-share></small>
+        {% if fill_amounts %}
+            <div class="choice-row">
+                {% for option in fill_amounts %}
+                    <button
+                        type="button"
+                        class="button button-secondary button-small"
+                        data-fill-amount="{{ option.value|stringformat:'s' }}"
+                    >
+                        {{ option.label }}
+                    </button>
+                {% endfor %}
+            </div>
+        {% endif %}
+        {% for error in form.amount.errors %}
+            <span class="field-error">{{ error }}</span>
+        {% endfor %}
+    </div>
+
+    <div class="form-group">
+        <label for="{{ form.paid_at.id_for_label }}">{{ form.paid_at.label }}</label>
+        {{ form.paid_at }}
+        {% for error in form.paid_at.errors %}
+            <span class="field-error">{{ error }}</span>
+        {% endfor %}
+    </div>
+
+    <div class="form-group">
+        <label for="{{ form.proof.id_for_label }}">{{ form.proof.label }}</label>
+        {{ form.proof }}
+        <small>{{ form.proof.help_text }}</small>
+        {% for error in form.proof.errors %}
+            <span class="field-error">{{ error }}</span>
+        {% endfor %}
+    </div>
+
+    <div class="form-group">
+        <label for="{{ form.note.id_for_label }}">Note</label>
+        {{ form.note }}
+    </div>
+</div>
+
+<p class="stat-detail" data-paid-none hidden>{{ none_message }}</p>
+</div>
+
+<script>
+(function () {
+    const box = document.querySelector("[data-paid-question]");
+    const answer = document.querySelector("[data-paid-answer]");
+    const details = document.querySelector("[data-paid-details]");
+    const none = document.querySelector("[data-paid-none]");
+    const amount = document.getElementById("{{ form.amount.id_for_label }}");
+    const share = document.querySelector("[data-paid-share]");
+    function refresh() {
+        const total = parseFloat(box.dataset.total) || 0;
+        const picked = answer.querySelector("input:checked");
+        details.hidden = !picked || picked.value !== "yes";
+        none.hidden = !picked || picked.value !== "no";
+
+        const value = parseFloat(amount.value) || 0;
+        share.textContent = total && value
+            ? (value / total * 100).toFixed(1) + "% of the order total"
+            : "";
+    }
+
+    document.querySelectorAll("[data-fill-amount]").forEach(function (button) {
+        button.addEventListener("click", function () {
+            amount.value = button.dataset.fillAmount;
+            refresh();
+        });
+    });
+
+    answer.addEventListener("change", refresh);
+    box.addEventListener("paid:refresh", refresh);
+    amount.addEventListener("input", refresh);
+    refresh();
+})();
+</script>

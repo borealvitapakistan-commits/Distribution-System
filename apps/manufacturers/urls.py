@@ -9,8 +9,8 @@ from .views import (
     ManufacturerOrderListView,
     ManufacturerOrderPDFView,
     ManufacturerUpdateView,
-    MarkManufacturerOrderReceivedView,
-    RecordManufacturerInvoiceView,
+    ManufacturerOrderAdvanceView,
+    ManufacturerOrderReceiveView,
     RecordManufacturerPaymentView,
     SetManufacturerOrderOutcomeView,
 )
@@ -38,13 +38,13 @@ urlpatterns = [
     ),
     path(
         "owner/manufacturer-orders/<uuid:pk>/received/",
-        MarkManufacturerOrderReceivedView.as_view(),
+        ManufacturerOrderReceiveView.as_view(),
         name="manufacturer-order-received",
     ),
     path(
-        "owner/manufacturer-orders/<uuid:pk>/invoice/",
-        RecordManufacturerInvoiceView.as_view(),
-        name="manufacturer-order-invoice",
+        "owner/manufacturer-orders/<uuid:pk>/advance/",
+        ManufacturerOrderAdvanceView.as_view(),
+        name="manufacturer-order-advance",
     ),
     path(
         "owner/manufacturer-orders/<uuid:pk>/outcome/",

@@ -1,6 +1,11 @@
 from django.contrib import admin
 
-from .models import DistributorStockBalance, DistributorStockBatch, DistributorStockMovement
+from .models import (
+    DistributorStockBalance,
+    DistributorStockBatch,
+    DistributorStockMovement,
+    SubDistributorSale,
+)
 
 
 @admin.register(DistributorStockMovement)
@@ -58,6 +63,37 @@ class DistributorStockBatchAdmin(admin.ModelAdmin):
     list_filter = ("location",)
     search_fields = ("batch_number", "product__sku", "product__name", "distributor_profile__name")
     readonly_fields = [field.name for field in DistributorStockBatch._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(SubDistributorSale)
+class SubDistributorSaleAdmin(admin.ModelAdmin):
+    list_display = (
+        "sale_date",
+        "distributor_profile",
+        "sub_distributor_name",
+        "product",
+        "quantity",
+        "from_location",
+        "batch",
+        "created_at",
+    )
+    search_fields = (
+        "sub_distributor_name",
+        "product__sku",
+        "product__name",
+        "distributor_profile__name",
+        "batch__batch_number",
+    )
+    readonly_fields = [field.name for field in SubDistributorSale._meta.fields]
 
     def has_add_permission(self, request):
         return False

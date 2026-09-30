@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    Order Received — {{ purchase_order.po_number }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Step 3 of 3 · Order received</p>
+        <h1>{{ purchase_order.po_number }}</h1>
+        <p>Confirm what arrived and settle whatever is left to pay.</p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'distributor-purchase-order-detail' purchase_order.pk %}">
+            Back
+        </a>
+    </div>
+</div>
+
+<form method="post" enctype="multipart/form-data" class="form-layout">
+    {% csrf_token %}
+
+    <section class="panel">
+        <dl class="details-list">
+            <div><dt>Order total</dt><dd>{{ purchase_order.grand_total|money }}</dd></div>
+            <div>
+                <dt>Paid in advance</dt>
+                <dd>{{ purchase_order.advance_paid|money }} ({{ purchase_order.advance_percentage }}%)</dd>
+            </div>
+            <div><dt>Remaining to pay</dt><dd>{{ purchase_order.remaining_amount|money }}</dd></div>
+        </dl>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Goods received</h2>
+                <p>How much of each shipped line actually arrived. Each shipped batch goes into your stock with its own batch number and expiry.</p>
+            </div>
+        </div>
+
+        <div class="table-wrapper">
+            <table class="input-table">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Requested</th>
+                        <th>Shipped</th>
+                        <th>Already Received</th>
+                        <th>Received Now</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for item, qty_field in form.item_rows %}
+                        <tr>
+                            <td>
+                                {{ item.product.name }}
+                                <small class="table-secondary">{{ item.product.sku }}</small>
+                            </td>
+                            <td>{{ item.quantity_requested }}</td>
+                            <td>{{ item.quantity_shipped }}</td>
+                            <td>{{ item.quantity_received }}</td>
+                            <td>
+                                {{ qty_field }}
+                                {% for error in qty_field.errors %}
+                                    <span class="field-error">{{ error }}</span>
+                                {% endfor %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <section class="panel form-panel">
+        {% if purchase_order.remaining_amount > 0 %}
+            {% with total=purchase_order.grand_total none_message="Not paid yet — you can record the remaining payment from the order page later." %}
+                {% include "core/_paid_question.html" %}
+            {% endwith %}
+            <p class="stat-detail">Your payment counts once the Owner confirms they've received it.</p>
+        {% else %}
+            {% if form.non_field_errors %}
+                <div class="form-errors">{{ form.non_field_errors }}</div>
+            {% endif %}
+            <div class="info-box">
+                <strong>Paid in full.</strong>
+                <p>What you've paid already covers the whole order, so there's nothing left to pay.</p>
+            </div>
+        {% endif %}
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                Confirm Received
+            </button>
+        </div>
+    </section>
+</form>
+{% endblock %}

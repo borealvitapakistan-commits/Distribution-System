@@ -52,7 +52,7 @@
                         <td>{{ location.get_location_type_display }}</td>
                         <td>{{ location.inventory.name|default:"—" }}</td>
                         <td>
-                            {% firstof location.manufacturer.name location.customer.name "—" %}
+                            {% firstof location.manufacturer.name "—" %}
                         </td>
 
                         <td>

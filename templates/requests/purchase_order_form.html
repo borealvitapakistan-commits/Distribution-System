@@ -27,6 +27,12 @@
     <form method="post" class="form-layout" id="poForm">
         {% csrf_token %}
 
+        {% if formset.total_error_count %}
+            <div class="form-errors">
+                The order wasn't created — please fix the fields marked below.
+            </div>
+        {% endif %}
+
         {% if service_error %}
             <div class="form-errors">
                 {{ service_error }}
@@ -47,16 +53,25 @@
                     <div class="form-group">
                         <label>Product</label>
                         {{ item_form.product }}
+                        {% for error in item_form.product.errors %}
+                            <span class="field-error">{{ error }}</span>
+                        {% endfor %}
                     </div>
 
                     <div class="form-group">
                         <label>Quantity</label>
                         {{ item_form.quantity_requested }}
+                        {% for error in item_form.quantity_requested.errors %}
+                            <span class="field-error">{{ error }}</span>
+                        {% endfor %}
                     </div>
 
                     <div class="form-group">
                         <label>{{ item_form.requested_price.label }}</label>
                         {{ item_form.requested_price }}
+                        {% for error in item_form.requested_price.errors %}
+                            <span class="field-error">{{ error }}</span>
+                        {% endfor %}
                     </div>
 
                     <div class="form-group">

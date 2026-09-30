@@ -362,35 +362,18 @@ class DistributorLocationDetailView(DistributorRequiredMixin, DetailView):
         return DistributorLocation.objects.for_user(self.request.user)
 
     def get_context_data(self, **kwargs):
-        from apps.distributor_inventory.models import (
-            DistributorStockBalance,
-            DistributorStockBatch,
-        )
+        from apps.distributor_inventory.models import DistributorStockBatch
 
         context = super().get_context_data(**kwargs)
 
         context["utilization"] = location_utilization(self.object)
 
-        balances = list(
-            DistributorStockBalance.objects
-            .filter(location=self.object, quantity__gt=0)
+        context["batches"] = (
+            DistributorStockBatch.objects
+            .filter(location=self.object)
             .select_related("product")
-            .order_by("product__name")
+            .available()
+            .fefo_ordered()
         )
-
-        for balance in balances:
-            balance.batch_codes = list(
-                DistributorStockBatch.objects
-                .filter(
-                    product=balance.product,
-                    location=self.object,
-                    quantity_remaining__gt=0,
-                )
-                .exclude(batch_number="")
-                .values_list("batch_number", flat=True)
-                .distinct()
-            )
-
-        context["balances"] = balances
 
         return context

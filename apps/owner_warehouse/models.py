@@ -41,7 +41,6 @@ class Location(AuditedModel):
     class LocationType(models.TextChoices):
         OWN = "OWN", "Owned"
         SUPPLIER = "SUPPLIER", "Supplier"
-        CUSTOMER = "CUSTOMER", "Customer"
         SHOPIFY = "SHOPIFY", "Shopify"
         TRANSIT = "TRANSIT", "In Transit"
         UNALLOCATED = "UNALLOCATED", "Unallocated"
@@ -63,13 +62,6 @@ class Location(AuditedModel):
     )
     manufacturer = models.ForeignKey(
         "manufacturers.Manufacturer",
-        on_delete=models.PROTECT,
-        related_name="locations",
-        null=True,
-        blank=True,
-    )
-    customer = models.ForeignKey(
-        "customers.Customer",
         on_delete=models.PROTECT,
         related_name="locations",
         null=True,
@@ -152,11 +144,6 @@ class Location(AuditedModel):
                 False,
                 False,
             ),
-            self.LocationType.CUSTOMER: (
-                False,
-                False,
-                False,
-            ),
         }
 
         if self.location_type in fixed_flags:
@@ -190,18 +177,6 @@ class Location(AuditedModel):
                     "manufacturer": (
                         "This location type cannot be "
                         "linked to a Manufacturer."
-                    )
-                }
-            )
-
-        if self.location_type == self.LocationType.CUSTOMER:
-            pass
-        elif self.customer_id:
-            raise ValidationError(
-                {
-                    "customer": (
-                        "This location type cannot be "
-                        "linked to a Customer."
                     )
                 }
             )

@@ -3,6 +3,7 @@ from decimal import Decimal
 from django import forms
 from django.forms import inlineformset_factory
 
+from apps.core.forms import PaidQuestionForm
 from apps.core.models import Brand
 from apps.products.models import Product
 
@@ -64,11 +65,9 @@ ManufacturerOrderItemFormSet = inlineformset_factory(
 
 
 class ManufacturerOrderInvoiceForm(forms.Form):
-    """One quantity/price pair per existing line item, plus the invoice
-    document itself — recording and approving the invoice is one action."""
-
-    invoice_number = forms.CharField(max_length=100, required=False)
-    invoice_file = forms.FileField(required=False)
+    """One quantity/price/expiry row per existing line item — what
+    actually arrived. The advance and final payment proofs are the paper
+    trail, so there's no separate invoice number or document here."""
 
     ITEM_PRICE_PREFIX = "item_price_"
     ITEM_QTY_PREFIX = "item_qty_"
@@ -81,9 +80,6 @@ class ManufacturerOrderInvoiceForm(forms.Form):
             list(order.items.select_related("product", "batch").all())
             if order else []
         )
-
-        if order is not None and not args:
-            self.initial["invoice_number"] = order.invoice_number
 
         for item in self.items:
             self.fields[f"{self.ITEM_QTY_PREFIX}{item.pk}"] = forms.DecimalField(
@@ -101,7 +97,6 @@ class ManufacturerOrderInvoiceForm(forms.Form):
                 label=f"{item.product.name} — unit price",
             )
             self.fields[f"{self.ITEM_EXPIRY_PREFIX}{item.pk}"] = forms.DateField(
-                required=False,
                 widget=forms.DateInput(attrs={"type": "date"}),
                 initial=getattr(item.batch, "expiry_date", None),
                 label=f"{item.product.name} — expiry date",
@@ -135,6 +130,21 @@ class ManufacturerOrderInvoiceForm(forms.Form):
 
         return updates
 
+    def projected_grand_total(self, order):
+        """What the order will cost once this invoice is saved — worked
+        out the same way as ManufacturerOrder.grand_total, from the
+        invoiced quantity and price per line."""
+        cent = Decimal("0.01")
+        subtotal = sum(
+            (
+                (row["quantity"] * row["unit_price"]).quantize(cent)
+                for row in self.get_item_prices().values()
+            ),
+            Decimal("0.00"),
+        ).quantize(cent)
+        tax = (subtotal * order.tax_percentage / Decimal("100")).quantize(cent)
+        return subtotal + tax + order.shipping_amount
+
 
 class ManufacturerOrderOutcomeForm(forms.Form):
     outcome = forms.ChoiceField(
@@ -154,7 +164,31 @@ class ManufacturerOrderOutcomeForm(forms.Form):
 class ManufacturerOrderPaymentForm(forms.ModelForm):
     class Meta:
         model = ManufacturerOrderPayment
-        fields = ["amount", "paid_at", "note"]
+        fields = ["amount", "paid_at", "proof", "note"]
         widgets = {
             "paid_at": forms.DateInput(attrs={"type": "date"}),
         }
+        labels = {
+            "paid_at": "Date paid",
+            "proof": "Payment proof",
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["proof"].required = True
+
+
+class ManufacturerAdvancePaymentForm(PaidQuestionForm):
+    QUESTION = "Are you paying in advance?"
+
+
+class ManufacturerOrderReceiveForm(PaidQuestionForm):
+    """Only needs an answer when something is still owed on the invoiced
+    total — the view decides that, since it depends on the invoice."""
+
+    QUESTION = "Have you paid the remaining amount?"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["answer"].required = False
+        self.fields["answer"].empty_value = None

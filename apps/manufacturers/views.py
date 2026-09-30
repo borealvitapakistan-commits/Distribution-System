@@ -9,19 +9,22 @@ from apps.accounts.mixins import OwnerRequiredMixin
 from apps.core.utils import render_pdf
 
 from .forms import (
+    ManufacturerAdvancePaymentForm,
     ManufacturerForm,
     ManufacturerOrderForm,
     ManufacturerOrderInvoiceForm,
     ManufacturerOrderItemFormSet,
     ManufacturerOrderOutcomeForm,
     ManufacturerOrderPaymentForm,
+    ManufacturerOrderReceiveForm,
 )
 from .models import Manufacturer, ManufacturerOrder
 from .services import (
     create_manufacturer,
     create_manufacturer_order,
-    mark_manufacturer_order_received,
-    record_manufacturer_invoice,
+    receive_manufacturer_order,
+    receiving_steps,
+    record_advance_decision,
     record_manufacturer_payment,
     set_manufacturer_order_outcome,
     update_manufacturer,
@@ -219,8 +222,8 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, View):
                 {"form": form, "formset": formset, "service_error": exc},
             )
 
-        messages.success(request, "Manufacturer order created successfully.")
-        return redirect("manufacturer-order-detail", pk=order.pk)
+        messages.success(request, f"Order {order.po_number} placed.")
+        return redirect("manufacturer-order-advance", pk=order.pk)
 
 
 class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
@@ -242,68 +245,197 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        context["invoice_form"] = ManufacturerOrderInvoiceForm(order=self.object)
         context["outcome_form"] = ManufacturerOrderOutcomeForm()
         context["payment_form"] = ManufacturerOrderPaymentForm()
         return context
 
 
-class MarkManufacturerOrderReceivedView(OwnerRequiredMixin, View):
+def _get_owner_order(request, pk):
+    order = (
+        ManufacturerOrder.objects
+        .for_user(request.user)
+        .select_related("manufacturer")
+        .filter(pk=pk)
+        .first()
+    )
+
+    if order is None:
+        raise Http404
+
+    return order
+
+
+class ManufacturerOrderAdvanceView(OwnerRequiredMixin, View):
+    """Step two of placing an order: "Are you paying in advance?"."""
+
+    template_name = "manufacturers/manufacturer_order_advance.html"
+
+    def _render(self, request, order, form):
+        fill_amounts = []
+        percentage = order.manufacturer.upfront_payment_percentage
+
+        if 0 < percentage < 100:
+            fill_amounts.append(
+                {
+                    "label": f"Usual {percentage.normalize():f}% ({order.required_upfront_amount})",
+                    "value": order.required_upfront_amount,
+                }
+            )
+
+        fill_amounts.append({"label": "Full amount (100%)", "value": order.grand_total})
+
+        return render(
+            request,
+            self.template_name,
+            {"order": order, "form": form, "fill_amounts": fill_amounts},
+        )
+
+    def _already_answered(self, request, order):
+        if order.status != ManufacturerOrder.Status.SENT or order.pays_advance is not None:
+            messages.info(request, "The advance payment for this order is already answered.")
+            return redirect("manufacturer-order-detail", pk=order.pk)
+        return None
+
+    def get(self, request, pk):
+        order = _get_owner_order(request, pk)
+        return self._already_answered(request, order) or self._render(
+            request,
+            order,
+            ManufacturerAdvancePaymentForm(
+                initial={"amount": order.required_upfront_amount or None}
+            ),
+        )
+
     def post(self, request, pk):
+        order = _get_owner_order(request, pk)
+        answered = self._already_answered(request, order)
+        if answered:
+            return answered
+
+        form = ManufacturerAdvancePaymentForm(request.POST, request.FILES)
+
+        if not form.is_valid():
+            return self._render(request, order, form)
+
         try:
-            mark_manufacturer_order_received(actor=request.user, order_id=pk)
+            record_advance_decision(
+                actor=request.user,
+                order_id=order.pk,
+                pays_advance=form.cleaned_data["answer"],
+                amount=form.cleaned_data["amount"],
+                paid_at=form.cleaned_data["paid_at"],
+                proof=form.cleaned_data["proof"],
+                note=form.cleaned_data["note"],
+            )
         except (PermissionDenied, ValidationError) as exc:
-            messages.error(request, str(exc))
-            return redirect("manufacturer-order-detail", pk=pk)
+            form.add_error(None, exc)
+            return self._render(request, order, form)
 
         messages.success(
             request,
-            "Marked received. This stock is not yet in any warehouse — "
-            "that happens separately.",
+            "Advance payment recorded." if form.cleaned_data["answer"]
+            else "No advance payment — the full amount is due when the order arrives.",
         )
-        return redirect("manufacturer-order-detail", pk=pk)
+        return redirect("manufacturer-order-detail", pk=order.pk)
 
 
-class RecordManufacturerInvoiceView(OwnerRequiredMixin, View):
+class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
+    """Step three: the goods arrived. One page to confirm it, enter the
+    Manufacturer's invoice (the actual quantity, price and expiry per
+    line — this is what puts the stock into Inventory) and settle
+    whatever is left to pay on the invoiced total."""
+
+    template_name = "manufacturers/manufacturer_order_receive.html"
+
+    def _render(self, request, order, form, invoice_form):
+        needs_receipt, needs_invoice = receiving_steps(order)
+        return render(
+            request,
+            self.template_name,
+            {
+                "order": order,
+                "form": form,
+                "invoice_form": invoice_form,
+                "needs_receipt": needs_receipt,
+                "needs_invoice": needs_invoice,
+                "fill_amounts": [
+                    {"label": "Remaining amount", "value": order.remaining_amount}
+                ],
+            },
+        )
+
+    def _nothing_to_do(self, request, order):
+        if not any(receiving_steps(order)):
+            messages.info(request, "This order has already been received and invoiced.")
+            return redirect("manufacturer-order-detail", pk=order.pk)
+        return None
+
+    def get(self, request, pk):
+        order = _get_owner_order(request, pk)
+        needs_invoice = receiving_steps(order)[1]
+
+        return self._nothing_to_do(request, order) or self._render(
+            request,
+            order,
+            ManufacturerOrderReceiveForm(initial={"amount": order.remaining_amount}),
+            ManufacturerOrderInvoiceForm(order=order) if needs_invoice else None,
+        )
+
     def post(self, request, pk):
-        order = (
-            ManufacturerOrder.objects
-            .for_user(request.user)
-            .filter(pk=pk)
-            .first()
+        order = _get_owner_order(request, pk)
+        done = self._nothing_to_do(request, order)
+        if done:
+            return done
+
+        needs_invoice = receiving_steps(order)[1]
+        form = ManufacturerOrderReceiveForm(request.POST, request.FILES)
+        invoice_form = (
+            ManufacturerOrderInvoiceForm(request.POST, request.FILES, order=order)
+            if needs_invoice
+            else None
         )
 
-        if order is None:
-            raise Http404
+        forms_valid = form.is_valid()
+        if invoice_form is not None:
+            forms_valid = invoice_form.is_valid() and forms_valid
 
-        form = ManufacturerOrderInvoiceForm(request.POST, request.FILES, order=order)
+        if forms_valid:
+            total = (
+                invoice_form.projected_grand_total(order)
+                if invoice_form is not None
+                else order.grand_total
+            )
+            if total > order.total_paid and form.cleaned_data["answer"] is None:
+                form.add_error("answer", "Please answer — is the remaining amount paid?")
 
-        if not form.is_valid():
-            messages.error(request, "Please check the invoice details and try again.")
-            return redirect("manufacturer-order-detail", pk=pk)
+        if form.errors or (invoice_form is not None and invoice_form.errors):
+            return self._render(request, order, form, invoice_form)
 
         try:
-            order = record_manufacturer_invoice(
+            order = receive_manufacturer_order(
                 actor=request.user,
-                order_id=pk,
-                invoice_file=form.cleaned_data["invoice_file"],
-                invoice_number=form.cleaned_data["invoice_number"],
-                item_prices=form.get_item_prices(),
+                order_id=order.pk,
+                item_prices=invoice_form.get_item_prices() if invoice_form else None,
+                paid_remaining=bool(form.cleaned_data["answer"]),
+                amount=form.cleaned_data["amount"],
+                paid_at=form.cleaned_data["paid_at"],
+                proof=form.cleaned_data["proof"],
+                note=form.cleaned_data["note"],
             )
         except (PermissionDenied, ValidationError) as exc:
-            messages.error(request, str(exc))
-            return redirect("manufacturer-order-detail", pk=pk)
+            form.add_error(None, exc)
+            return self._render(request, order, form, invoice_form)
 
         if order.stock_created:
             messages.success(
                 request,
-                "Invoice approved. This stock now needs to be allocated to "
-                "a region and warehouse below.",
+                f"{order.po_number} received and invoice approved. This stock "
+                "now needs to be allocated to a region and warehouse below.",
             )
             return redirect("inventory-list")
 
-        messages.success(request, "Invoice updated.")
-        return redirect("manufacturer-order-detail", pk=pk)
+        messages.success(request, f"{order.po_number} marked received.")
+        return redirect("manufacturer-order-detail", pk=order.pk)
 
 
 class SetManufacturerOrderOutcomeView(OwnerRequiredMixin, View):
@@ -331,10 +463,13 @@ class SetManufacturerOrderOutcomeView(OwnerRequiredMixin, View):
 
 class RecordManufacturerPaymentView(OwnerRequiredMixin, View):
     def post(self, request, pk):
-        form = ManufacturerOrderPaymentForm(request.POST)
+        form = ManufacturerOrderPaymentForm(request.POST, request.FILES)
 
         if not form.is_valid():
-            messages.error(request, "Please check the payment details and try again.")
+            messages.error(
+                request,
+                "Please enter the amount, date paid and payment proof, then try again.",
+            )
             return redirect("manufacturer-order-detail", pk=pk)
 
         try:
@@ -343,6 +478,7 @@ class RecordManufacturerPaymentView(OwnerRequiredMixin, View):
                 order_id=pk,
                 amount=form.cleaned_data["amount"],
                 paid_at=form.cleaned_data["paid_at"],
+                proof=form.cleaned_data["proof"],
                 note=form.cleaned_data["note"],
             )
         except (PermissionDenied, ValidationError) as exc:

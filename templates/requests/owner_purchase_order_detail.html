@@ -165,7 +165,8 @@
 <section class="panel">
     <div class="panel-header">
         <div>
-            <h2>Totals</h2>
+            <h2>Totals &amp; Payments</h2>
+            <p>{{ purchase_order.payment_scenario }}</p>
         </div>
     </div>
 
@@ -174,10 +175,35 @@
         <div><dt>Tax ({{ purchase_order.tax_percentage }}%)</dt><dd>{{ purchase_order.tax_amount|money }}</dd></div>
         <div><dt>Shipping</dt><dd>{{ purchase_order.shipping_amount|money }}</dd></div>
         <div><dt>Grand Total</dt><dd>{{ purchase_order.grand_total|money }}</dd></div>
-        <div><dt>Paid</dt><dd>{{ purchase_order.total_paid|money }}</dd></div>
+        <div>
+            <dt>Advance paid</dt>
+            <dd>
+                {% if purchase_order.pays_advance is None and not purchase_order.advance_paid %}
+                    Not answered yet
+                {% elif purchase_order.advance_paid %}
+                    {{ purchase_order.advance_paid|money }} ({{ purchase_order.advance_percentage }}%)
+                {% else %}
+                    No advance
+                {% endif %}
+            </dd>
+        </div>
+        <div>
+            <dt>Final payment</dt>
+            <dd>
+                {% if purchase_order.final_paid %}
+                    {{ purchase_order.final_paid|money }} ({{ purchase_order.final_percentage }}%)
+                {% elif purchase_order.remaining_amount > 0 %}
+                    Not paid yet
+                {% else %}
+                    Not needed
+                {% endif %}
+            </dd>
+        </div>
+        <div><dt>Remaining to pay</dt><dd>{{ purchase_order.remaining_amount|money }}</dd></div>
+        <div><dt>Confirmed by you</dt><dd>{{ purchase_order.total_paid|money }}</dd></div>
     </dl>
 
-    <form method="post" action="{% url 'purchase-order-update-pricing' purchase_order.pk %}" class="form-layout" style="margin-top: 16px;">
+    <form method="post" action="{% url 'purchase-order-update-pricing' purchase_order.pk %}" class="form-layout" style="padding: 1rem 1.375rem 1.375rem;">
         {% csrf_token %}
         <div class="form-grid">
             <div class="form-group">
@@ -201,8 +227,10 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Date</th>
+                        <th>Payment</th>
+                        <th>Date Paid</th>
                         <th>Amount</th>
+                        <th>Share of Total</th>
                         <th>Note</th>
                         <th>Proof</th>
                         <th>Status</th>
@@ -212,10 +240,16 @@
                 <tbody>
                     {% for payment in purchase_order.payments.all %}
                         <tr>
-                            <td>{{ payment.paid_at }}</td>
+                            <td>
+                                <span class="badge {% if payment.kind == 'ADVANCE' %}badge-pending{% else %}badge-open{% endif %}">
+                                    {{ payment.get_kind_display }}
+                                </span>
+                            </td>
+                            <td>{{ payment.paid_at|date:"M d, Y" }}</td>
                             <td>{{ payment.amount|money }}</td>
+                            <td>{% widthratio payment.amount purchase_order.grand_total 100 %}%</td>
                             <td>{{ payment.note|default:"—" }}</td>
-                            <td><a href="{{ payment.proof.url }}" target="_blank">View</a></td>
+                            <td><a href="{{ payment.proof.url }}" target="_blank" rel="noopener">View proof</a></td>
                             <td>
                                 {% if payment.status == "PENDING" %}
                                     <span class="badge badge-pending">Pending confirmation</span>

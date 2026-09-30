@@ -18,7 +18,6 @@ class LocationAdmin(admin.ModelAdmin):
         "location_type",
         "inventory",
         "manufacturer",
-        "customer",
         "is_sellable",
         "active",
     )
@@ -32,5 +31,4 @@ class LocationAdmin(admin.ModelAdmin):
         "name",
         "inventory__name",
         "manufacturer__name",
-        "customer__name",
     )

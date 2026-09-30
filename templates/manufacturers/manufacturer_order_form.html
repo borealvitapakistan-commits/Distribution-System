@@ -21,6 +21,12 @@
     <form method="post" class="form-layout" id="moForm">
         {% csrf_token %}
 
+        {% if form.errors or formset.total_error_count %}
+            <div class="form-errors">
+                The order wasn't created — please fix the fields marked below.
+            </div>
+        {% endif %}
+
         {% if service_error %}
             <div class="form-errors">
                 {{ service_error }}
@@ -31,11 +37,17 @@
             <div class="form-group">
                 <label>Manufacturer</label>
                 {{ form.manufacturer }}
+                {% for error in form.manufacturer.errors %}
+                    <span class="field-error">{{ error }}</span>
+                {% endfor %}
             </div>
 
             <div class="form-group">
                 <label>Brand</label>
                 {{ form.brand }}
+                {% for error in form.brand.errors %}
+                    <span class="field-error">{{ error }}</span>
+                {% endfor %}
             </div>
         </div>
 
@@ -55,16 +67,25 @@
                     <div class="form-group">
                         <label>Product</label>
                         {{ item_form.product }}
+                        {% for error in item_form.product.errors %}
+                            <span class="field-error">{{ error }}</span>
+                        {% endfor %}
                     </div>
 
                     <div class="form-group">
                         <label>Quantity</label>
                         {{ item_form.quantity }}
+                        {% for error in item_form.quantity.errors %}
+                            <span class="field-error">{{ error }}</span>
+                        {% endfor %}
                     </div>
 
                     <div class="form-group">
                         <label>Unit Price</label>
                         {{ item_form.unit_price }}
+                        {% for error in item_form.unit_price.errors %}
+                            <span class="field-error">{{ error }}</span>
+                        {% endfor %}
                     </div>
 
                     <div class="form-group">

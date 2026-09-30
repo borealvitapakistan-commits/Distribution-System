@@ -5,6 +5,10 @@ from .views import (
     DistributorStockBalanceListView,
     DistributorStockBatchListView,
     DistributorStockMovementListView,
+    SubDistributorSaleCreateView,
+    SubDistributorSaleDetailView,
+    SubDistributorSalePaymentProofView,
+    SubDistributorSaleListView,
 )
 
 
@@ -28,5 +32,25 @@ urlpatterns = [
         "distributor/inventory/receive/",
         DistributorReceiveStockView.as_view(),
         name="distributor-stock-receive",
+    ),
+    path(
+        "distributor/sales/",
+        SubDistributorSaleListView.as_view(),
+        name="distributor-sale-list",
+    ),
+    path(
+        "distributor/sales/new/",
+        SubDistributorSaleCreateView.as_view(),
+        name="distributor-sale-create",
+    ),
+    path(
+        "distributor/sales/<uuid:pk>/",
+        SubDistributorSaleDetailView.as_view(),
+        name="distributor-sale-detail",
+    ),
+    path(
+        "distributor/sales/<uuid:pk>/payment-proof/",
+        SubDistributorSalePaymentProofView.as_view(),
+        name="distributor-sale-payment-proof",
     ),
 ]

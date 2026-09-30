@@ -20,6 +20,7 @@ class DistributorStockMovement(AuditedModel):
         RECEIVED = "RECEIVED", "Received"
         TRANSFER = "TRANSFER", "Transfer"
         ADJUSTMENT = "ADJUSTMENT", "Adjustment"
+        SOLD = "SOLD", "Sold to Sub-Distributor"
 
     distributor_profile = models.ForeignKey(
         "distributors.DistributorProfile",
@@ -268,4 +269,115 @@ class DistributorStockBatch(AuditedModel):
             f"{label}{self.product.sku} @ {self.location.code} - "
             f"received {self.received_date} "
             f"({self.quantity_remaining} remaining)"
+        )
+
+
+class SubDistributorSale(AuditedModel):
+    """A record that a Distributor handed stock from one specific batch
+    on to a sub-distributor — the last traced hop of a lot's journey
+    (Manufacturer → Owner → Distributor → sub-distributor). The
+    sub-distributor is only a name typed on the form — there is no
+    sub-distributor account, profile or table, and nothing is tracked
+    past this hand-off. The stock itself leaves the Distributor's
+    warehouse through one SOLD movement on the ledger, drawn from
+    `batch`."""
+
+    distributor_profile = models.ForeignKey(
+        "distributors.DistributorProfile",
+        on_delete=models.PROTECT,
+        related_name="sub_distributor_sales",
+    )
+
+    sub_distributor_name = models.CharField(max_length=200)
+
+    product = models.ForeignKey(
+        "products.Product",
+        on_delete=models.PROTECT,
+        related_name="sub_distributor_sales",
+    )
+
+    from_location = models.ForeignKey(
+        "distributor_warehouse.DistributorLocation",
+        on_delete=models.PROTECT,
+        related_name="sub_distributor_sales",
+    )
+
+    batch = models.ForeignKey(
+        DistributorStockBatch,
+        on_delete=models.PROTECT,
+        related_name="sub_distributor_sales",
+        null=True,
+        blank=True,
+        help_text=(
+            "The batch this stock was drawn from. Only blank on sales "
+            "recorded before sales were tied to a batch."
+        ),
+    )
+
+    quantity = models.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        validators=[MinValueValidator(Decimal("0.0001"))],
+    )
+
+    sale_date = models.DateField(default=date.today)
+
+    note = models.CharField(max_length=255, blank=True)
+
+    payment_proof = models.FileField(
+        upload_to="sub_distributor_payments/",
+        null=True,
+        blank=True,
+        help_text=(
+            "Receipt, online transfer screenshot, photo — proof the "
+            "sub-distributor paid. Blank means payment not received yet."
+        ),
+    )
+
+    sale_group = models.UUIDField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "Shared by the sale records of one hand-off split across "
+            "several batches, so one payment proof covers all of them."
+        ),
+    )
+
+    objects = DistributorStockQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["-sale_date", "-created_at"]
+
+    def clean(self):
+        super().clean()
+
+        self.sub_distributor_name = (self.sub_distributor_name or "").strip()
+
+        if not self.sub_distributor_name:
+            raise ValidationError(
+                {"sub_distributor_name": "Sub-distributor name is required."}
+            )
+
+        if (
+            self.from_location_id
+            and self.distributor_profile_id
+            and self.from_location.distributor_profile_id != self.distributor_profile_id
+        ):
+            raise ValidationError(
+                "The selected warehouse belongs to a different distributor."
+            )
+
+        if self.batch_id and (
+            self.batch.product_id != self.product_id
+            or self.batch.location_id != self.from_location_id
+        ):
+            raise ValidationError(
+                "The selected batch does not match this product/warehouse."
+            )
+
+    def __str__(self):
+        return (
+            f"{self.sub_distributor_name} - {self.product.sku} - "
+            f"{self.quantity} ({self.sale_date})"
         )

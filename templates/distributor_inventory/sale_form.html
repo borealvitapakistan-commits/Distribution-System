@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Sell Product
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Sales</p>
+        <h1>Sell Product</h1>
+        <p>Record products given to a sub-distributor. Pick the product, then take whatever you want from each batch — split across as many batches and warehouses as you like.</p>
+    </div>
+
+    <a class="button button-secondary" href="{% url 'distributor-sale-list' %}">
+        Back
+    </a>
+</div>
+
+{% if not form.batch_rows %}
+    <section class="panel">
+        <p class="empty-table">
+            You have no stock in any warehouse to sell yet. Received stock has to be allocated to a warehouse first.
+            <a href="{% url 'distributor-stock-batch-list' %}">View my batches</a>
+        </p>
+    </section>
+{% else %}
+    <form method="post" enctype="multipart/form-data" class="form-layout" id="saleForm">
+        {% csrf_token %}
+
+        <section class="panel form-panel">
+            {% if form.non_field_errors %}
+                <div class="form-errors">
+                    {{ form.non_field_errors }}
+                </div>
+            {% endif %}
+
+            <div class="form-grid">
+                {% for field in form.main_fields %}
+                    <div class="form-group">
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.help_text %}
+                            <small>{{ field.help_text }}</small>
+                        {% endif %}
+                        {% for error in field.errors %}
+                            <span class="field-error">{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Sell from batches</h2>
+                    <p data-pick-product>Pick a product above to see its batches.</p>
+                    <p data-batch-summary hidden>
+                        Soonest-to-expire first. Total to sell: <strong data-sale-total>0</strong>
+                    </p>
+                </div>
+            </div>
+
+            <div class="table-wrapper" data-batch-table hidden>
+                <table class="input-table">
+                    <thead>
+                        <tr>
+                            <th>Batch</th>
+                            <th>Inventory</th>
+                            <th>Warehouse</th>
+                            <th>Expiry</th>
+                            <th>Available</th>
+                            <th>Quantity to Sell</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for batch, qty_field in form.batch_rows %}
+                            <tr data-batch-row data-product="{{ batch.product_id }}">
+                                <td class="nowrap">{{ batch.batch_number|default:"No batch number" }}</td>
+                                <td>{{ batch.location.distributor_inventory.name|default:"—" }}</td>
+                                <td>{{ batch.location.name }}</td>
+                                <td>
+                                    {% if batch.expiry_date %}
+                                        {{ batch.expiry_date|date:"M d, Y" }}
+                                    {% else %}
+                                        <span class="badge badge-pending">No expiry set</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ batch.quantity_remaining }}</td>
+                                <td>
+                                    {{ qty_field }}
+                                    {% for error in qty_field.errors %}
+                                        <span class="field-error">{{ error }}</span>
+                                    {% endfor %}
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="form-actions panel-body">
+                <button class="button button-primary" type="submit">
+                    Record Sale
+                </button>
+            </div>
+        </section>
+    </form>
+
+    <script>
+    (function () {
+        const product = document.getElementById("{{ form.product.id_for_label }}");
+        const rows = document.querySelectorAll("[data-batch-row]");
+        const table = document.querySelector("[data-batch-table]");
+        const pick = document.querySelector("[data-pick-product]");
+        const summary = document.querySelector("[data-batch-summary]");
+        const total = document.querySelector("[data-sale-total]");
+
+        function refresh() {
+            const chosen = product.value;
+            let sum = 0;
+
+            rows.forEach(function (row) {
+                const input = row.querySelector("input");
+                const show = row.dataset.product === chosen;
+                row.hidden = !show;
+                if (!show) {
+                    // Only the chosen product's batches are sold.
+                    input.value = "0";
+                }
+                sum += parseFloat(input.value) || 0;
+            });
+
+            table.hidden = !chosen;
+            summary.hidden = !chosen;
+            pick.hidden = Boolean(chosen);
+            total.textContent = sum.toLocaleString("en-US", { maximumFractionDigits: 4 });
+        }
+
+        product.addEventListener("change", refresh);
+        table.addEventListener("input", refresh);
+        refresh();
+    })();
+    </script>
+{% endif %}
+{% endblock %}

@@ -48,7 +48,6 @@ INSTALLED_APPS = [
     # Business applications
     "apps.owners.apps.OwnersConfig",
     "apps.distributors.apps.DistributorsConfig",
-    "apps.customers.apps.CustomersConfig",
     "apps.batches.apps.BatchesConfig",
     "apps.manufacturers.apps.ManufacturersConfig",
     "apps.products.apps.ProductsConfig",

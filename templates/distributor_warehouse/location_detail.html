@@ -45,20 +45,30 @@
                     <th>Product</th>
                     <th>SKU</th>
                     <th>Batch</th>
+                    <th>Received</th>
+                    <th>Expiry</th>
                     <th>Quantity</th>
                 </tr>
             </thead>
             <tbody>
-                {% for balance in balances %}
+                {% for batch in batches %}
                     <tr>
-                        <td>{{ balance.product.name }}</td>
-                        <td>{{ balance.product.sku }}</td>
-                        <td>{{ balance.batch_codes|join:", "|default:"—" }}</td>
-                        <td>{{ balance.quantity }}</td>
+                        <td>{{ batch.product.name }}</td>
+                        <td>{{ batch.product.sku }}</td>
+                        <td class="nowrap">{{ batch.batch_number|default:"No batch number" }}</td>
+                        <td>{{ batch.received_date|date:"M d, Y" }}</td>
+                        <td>
+                            {% if batch.expiry_date %}
+                                {{ batch.expiry_date|date:"M d, Y" }}
+                            {% else %}
+                                <span class="badge badge-pending">No expiry set</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ batch.quantity_remaining }}</td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="4" class="empty-table">
+                        <td colspan="6" class="empty-table">
                             No stock recorded here yet.
                         </td>
                     </tr>
@@ -71,7 +81,7 @@
 <details class="info-disclosure">
     <summary class="button button-secondary">ⓘ Warehouse Info</summary>
 
-    <div class="content-grid" style="margin-top: 16px;">
+    <div class="content-grid" style="margin-top: 1rem;">
         <section class="panel">
             <h2>Warehouse configuration</h2>
 

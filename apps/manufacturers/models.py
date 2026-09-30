@@ -6,6 +6,7 @@ from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.models import AuditedModel
+from apps.core.payments import AdvanceFinalPaymentsMixin, PaymentKind
 from apps.core.querysets import OwnerManagedQuerySet
 
 
@@ -52,7 +53,7 @@ class Manufacturer(AuditedModel):
         return self.name
 
 
-class ManufacturerOrder(AuditedModel):
+class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
     class Status(models.TextChoices):
         SENT = "SENT", "Sent"
         RECEIVED = "RECEIVED", "Received"
@@ -118,6 +119,14 @@ class ManufacturerOrder(AuditedModel):
     invoice_number = models.CharField(max_length=100, blank=True)
 
     invoice_approved_at = models.DateTimeField(null=True, blank=True)
+    pays_advance = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The Owner's answer to \"Are you paying in advance?\" right "
+            "after placing the order. Blank until answered."
+        ),
+    )
 
     invoice_approved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -231,7 +240,13 @@ class ManufacturerOrderItem(AuditedModel):
 class ManufacturerOrderPayment(AuditedModel):
     """Owner-entered only — the Manufacturer isn't a system user, so
     there's no separate claim/confirm step like with Distributor
-    payments. What the Owner enters here is authoritative."""
+    payments. What the Owner enters here is authoritative.
+
+    An order is paid for in up to two parts: an ADVANCE right after the
+    order is placed and a FINAL payment for whatever is left once the
+    goods arrive — either part can be the whole amount or nothing."""
+
+    Kind = PaymentKind
 
     order = models.ForeignKey(
         ManufacturerOrder,
@@ -247,10 +262,26 @@ class ManufacturerOrderPayment(AuditedModel):
 
     paid_at = models.DateField()
 
+    kind = models.CharField(
+        max_length=10,
+        choices=Kind.choices,
+        default=Kind.FINAL,
+    )
+
+    proof = models.FileField(
+        upload_to="manufacturer_order_payments/",
+        null=True,
+        blank=True,
+        help_text=(
+            "Bank slip, screenshot, etc. Required for every new payment; "
+            "only blank on payments recorded before proofs existed."
+        ),
+    )
+
     note = models.CharField(max_length=255, blank=True)
 
     class Meta:
-        ordering = ["-paid_at"]
+        ordering = ["paid_at", "created_at"]
 
     def __str__(self):
-        return f"{self.order.po_number} - {self.amount}"
+        return f"{self.order.po_number} - {self.get_kind_display()} - {self.amount}"

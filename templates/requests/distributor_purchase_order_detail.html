@@ -52,7 +52,6 @@
                     <th>Unit Price</th>
                     <th>Shipped</th>
                     <th>Received</th>
-                    <th>Confirm receipt</th>
                 </tr>
             </thead>
 
@@ -64,44 +63,41 @@
                         <td>{{ item.unit_price|money }}</td>
                         <td>{{ item.quantity_shipped }}</td>
                         <td>{{ item.quantity_received }}</td>
-                        <td>
-                            {% if item.quantity_to_receive_remaining > 0 %}
-                                <form
-                                    method="post"
-                                    action="{% url 'purchase-order-item-receive' purchase_order.pk item.pk %}"
-                                    class="inline-form"
-                                >
-                                    {% csrf_token %}
-
-                                    <input
-                                        type="number"
-                                        name="quantity"
-                                        step="0.0001"
-                                        min="0.0001"
-                                        max="{{ item.quantity_to_receive_remaining }}"
-                                        placeholder="Qty"
-                                        required
-                                    >
-
-                                    <button class="button button-primary button-small" type="submit">
-                                        Received
-                                    </button>
-                                </form>
-                            {% else %}
-                                &mdash;
-                            {% endif %}
-                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+
+    {% if purchase_order.status == "PENDING" and purchase_order.pays_advance is None or purchase_order.awaiting_receipt %}
+        <div class="panel-actions">
+            {% if purchase_order.status == "PENDING" and purchase_order.pays_advance is None %}
+                <a class="button button-secondary" href="{% url 'distributor-purchase-order-advance' purchase_order.pk %}">
+                    Answer Advance Payment
+                </a>
+            {% endif %}
+            {% if purchase_order.awaiting_receipt %}
+                <a class="button button-primary" href="{% url 'distributor-purchase-order-receive' purchase_order.pk %}">
+                    Order Received
+                </a>
+            {% endif %}
+        </div>
+        <p class="stat-detail panel-note">
+            {% if purchase_order.awaiting_receipt %}
+                The Owner has shipped this order. When it arrives, confirm what came
+                and record the remaining payment, all on one page.
+            {% else %}
+                Tell the Owner whether you're paying anything up front.
+            {% endif %}
+        </p>
+    {% endif %}
 </section>
 
 <section class="panel">
     <div class="panel-header">
         <div>
-            <h2>Totals</h2>
+            <h2>Totals &amp; Payments</h2>
+            <p>{{ purchase_order.payment_scenario }}</p>
         </div>
     </div>
 
@@ -109,12 +105,37 @@
         <div><dt>Subtotal</dt><dd>{{ purchase_order.subtotal|money }}</dd></div>
         <div><dt>Tax ({{ purchase_order.tax_percentage }}%)</dt><dd>{{ purchase_order.tax_amount|money }}</dd></div>
         <div><dt>Shipping</dt><dd>{{ purchase_order.shipping_amount|money }}</dd></div>
-        <div><dt>Grand Total</dt><dd>{{ purchase_order.grand_total|money }}</dd></div>
-        <div><dt>Confirmed Paid</dt><dd>{{ purchase_order.total_paid|money }}</dd></div>
+        <div><dt>Order total</dt><dd>{{ purchase_order.grand_total|money }}</dd></div>
+        <div>
+            <dt>Advance paid</dt>
+            <dd>
+                {% if purchase_order.pays_advance is None and not purchase_order.advance_paid %}
+                    Not answered yet
+                {% elif purchase_order.advance_paid %}
+                    {{ purchase_order.advance_paid|money }} ({{ purchase_order.advance_percentage }}%)
+                {% else %}
+                    No advance
+                {% endif %}
+            </dd>
+        </div>
+        <div>
+            <dt>Final payment</dt>
+            <dd>
+                {% if purchase_order.final_paid %}
+                    {{ purchase_order.final_paid|money }} ({{ purchase_order.final_percentage }}%)
+                {% elif purchase_order.remaining_amount > 0 %}
+                    Not paid yet
+                {% else %}
+                    Not needed
+                {% endif %}
+            </dd>
+        </div>
+        <div><dt>Remaining to pay</dt><dd>{{ purchase_order.remaining_amount|money }}</dd></div>
+        <div><dt>Confirmed by Owner</dt><dd>{{ purchase_order.total_paid|money }}</dd></div>
     </dl>
 
-    {% if purchase_order.distributor_profile.upfront_payment_percentage > 0 and not purchase_order.upfront_amount_satisfied %}
-        <p class="field-error">
+    {% if purchase_order.distributor_profile.upfront_payment_percentage > 0 and not purchase_order.upfront_amount_satisfied and purchase_order.status == "PENDING" %}
+        <p class="field-error panel-note">
             Your terms require {{ purchase_order.distributor_profile.upfront_payment_percentage }}%
             ({{ purchase_order.required_upfront_amount|money }}) confirmed paid before the Owner will ship.
         </p>
@@ -125,75 +146,85 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Date</th>
+                        <th>Payment</th>
+                        <th>Date Paid</th>
                         <th>Amount</th>
-                        <th>Note</th>
+                        <th>Share of Total</th>
                         <th>Proof</th>
                         <th>Status</th>
+                        <th>Note</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for payment in purchase_order.payments.all %}
                         <tr>
-                            <td>{{ payment.paid_at }}</td>
+                            <td>
+                                <span class="badge {% if payment.kind == 'ADVANCE' %}badge-pending{% else %}badge-open{% endif %}">
+                                    {{ payment.get_kind_display }}
+                                </span>
+                            </td>
+                            <td>{{ payment.paid_at|date:"M d, Y" }}</td>
                             <td>{{ payment.amount|money }}</td>
-                            <td>{{ payment.note|default:"—" }}</td>
-                            <td><a href="{{ payment.proof.url }}" target="_blank">View</a></td>
+                            <td>{% widthratio payment.amount purchase_order.grand_total 100 %}%</td>
+                            <td><a href="{{ payment.proof.url }}" target="_blank" rel="noopener">View proof</a></td>
                             <td>
                                 {% if payment.status == "PENDING" %}
-                                    <span class="badge badge-pending">Pending confirmation</span>
+                                    <span class="badge badge-pending">Awaiting Owner</span>
                                 {% elif payment.status == "CONFIRMED" %}
                                     <span class="badge badge-open">Confirmed</span>
                                 {% else %}
-                                    <span class="badge badge-closed" title="{{ payment.rejection_reason }}">Rejected</span>
+                                    <span class="badge badge-closed">Rejected</span>
+                                    <small class="table-secondary">{{ payment.rejection_reason }}</small>
                                 {% endif %}
                             </td>
+                            <td>{{ payment.note|default:"—" }}</td>
                         </tr>
                     {% endfor %}
                 </tbody>
             </table>
         </div>
     {% endif %}
-</section>
 
-{% if not purchase_order.is_fully_paid %}
-    <section class="panel form-panel">
-        <h2>Record a Payment</h2>
-        <p>Enter what you paid and upload proof (bank slip, screenshot, etc.).</p>
-
+    {% if purchase_order.pays_advance is not None and purchase_order.remaining_amount > 0 and purchase_order.status != "DECLINED" %}
         <form
             method="post"
             action="{% url 'purchase-order-record-payment' purchase_order.pk %}"
-            class="form-layout"
+            class="form-layout panel-body"
             enctype="multipart/form-data"
         >
             {% csrf_token %}
-
+            <h3>
+                {% if purchase_order.status == "PENDING" %}
+                    Pay advance
+                {% else %}
+                    Record remaining payment
+                {% endif %}
+            </h3>
             <div class="form-grid">
                 <div class="form-group">
-                    <label>Amount</label>
+                    <label for="{{ payment_form.amount.id_for_label }}">Amount</label>
                     {{ payment_form.amount }}
+                    <small>{{ purchase_order.remaining_amount|money }} left to pay.</small>
                 </div>
                 <div class="form-group">
-                    <label>Date paid</label>
+                    <label for="{{ payment_form.paid_at.id_for_label }}">Date paid</label>
                     {{ payment_form.paid_at }}
                 </div>
                 <div class="form-group">
-                    <label>Proof</label>
+                    <label for="{{ payment_form.proof.id_for_label }}">Payment proof</label>
                     {{ payment_form.proof }}
                 </div>
                 <div class="form-group">
-                    <label>Note</label>
+                    <label for="{{ payment_form.note.id_for_label }}">Note</label>
                     {{ payment_form.note }}
                 </div>
             </div>
-
             <div class="form-actions">
                 <button class="button button-primary" type="submit">
                     Record Payment
                 </button>
             </div>
         </form>
-    </section>
-{% endif %}
+    {% endif %}
+</section>
 {% endblock %}

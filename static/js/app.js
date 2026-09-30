@@ -84,7 +84,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
     initializeFiscalPeriodModal();
     initializeDynamicFormsets();
+    initializeSettingsMenu();
 });
+
+
+function initializeSettingsMenu() {
+    const menu = document.querySelector("[data-settings-menu]");
+
+    if (!menu) {
+        return;
+    }
+
+    const toggle = menu.querySelector("[data-settings-toggle]");
+    const dropdown = menu.querySelector("[data-settings-dropdown]");
+
+    function setOpen(open) {
+        dropdown.hidden = !open;
+        toggle.setAttribute("aria-expanded", String(open));
+    }
+
+    toggle.addEventListener("click", () => {
+        setOpen(dropdown.hidden);
+    });
+
+    document.addEventListener("click", (event) => {
+        if (!menu.contains(event.target)) {
+            setOpen(false);
+        }
+    });
+
+    document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && !dropdown.hidden) {
+            setOpen(false);
+            toggle.focus();
+        }
+    });
+}
 
 
 function initializeDynamicFormsets() {

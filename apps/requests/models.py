@@ -5,11 +5,17 @@ from django.core.validators import MinValueValidator
 from django.db import models
 
 from apps.core.models import AuditedModel
+from apps.core.payments import AdvanceFinalPaymentsMixin, PaymentKind
 
 from .querysets import PurchaseOrderQuerySet
 
 
-class PurchaseOrder(AuditedModel):
+class PurchaseOrder(AdvanceFinalPaymentsMixin, AuditedModel):
+    """A Distributor asking the Owner for stock. Paid for the same way as
+    an order to a Manufacturer — an optional advance right after placing
+    it, and the rest once the goods arrive (see apps.core.payments) —
+    except the Owner has to confirm each payment actually landed."""
+
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
         SHIPPED = "SHIPPED", "Shipped"
@@ -43,6 +49,14 @@ class PurchaseOrder(AuditedModel):
         validators=[MinValueValidator(Decimal("0"))],
     )
     invoiced_at = models.DateTimeField(null=True, blank=True)
+    pays_advance = models.BooleanField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The Distributor's answer to \"Are you paying in advance?\" "
+            "right after placing the order. Blank until answered."
+        ),
+    )
     owner_viewed_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -88,6 +102,21 @@ class PurchaseOrder(AuditedModel):
     @property
     def is_fully_paid(self):
         return self.total_paid >= self.grand_total
+
+    def counted_payments(self):
+        """Payments still standing — confirmed or awaiting the Owner's
+        confirmation. A rejected one no longer counts toward what's been
+        paid, so the Distributor can pay that part again."""
+        return [
+            payment
+            for payment in self.payments.all()
+            if payment.status != PurchaseOrderPayment.Status.REJECTED
+        ]
+
+    @property
+    def awaiting_receipt(self):
+        """Anything shipped that the Distributor hasn't confirmed yet."""
+        return any(item.quantity_to_receive_remaining > 0 for item in self.items.all())
 
     @property
     def required_upfront_amount(self):
@@ -167,6 +196,8 @@ class PurchaseOrderItem(AuditedModel):
 
 
 class PurchaseOrderPayment(AuditedModel):
+    Kind = PaymentKind
+
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending confirmation"
         CONFIRMED = "CONFIRMED", "Confirmed"
@@ -187,6 +218,12 @@ class PurchaseOrderPayment(AuditedModel):
     paid_at = models.DateField()
 
     proof = models.FileField(upload_to="purchase_order_payments/")
+
+    kind = models.CharField(
+        max_length=10,
+        choices=PaymentKind.choices,
+        default=PaymentKind.FINAL,
+    )
 
     note = models.CharField(max_length=255, blank=True)
 

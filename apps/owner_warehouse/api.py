@@ -44,7 +44,7 @@ class LocationListCreateAPIView(APIView):
         locations = (
             Location.objects
             .for_user(request.user)
-            .select_related("manufacturer", "customer")
+            .select_related("manufacturer")
         )
 
         return Response(

@@ -419,7 +419,7 @@ def _get_or_create_transit_location(*, actor):
 
 @transaction.atomic
 def ship_stock_to_transit(
-    *, actor, product, quantity, from_location, batch, reference=""
+    *, actor, product, quantity, from_location, batch, reference="", shipped_for=None
 ):
     """What a Purchase Order's "Ship" action calls: stock leaves one of the
     Owner's own warehouses but isn't credited to the Distributor yet — it
@@ -457,6 +457,7 @@ def ship_stock_to_transit(
         product=product,
         location=transit,
         source_batch=batch.source_batch,
+        shipped_for=shipped_for,
         batch_number=batch.batch_number,
         received_date=batch.received_date,
         expiry_date=batch.expiry_date,
@@ -473,7 +474,9 @@ def ship_stock_to_transit(
 
 
 @transaction.atomic
-def release_stock_from_transit(*, actor, product, quantity, reference=""):
+def release_stock_from_transit(
+    *, actor, product, quantity, reference="", shipped_for=None
+):
     """What a Purchase Order's "Received" action calls: draws down the
     specific Transit batch(es) for this product (FEFO — a receipt can
     span more than one, if separate shipments landed there), closing out
@@ -496,6 +499,11 @@ def release_stock_from_transit(*, actor, product, quantity, reference=""):
         .available()
         .fefo_ordered()
     )
+
+    # Only the lots shipped on this order line — every batch keeps its own
+    # identity, so another order's lot of the same product is never used.
+    if shipped_for is not None:
+        transit_batches = transit_batches.filter(shipped_for=shipped_for)
 
     remaining = quantity
     consumed = []

@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Batch Trace
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Traceability</p>
+        <h1>Batch Trace</h1>
+        <p>
+            Follow one batch from the Manufacturer through your warehouses and
+            each Distributor, up to the sub-distributor it was sold to.
+        </p>
+    </div>
+</div>
+
+<section class="panel form-panel">
+    <form method="get" class="form-layout">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="trace-code">Batch code</label>
+                <input
+                    id="trace-code"
+                    type="search"
+                    name="code"
+                    value="{{ code }}"
+                    list="known-batch-codes"
+                    placeholder="e.g. BOR-ASH-001"
+                    required
+                >
+                <datalist id="known-batch-codes">
+                    {% for known in known_codes %}
+                        <option value="{{ known }}"></option>
+                    {% endfor %}
+                </datalist>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                Trace
+            </button>
+        </div>
+    </form>
+</section>
+
+{% if trace %}
+    {% if not trace.found %}
+        <section class="panel">
+            <p class="empty-table">No batch with the code "{{ trace.code }}" was found.</p>
+        </section>
+    {% else %}
+        {% if trace.batch %}
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>{{ trace.batch.code }}</h2>
+                        <p>{{ trace.batch.manufacturer_order_item.product.name }} ({{ trace.batch.manufacturer_order_item.product.sku }})</p>
+                    </div>
+                </div>
+
+                <dl class="details-list">
+                    <div>
+                        <dt>Manufacturer</dt>
+                        <dd>{{ trace.batch.manufacturer_order_item.order.manufacturer.name }}</dd>
+                    </div>
+
+                    <div>
+                        <dt>Manufacturer order</dt>
+                        <dd>{{ trace.batch.manufacturer_order_item.order.po_number }}</dd>
+                    </div>
+
+                    <div>
+                        <dt>Status</dt>
+                        <dd>{{ trace.batch.get_status_display }}</dd>
+                    </div>
+
+                    <div>
+                        <dt>Received from manufacturer</dt>
+                        <dd>{{ trace.batch.received_at|date:"M d, Y H:i"|default:"—" }}</dd>
+                    </div>
+
+                    <div>
+                        <dt>Expiry</dt>
+                        <dd>{{ trace.batch.expiry_date|date:"M d, Y"|default:"—" }}</dd>
+                    </div>
+                </dl>
+            </section>
+        {% endif %}
+
+        <div class="stats-grid">
+            {% if trace.totals.ordered is not None %}
+                <article class="stat-card">
+                    <span class="stat-label">Ordered</span>
+                    <strong>{{ trace.totals.ordered }}</strong>
+                    <span class="stat-detail">From the manufacturer</span>
+                </article>
+            {% endif %}
+
+            <article class="stat-card">
+                <span class="stat-label">Received by Owner</span>
+                <strong>{{ trace.totals.received_by_owner }}</strong>
+                <span class="stat-detail">Into your warehouses</span>
+            </article>
+
+            <article class="stat-card">
+                <span class="stat-label">Owner on Hand</span>
+                <strong>{{ trace.totals.owner_on_hand }}</strong>
+                <span class="stat-detail">Still in your warehouses</span>
+            </article>
+
+            <article class="stat-card">
+                <span class="stat-label">In Transit</span>
+                <strong>{{ trace.totals.in_transit }}</strong>
+                <span class="stat-detail">Shipped, not yet received</span>
+            </article>
+
+            <article class="stat-card">
+                <span class="stat-label">Received by Distributors</span>
+                <strong>{{ trace.totals.received_by_distributors }}</strong>
+                <span class="stat-detail">All distributors</span>
+            </article>
+
+            <article class="stat-card">
+                <span class="stat-label">Distributors on Hand</span>
+                <strong>{{ trace.totals.distributor_on_hand }}</strong>
+                <span class="stat-detail">Not yet sold on</span>
+            </article>
+
+            <article class="stat-card">
+                <span class="stat-label">Sold to Sub-Distributors</span>
+                <strong>{{ trace.totals.sold_to_sub_distributors }}</strong>
+                <span class="stat-detail">End of the traced chain</span>
+            </article>
+        </div>
+
+        {% if trace.distributors %}
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>By distributor</h2>
+                    </div>
+                </div>
+
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Distributor</th>
+                                <th>Received</th>
+                                <th>On Hand</th>
+                                <th>Sold to Sub-Distributors</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            {% for row in trace.distributors %}
+                                <tr>
+                                    <td>{{ row.name }}</td>
+                                    <td>{{ row.received }}</td>
+                                    <td>{{ row.on_hand }}</td>
+                                    <td>{{ row.sold }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        {% endif %}
+
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>Journey</h2>
+                    <p>Every recorded step for this batch, oldest first.</p>
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date and Time</th>
+                            <th>Step</th>
+                            <th>From</th>
+                            <th>To</th>
+                            <th>Quantity</th>
+                            <th>By</th>
+                            <th>Reference</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for event in trace.events %}
+                            <tr>
+                                <td>{{ event.at|date:"M d, Y H:i:s" }}</td>
+                                <td>
+                                    <span class="badge badge-neutral">{{ event.stage }}</span>
+                                </td>
+                                <td>{{ event.from_label }}</td>
+                                <td>{{ event.to_label }}</td>
+                                <td>{{ event.quantity }}</td>
+                                <td>{{ event.by|default:"—" }}</td>
+                                <td>{{ event.reference|default:"—" }}</td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="7" class="empty-table">
+                                    Nothing recorded for this batch yet.
+                                </td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    {% endif %}
+{% endif %}
+{% endblock %}

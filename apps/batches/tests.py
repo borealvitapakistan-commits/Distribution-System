@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.test import TestCase
+from django.test import Client, TestCase
 
 from apps.accounts.models import User
 from apps.core.models import Brand
@@ -150,3 +150,167 @@ class BatchLifecycleTests(TestCase):
         )
         item = order.items.get()
         self.assertTrue(item.batch.code.startswith("GEN-ASH-"))
+
+
+class BatchTraceTests(TestCase):
+    """One lot followed end to end: ordered from the Manufacturer,
+    received and placed by the Owner, given to a Distributor, placed in
+    their warehouse and sold on to a sub-distributor."""
+
+    def setUp(self):
+        from apps.distributor_inventory.models import DistributorStockBatch
+        from apps.distributor_inventory.services import (
+            reallocate_batch as distributor_reallocate_batch,
+            sell_to_sub_distributor,
+        )
+        from apps.distributor_warehouse.models import DistributorLocation
+        from apps.distributor_warehouse.services import (
+            create_inventory as create_distributor_inventory,
+            create_location as create_distributor_location,
+        )
+        from apps.distributors.models import DistributorProfile
+        from apps.distributors.services import approve_distributor, create_distributor
+        from apps.owner_inventory.models import StockBatch
+        from apps.owner_inventory.services import give_to_distributor, reallocate_batch
+        from apps.owner_warehouse.models import Location
+        from apps.owner_warehouse.services import create_inventory, create_location
+
+        self.owner = User.objects.create_user(
+            email="owner@trace.test",
+            password="OwnerPassword123!",
+            role=User.Role.OWNER,
+            is_active=True,
+        )
+        brand = Brand.objects.create(name="Boreal Vita")
+        manufacturer = create_manufacturer(actor=self.owner, name="Trace Manufacturer")
+        product = create_product(
+            actor=self.owner,
+            sku="TRACE-A",
+            barcode="",
+            name="Ashwagandha Root Extract",
+            base_retail_price=Decimal("100.00"),
+            currency="pkr",
+        )
+        order = create_manufacturer_order(
+            actor=self.owner,
+            manufacturer=manufacturer,
+            brand=brand,
+            items=[{"product": product, "quantity": Decimal("100"), "unit_price": Decimal("60.00")}],
+        )
+        self.batch = order.items.get().batch
+        mark_manufacturer_order_received(actor=self.owner, order_id=order.pk)
+        record_manufacturer_invoice(actor=self.owner, order_id=order.pk, item_prices={})
+
+        region = create_inventory(actor=self.owner, code="TR-1", name="Trace Region")
+        warehouse = create_location(
+            actor=self.owner,
+            code="TR-WH",
+            name="Owner Main Warehouse",
+            location_type=Location.LocationType.OWN,
+            inventory=region,
+        )
+        owner_warehouse_batch = reallocate_batch(
+            actor=self.owner,
+            batch=StockBatch.objects.get(source_batch=self.batch),
+            quantity=Decimal("100"),
+            destination_location=warehouse,
+        )
+
+        distributor_user = create_distributor(
+            actor=self.owner,
+            email="dist@trace.test",
+            temporary_password="TemporaryPassword123!",
+            name="Lahore Distributors",
+        )
+        approve_distributor(user=self.owner, distributor_id=distributor_user.pk)
+        distributor_user.refresh_from_db()
+        profile = DistributorProfile.objects.get(user=distributor_user)
+
+        give_to_distributor(
+            actor=self.owner,
+            product=product,
+            quantity=Decimal("40"),
+            from_location=warehouse,
+            distributor_profile=profile,
+            batch=owner_warehouse_batch,
+        )
+
+        distributor_region = create_distributor_inventory(
+            actor=distributor_user, code="LHR", name="Lahore"
+        )
+        distributor_warehouse = create_distributor_location(
+            actor=distributor_user,
+            code="LHR-WH1",
+            name="Gulberg Warehouse",
+            location_type=DistributorLocation.LocationType.WAREHOUSE,
+            distributor_inventory=distributor_region,
+        )
+        placed = distributor_reallocate_batch(
+            actor=distributor_user,
+            distributor_profile=profile,
+            batch=DistributorStockBatch.objects.get(distributor_profile=profile),
+            quantity=Decimal("40"),
+            destination_location=distributor_warehouse,
+        )
+        sell_to_sub_distributor(
+            actor=distributor_user,
+            distributor_profile=profile,
+            sub_distributor_name="Ali Traders",
+            batch=placed,
+            quantity=Decimal("15"),
+        )
+
+    def test_trace_follows_the_batch_to_the_sub_distributor(self):
+        from .services import trace_batch_code
+
+        trace = trace_batch_code(self.batch.code.lower())
+
+        self.assertTrue(trace["found"])
+        self.assertEqual(trace["batch"], self.batch)
+        self.assertEqual(
+            trace["totals"],
+            {
+                "ordered": Decimal("100"),
+                "received_by_owner": Decimal("100"),
+                "owner_on_hand": Decimal("60"),
+                "in_transit": Decimal("0"),
+                "received_by_distributors": Decimal("40"),
+                "distributor_on_hand": Decimal("25"),
+                "sold_to_sub_distributors": Decimal("15"),
+            },
+        )
+
+        stages = [event.stage for event in trace["events"]]
+        self.assertEqual(stages[0], "Owner → Manufacturer (ordered)")
+        self.assertEqual(stages[-1], "Distributor → Sub-distributor (sold)")
+        self.assertIn("Manufacturer → Owner (received)", stages)
+        self.assertIn("Owner → Distributor (received)", stages)
+
+        sale = trace["events"][-1]
+        self.assertEqual(sale.to_label, "Ali Traders")
+        self.assertEqual(sale.from_label, "Lahore Distributors — Gulberg Warehouse")
+
+        [row] = trace["distributors"]
+        self.assertEqual(
+            (row.name, row.received, row.on_hand, row.sold),
+            ("Lahore Distributors", Decimal("40"), Decimal("25"), Decimal("15")),
+        )
+
+    def test_owner_trace_page_shows_the_journey(self):
+        client = Client()
+        client.force_login(self.owner)
+
+        response = client.get("/owner/inventory/trace/", {"code": self.batch.code})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ali Traders")
+        self.assertContains(response, "Lahore Distributors")
+        self.assertContains(response, "Trace Manufacturer")
+
+    def test_unknown_code_reports_not_found(self):
+        client = Client()
+        client.force_login(self.owner)
+
+        response = client.get("/owner/inventory/trace/", {"code": "NOPE-000"})
+
+        self.assertContains(response, "No batch with the code")

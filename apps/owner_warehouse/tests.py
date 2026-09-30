@@ -4,7 +4,6 @@ from django.core.exceptions import ValidationError
 from django.test import Client, TestCase
 
 from apps.accounts.models import User
-from apps.customers.services import create_customer
 from apps.distributors.services import approve_distributor, create_distributor
 from apps.owner_inventory.models import StockBatch
 from apps.owner_inventory.services import (
@@ -33,10 +32,6 @@ class WarehouseRulesTests(TestCase):
             actor=self.owner,
             name="Warehouse Manufacturer",
         )
-        self.customer = create_customer(
-            actor=self.owner,
-            name="Warehouse Customer",
-        )
         self.inventory = create_inventory(
             actor=self.owner, code="WH-TEST-INV", name="Test Region"
         )
@@ -45,7 +40,6 @@ class WarehouseRulesTests(TestCase):
         cases = [
             ("OWN", {"inventory": self.inventory}, (True, True, True)),
             ("SUPPLIER", {"manufacturer": self.manufacturer}, (False, False, False)),
-            ("CUSTOMER", {}, (False, False, False)),
         ]
 
         for index, (location_type, links, expected) in enumerate(cases):
@@ -65,9 +59,10 @@ class WarehouseRulesTests(TestCase):
         with self.assertRaises(ValidationError):
             create_location(
                 actor=self.owner,
-                code="BAD-CUSTOMER",
-                name="Wrong Customer Location",
-                location_type=Location.LocationType.CUSTOMER,
+                code="BAD-OWN",
+                name="Owned Location With Manufacturer",
+                location_type=Location.LocationType.OWN,
+                inventory=self.inventory,
                 manufacturer=self.manufacturer,
             )
 
@@ -165,7 +160,6 @@ class LocationFormWiringTests(TestCase):
 
         response = client.get("/owner/warehouse/locations/new/")
         self.assertNotContains(response, 'name="manufacturer"')
-        self.assertNotContains(response, 'name="customer"')
 
         response = client.post(
             "/owner/warehouse/locations/new/",

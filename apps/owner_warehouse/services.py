@@ -89,11 +89,6 @@ def location_payload(location):
             if location.manufacturer_id
             else None
         ),
-        "customer_id": (
-            str(location.customer_id)
-            if location.customer_id
-            else None
-        ),
         "on_book": location.on_book,
         "is_physical": location.is_physical,
         "is_sellable": location.is_sellable,
@@ -127,11 +122,6 @@ def normalize_location_flags(data):
             False,
         ),
         Location.LocationType.SUPPLIER: (
-            False,
-            False,
-            False,
-        ),
-        Location.LocationType.CUSTOMER: (
             False,
             False,
             False,

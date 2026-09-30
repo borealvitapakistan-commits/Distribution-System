@@ -1,13 +1,16 @@
+import uuid
 from datetime import date
 from decimal import Decimal, InvalidOperation
-
 from django.core.exceptions import ValidationError
 from django.db import transaction
-
 from apps.accounts.services import require_approved_distributor
 from apps.audit.services import record_audit_event
-
-from .models import DistributorStockBalance, DistributorStockBatch, DistributorStockMovement
+from .models import (
+    DistributorStockBalance,
+    DistributorStockBatch,
+    DistributorStockMovement,
+    SubDistributorSale,
+)
 
 
 def _as_decimal(quantity):
@@ -344,3 +347,186 @@ def receive_stock(
         batch=batch,
         require_distributor_actor=require_distributor_actor,
     )
+
+
+@transaction.atomic
+def sell_to_sub_distributor(
+    *,
+    actor,
+    distributor_profile,
+    sub_distributor_name,
+    batch,
+    quantity,
+    sale_date=None,
+    note="",
+    payment_proof=None,
+    sale_group=None,
+):
+    """Records that the Distributor gave stock from one specific batch to
+    a sub-distributor and takes it out of that batch's warehouse with a
+    single SOLD movement — so every unit handed on traces back to its
+    batch code, and through it to the Owner and the Manufacturer. This is
+    the last traced hop: nothing past the sub-distributor is tracked."""
+    from apps.distributor_warehouse.models import DistributorLocation
+
+    require_approved_distributor(actor)
+
+    if actor.distributor_profile.pk != distributor_profile.pk:
+        raise ValidationError("You can only sell your own warehouse stock.")
+
+    if batch is None:
+        raise ValidationError("A batch to sell from is required.")
+
+    batch = DistributorStockBatch.objects.select_for_update().get(pk=batch.pk)
+    from_location = batch.location
+
+    if batch.distributor_profile_id != distributor_profile.pk:
+        raise ValidationError("That batch belongs to a different distributor.")
+
+    if from_location.location_type != DistributorLocation.LocationType.WAREHOUSE:
+        raise ValidationError(
+            "Stock can only be sold from a warehouse — allocate it first."
+        )
+
+    quantity = _as_decimal(quantity)
+
+    if quantity <= 0:
+        raise ValidationError("Quantity must be greater than zero.")
+
+    if batch.quantity_remaining < quantity:
+        raise ValidationError(
+            f"Only {batch.quantity_remaining} remaining in batch "
+            f"{batch.batch_number or 'without a number'} at {from_location.name}."
+        )
+
+    sale = SubDistributorSale(
+        distributor_profile=distributor_profile,
+        sub_distributor_name=sub_distributor_name,
+        product=batch.product,
+        from_location=from_location,
+        batch=batch,
+        quantity=quantity,
+        sale_date=sale_date or date.today(),
+        note=note,
+        payment_proof=payment_proof or None,
+        sale_group=sale_group,
+        created_by=actor,
+        updated_by=actor,
+    )
+    sale.full_clean()
+    sale.save()
+
+    post_stock_movement(
+        actor=actor,
+        distributor_profile=distributor_profile,
+        product=batch.product,
+        quantity=quantity,
+        movement_type=DistributorStockMovement.MovementType.SOLD,
+        from_location=from_location,
+        reference=f"Sold to {sale.sub_distributor_name}",
+        batch=batch,
+    )
+
+    record_audit_event(
+        user=actor,
+        action="distributor_inventory.sub_distributor_sale_recorded",
+        instance=sale,
+        after_data={
+            "distributor_profile_id": str(distributor_profile.pk),
+            "sub_distributor_name": sale.sub_distributor_name,
+            "product_id": str(batch.product_id),
+            "from_location_id": str(from_location.pk),
+            "batch_id": str(batch.pk),
+            "batch_number": batch.batch_number,
+            "quantity": str(quantity),
+            "sale_date": str(sale.sale_date),
+        },
+        reason=note,
+    )
+
+    return sale
+
+
+@transaction.atomic
+def sell_batches_to_sub_distributor(
+    *,
+    actor,
+    distributor_profile,
+    sub_distributor_name,
+    allocations,
+    sale_date=None,
+    note="",
+    payment_proof=None,
+):
+    """One hand-off to a sub-distributor split across several batches —
+    allocations: [(batch, quantity), ...]. Each batch becomes its own
+    sale record (and SOLD movement), so every unit still traces back to
+    exactly one batch. All or nothing: if one batch can't cover its
+    quantity, none of them are sold."""
+    if not allocations:
+        raise ValidationError("Enter a quantity to sell from at least one batch.")
+
+    products = {batch.product_id for batch, _quantity in allocations}
+
+    if len(products) > 1:
+        raise ValidationError("A sale can only draw from batches of one product.")
+
+    sale_group = uuid.uuid4()
+    sales = []
+
+    for batch, quantity in allocations:
+        sale = sell_to_sub_distributor(
+            actor=actor,
+            distributor_profile=distributor_profile,
+            sub_distributor_name=sub_distributor_name,
+            batch=batch,
+            quantity=quantity,
+            sale_date=sale_date,
+            note=note,
+            # The file is stored once; the other records point at it.
+            payment_proof=sales[0].payment_proof.name if sales and sales[0].payment_proof else payment_proof,
+            sale_group=sale_group,
+        )
+        sales.append(sale)
+
+    return sales
+
+
+@transaction.atomic
+def attach_sale_payment_proof(*, actor, distributor_profile, sale, proof):
+    """The sub-distributor paid after the hand-off: attach the proof to
+    the sale — and to every other record of the same hand-off."""
+    require_approved_distributor(actor)
+
+    if actor.distributor_profile.pk != distributor_profile.pk or sale.distributor_profile_id != distributor_profile.pk:
+        raise ValidationError("You can only update your own sales.")
+
+    if not proof:
+        raise ValidationError("Upload a payment proof.")
+
+    sales = (
+        list(SubDistributorSale.objects.filter(sale_group=sale.sale_group))
+        if sale.sale_group
+        else [sale]
+    )
+
+    first, *rest = sales
+    first.payment_proof = proof
+    first.updated_by = actor
+    first.save(update_fields=["payment_proof", "updated_at", "updated_by"])
+
+    for other in rest:
+        other.payment_proof = first.payment_proof.name
+        other.updated_by = actor
+        other.save(update_fields=["payment_proof", "updated_at", "updated_by"])
+
+    for each in sales:
+        record_audit_event(
+            user=actor,
+            action="distributor_inventory.sub_distributor_payment_proof_added",
+            instance=each,
+            after_data={"payment_proof": first.payment_proof.name},
+        )
+
+    return sales
+

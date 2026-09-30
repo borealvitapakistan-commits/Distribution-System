@@ -49,29 +49,45 @@
         <div><dt>Ordered</dt><dd>{{ order.created_at|date:"M d, Y" }}</dd></div>
         <div><dt>Received</dt><dd>{{ order.received_at|date:"M d, Y"|default:"Not yet" }}</dd></div>
         <div><dt>Invoice approved</dt><dd>{{ order.invoice_approved_at|date:"M d, Y"|default:"Not yet" }}</dd></div>
+        {% if order.invoice_number or order.invoice_file %}
+            <div>
+                <dt>Invoice</dt>
+                <dd>
+                    {% if order.invoice_file %}
+                        <a href="{{ order.invoice_file.url }}" target="_blank" rel="noopener">
+                            {{ order.invoice_number|default:"View invoice" }}
+                        </a>
+                    {% else %}
+                        {{ order.invoice_number }}
+                    {% endif %}
+                </dd>
+            </div>
+        {% endif %}
         {% if order.outcome_note %}
             <div><dt>Outcome note</dt><dd>{{ order.outcome_note }}</dd></div>
         {% endif %}
     </dl>
 
-    {% if order.status == "SENT" %}
-        <form
-            method="post"
-            action="{% url 'manufacturer-order-received' order.pk %}"
-            class="confirm-form"
-            data-confirm="Mark this order as received?"
-            style="margin-top: 12px;"
-        >
-            {% csrf_token %}
-            <button class="button button-primary" type="submit">
-                Mark Received
-            </button>
-        </form>
-        <p class="stat-detail" style="margin-top: 8px;">
-            This just confirms the goods arrived. Stock isn't added to
-            Inventory until you approve the Manufacturer's Invoice below —
-            that's when the confirmed quantity is known, and it'll take
-            you straight to allocating it.
+    {% if order.status == "SENT" or not order.invoice_approved_at and order.status != "REFUNDED" %}
+        <div class="panel-actions">
+            {% if order.status == "SENT" and order.pays_advance is None %}
+                <a class="button button-secondary" href="{% url 'manufacturer-order-advance' order.pk %}">
+                    Answer Advance Payment
+                </a>
+            {% endif %}
+            <a class="button button-primary" href="{% url 'manufacturer-order-received' order.pk %}">
+                {% if order.status == "SENT" %}Order Received{% else %}Add Stock to Inventory{% endif %}
+            </a>
+        </div>
+        <p class="stat-detail panel-note">
+            {% if order.status == "SENT" %}
+                When the goods arrive: confirm what arrived (quantity, price and
+                expiry — this is what puts the stock into Inventory) and record the
+                remaining payment, all on one page.
+            {% else %}
+                These goods were received but never added to Inventory. Confirm
+                what arrived to add the stock.
+            {% endif %}
         </p>
     {% endif %}
 </section>
@@ -124,20 +140,38 @@
 
 <section class="panel">
     <div class="panel-header">
-        <div><h2>Totals &amp; Payments</h2></div>
+        <div>
+            <h2>Totals &amp; Payments</h2>
+            <p>{{ order.payment_scenario }}</p>
+        </div>
     </div>
     <dl class="details-list">
-        <div><dt>Total</dt><dd>{{ order.grand_total|money }}</dd></div>
-        <div><dt>Paid</dt><dd>{{ order.total_paid|money }}</dd></div>
-        {% if order.manufacturer.upfront_payment_percentage > 0 %}
-            <div><dt>Required before shipping</dt>
-                <dd>
-                    {{ order.manufacturer.upfront_payment_percentage }}%
-                    ({{ order.required_upfront_amount|money }})
-                    {% if order.upfront_amount_satisfied %} — satisfied{% endif %}
-                </dd>
-            </div>
-        {% endif %}
+        <div><dt>Order total</dt><dd>{{ order.grand_total|money }}</dd></div>
+        <div>
+            <dt>Advance paid</dt>
+            <dd>
+                {% if order.pays_advance is None and not order.advance_paid %}
+                    Not answered yet
+                {% elif order.advance_paid %}
+                    {{ order.advance_paid|money }} ({{ order.advance_percentage }}%)
+                {% else %}
+                    No advance
+                {% endif %}
+            </dd>
+        </div>
+        <div>
+            <dt>Final payment</dt>
+            <dd>
+                {% if order.final_paid %}
+                    {{ order.final_paid|money }} ({{ order.final_percentage }}%)
+                {% elif order.remaining_amount > 0 %}
+                    Not paid yet
+                {% else %}
+                    Not needed
+                {% endif %}
+            </dd>
+        </div>
+        <div><dt>Remaining to pay</dt><dd>{{ order.remaining_amount|money }}</dd></div>
     </dl>
 
     {% if order.payments.all %}
@@ -145,16 +179,34 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Date</th>
+                        <th>Payment</th>
+                        <th>Date Paid</th>
                         <th>Amount</th>
+                        <th>Share of Total</th>
+                        <th>Proof</th>
+                        <th>Recorded By</th>
                         <th>Note</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for payment in order.payments.all %}
                         <tr>
-                            <td>{{ payment.paid_at }}</td>
+                            <td>
+                                <span class="badge {% if payment.kind == 'ADVANCE' %}badge-pending{% else %}badge-open{% endif %}">
+                                    {{ payment.get_kind_display }}
+                                </span>
+                            </td>
+                            <td>{{ payment.paid_at|date:"M d, Y" }}</td>
                             <td>{{ payment.amount|money }}</td>
+                            <td>{% widthratio payment.amount order.grand_total 100 %}%</td>
+                            <td>
+                                {% if payment.proof %}
+                                    <a href="{{ payment.proof.url }}" target="_blank" rel="noopener">View proof</a>
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                            <td>{{ payment.created_by|default:"—" }}</td>
                             <td>{{ payment.note|default:"—" }}</td>
                         </tr>
                     {% endfor %}
@@ -163,124 +215,41 @@
         </div>
     {% endif %}
 
-    <form
-        method="post"
-        action="{% url 'manufacturer-order-payment' order.pk %}"
-        class="form-layout"
-        style="margin-top: 16px;"
-    >
-        {% csrf_token %}
-        <div class="form-grid">
-            <div class="form-group">
-                <label>Amount</label>
-                {{ payment_form.amount }}
+    {% if order.status != "SENT" and order.remaining_amount > 0 %}
+        <form
+            method="post"
+            enctype="multipart/form-data"
+            action="{% url 'manufacturer-order-payment' order.pk %}"
+            class="form-layout panel-body"
+        >
+            {% csrf_token %}
+            <h3>Record remaining payment</h3>
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="{{ payment_form.amount.id_for_label }}">Amount</label>
+                    {{ payment_form.amount }}
+                    <small>{{ order.remaining_amount|money }} left to pay.</small>
+                </div>
+                <div class="form-group">
+                    <label for="{{ payment_form.paid_at.id_for_label }}">Date paid</label>
+                    {{ payment_form.paid_at }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ payment_form.proof.id_for_label }}">Payment proof</label>
+                    {{ payment_form.proof }}
+                </div>
+                <div class="form-group">
+                    <label for="{{ payment_form.note.id_for_label }}">Note</label>
+                    {{ payment_form.note }}
+                </div>
             </div>
-            <div class="form-group">
-                <label>Date paid</label>
-                {{ payment_form.paid_at }}
+            <div class="form-actions">
+                <button class="button button-secondary" type="submit">
+                    Record Payment
+                </button>
             </div>
-            <div class="form-group">
-                <label>Note</label>
-                {{ payment_form.note }}
-            </div>
-        </div>
-        <div class="form-actions">
-            <button class="button button-secondary" type="submit">
-                Record Payment
-            </button>
-        </div>
-    </form>
-</section>
-
-<section class="panel form-panel">
-    <h2>Manufacturer's Invoice</h2>
-
-    {% if order.invoice_approved_at %}
-        <p>
-            Already approved on {{ order.invoice_approved_at|date:"M d, Y" }} —
-            stock for this order is in Inventory. Saving again only updates
-            these details (e.g. fixing a typo); it won't create more stock
-            or send you back to Inventory.
-        </p>
-
-        {% if order.invoice_file %}
-            <p>
-                <a href="{{ order.invoice_file.url }}" target="_blank">
-                    Current invoice{% if order.invoice_number %} ({{ order.invoice_number }}){% endif %}
-                </a>
-            </p>
-        {% endif %}
-    {% else %}
-        <p>
-            What they actually invoiced — update the quantity/price per line
-            to match, upload their invoice document, and save. This also
-            approves it, and takes you straight to allocating the stock.
-        </p>
+        </form>
     {% endif %}
-
-    <form
-        method="post"
-        action="{% url 'manufacturer-order-invoice' order.pk %}"
-        class="form-layout"
-        enctype="multipart/form-data"
-    >
-        {% csrf_token %}
-
-        <div class="form-grid">
-            <div class="form-group">
-                <label>Invoice number</label>
-                {{ invoice_form.invoice_number }}
-            </div>
-            <div class="form-group">
-                <label>Invoice file</label>
-                {{ invoice_form.invoice_file }}
-            </div>
-        </div>
-
-        <div class="table-wrapper">
-            <table>
-                <thead>
-                    <tr>
-                        <th>Product</th>
-                        <th>Batch</th>
-                        <th>Quantity</th>
-                        <th>Unit Price</th>
-                        <th>Expiry Date</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for item, qty_field, price_field, expiry_field in invoice_form.item_rows %}
-                        <tr>
-                            <td>{{ item.product.name }} ({{ item.product.sku }})</td>
-                            <td>
-                                {{ item.batch.code }}
-                                {% if item.batch.status == "CANCELLED" %}
-                                    <span class="badge badge-closed">Cancelled</span>
-                                {% elif item.batch.status == "RECEIVED" %}
-                                    <span class="badge badge-open">Received</span>
-                                {% else %}
-                                    <span class="badge badge-pending">Pending</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ qty_field }}</td>
-                            <td>{{ price_field }}</td>
-                            <td>{{ expiry_field }}</td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-
-        <div class="form-actions">
-            <button class="button button-primary" type="submit">
-                {% if order.invoice_approved_at %}
-                    Update Invoice
-                {% else %}
-                    Save &amp; Approve Invoice
-                {% endif %}
-            </button>
-        </div>
-    </form>
 </section>
 
 {% if order.status == "RECEIVED" or order.status == "DISPUTED" %}

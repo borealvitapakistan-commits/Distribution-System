@@ -457,6 +457,70 @@ class PaymentGateAndMultiWarehouseShipTests(TestCase):
         user.refresh_from_db()
         return user
 
+    def test_each_order_receives_the_batch_shipped_on_it(self):
+        """Two orders for the same product in Transit at once: each
+        Distributor gets the exact lot shipped to them — not whichever
+        expires first."""
+        from datetime import date
+
+        from apps.distributor_inventory.models import DistributorStockBatch
+
+        late = receive_stock(
+            actor=self.owner,
+            product=self.product,
+            quantity=Decimal("10"),
+            to_location=self.warehouse_a,
+            batch_number="LOT-LATE",
+            expiry_date=date(2029, 1, 1),
+        ).batch
+        early = receive_stock(
+            actor=self.owner,
+            product=self.product,
+            quantity=Decimal("10"),
+            to_location=self.warehouse_a,
+            batch_number="LOT-EARLY",
+            expiry_date=date(2027, 1, 1),
+        ).batch
+
+        first_user = self.make_distributor(0)
+        second_user = create_distributor(
+            actor=self.owner,
+            email="second@gate.test",
+            temporary_password="TemporaryPassword123!",
+            name="Second Distributor",
+        )
+        approve_distributor(user=self.owner, distributor_id=second_user.pk)
+        second_user.refresh_from_db()
+
+        first_item = create_purchase_order(
+            actor=first_user,
+            items=[{"product": self.product, "quantity_requested": Decimal("10")}],
+        ).items.get()
+        second_item = create_purchase_order(
+            actor=second_user,
+            items=[{"product": self.product, "quantity_requested": Decimal("10")}],
+        ).items.get()
+
+        ship_purchase_order_item(
+            actor=self.owner, item_id=first_item.pk, allocations=[(late, Decimal("10"))]
+        )
+        ship_purchase_order_item(
+            actor=self.owner, item_id=second_item.pk, allocations=[(early, Decimal("10"))]
+        )
+
+        receive_purchase_order_item(actor=first_user, item_id=first_item.pk, quantity=Decimal("10"))
+        receive_purchase_order_item(actor=second_user, item_id=second_item.pk, quantity=Decimal("10"))
+
+        def lots_of(user):
+            return list(
+                DistributorStockBatch.objects
+                .filter(distributor_profile__user=user)
+                .values_list("batch_number", "expiry_date", "quantity_remaining")
+            )
+
+        self.assertEqual(lots_of(first_user), [("LOT-LATE", date(2029, 1, 1), Decimal("10"))])
+        self.assertEqual(lots_of(second_user), [("LOT-EARLY", date(2027, 1, 1), Decimal("10"))])
+
     def test_ship_splits_across_multiple_warehouses_in_one_action(self):
         distributor_user = self.make_distributor(0)
         po = create_purchase_order(
@@ -685,9 +749,11 @@ class PurchaseOrderViewWiringTests(TestCase):
         response = client.get(f"/distributor/purchase-orders/{po.pk}/")
         self.assertEqual(response.status_code, 200)
 
+        self.assertContains(response, "Order Received")
+
         response = client.post(
-            f"/distributor/purchase-orders/{po.pk}/items/{item.pk}/receive/",
-            {"quantity": "3"},
+            f"/distributor/purchase-orders/{po.pk}/received/",
+            {f"qty_{item.pk}": "3", "answer": "no"},
             follow=True,
         )
         self.assertEqual(response.status_code, 200)
@@ -709,6 +775,8 @@ class PurchaseOrderViewWiringTests(TestCase):
 
         po.refresh_from_db()
         self.assertEqual(po.payments.count(), 1)
+        # Paid after the goods were shipped, so it's the final payment.
+        self.assertEqual(po.payments.get().kind, PurchaseOrderPayment.Kind.FINAL)
 
     def test_sidebar_shows_purchase_orders_nav_for_both_roles(self):
         owner_client = Client()
@@ -722,6 +790,203 @@ class PurchaseOrderViewWiringTests(TestCase):
         distributor_response = distributor_client.get("/distributor/")
         self.assertEqual(distributor_response.status_code, 200)
         self.assertContains(distributor_response, "Orders")
+
+
+class DistributorPaymentFlowTests(TestCase):
+    """Place order → answer the advance → Owner confirms and ships →
+    Order Received with the rest paid: the same flow as an order to a
+    Manufacturer, with the Owner confirming each payment."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="owner@poflow.test",
+            password="OwnerPassword123!",
+            role=User.Role.OWNER,
+            is_active=True,
+        )
+        self.product = create_product(
+            actor=self.owner,
+            sku="POFLOW-001",
+            barcode="",
+            name="Flow Product",
+            base_retail_price=Decimal("100.00"),
+            currency="pkr",
+        )
+        inventory = create_inventory(actor=self.owner, code="FLOW-INV", name="Flow Region")
+        warehouse = create_location(
+            actor=self.owner,
+            code="FLOW-WH",
+            name="Flow Warehouse",
+            location_type=Location.LocationType.OWN,
+            inventory=inventory,
+        )
+        self.batch = receive_stock(
+            actor=self.owner,
+            product=self.product,
+            quantity=Decimal("50"),
+            to_location=warehouse,
+            batch_number="FLOW-LOT-1",
+        ).batch
+        self.distributor_user = create_distributor(
+            actor=self.owner,
+            email="dist@poflow.test",
+            temporary_password="TemporaryPassword123!",
+            name="Flow Distributor",
+            upfront_payment_percentage=Decimal("30"),
+        )
+        approve_distributor(user=self.owner, distributor_id=self.distributor_user.pk)
+        self.distributor_user.refresh_from_db()
+        self.client.force_login(self.distributor_user)
+
+    def _place_order(self):
+        # 10 x 100.00 = 1,000.00
+        return create_purchase_order(
+            actor=self.distributor_user,
+            items=[{"product": self.product, "quantity_requested": Decimal("10")}],
+        )
+
+    def test_split_advance_and_final_through_the_pages(self):
+        response = self.client.post(
+            "/distributor/purchase-orders/new/",
+            {
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-product": self.product.pk,
+                "items-0-quantity_requested": "10",
+            },
+        )
+        po = PurchaseOrder.objects.get()
+        advance_url = f"/distributor/purchase-orders/{po.pk}/advance/"
+        self.assertRedirects(response, advance_url)
+
+        page = self.client.get(advance_url)
+        self.assertContains(page, "Are you paying in advance?")
+        self.assertContains(page, "Required 30%")
+
+        self.client.post(
+            advance_url,
+            {"answer": "yes", "amount": "300", "paid_at": "2026-01-01", "proof": _proof_file()},
+        )
+        advance = po.payments.get()
+        self.assertEqual(advance.kind, PurchaseOrderPayment.Kind.ADVANCE)
+
+        # The Owner can't ship on an unconfirmed advance...
+        item = po.items.get()
+        with self.assertRaises(ValidationError):
+            ship_purchase_order_item(
+                actor=self.owner, item_id=item.pk, allocations=[(self.batch, Decimal("10"))]
+            )
+
+        # ...but can once it's confirmed.
+        confirm_payment(actor=self.owner, payment_id=advance.pk)
+        ship_purchase_order_item(
+            actor=self.owner, item_id=item.pk, allocations=[(self.batch, Decimal("10"))]
+        )
+
+        receive_url = f"/distributor/purchase-orders/{po.pk}/received/"
+        page = self.client.get(receive_url)
+        self.assertContains(page, "Have you paid the remaining amount?")
+
+        # Something is still owed, so the question must be answered.
+        response = self.client.post(receive_url, {f"qty_{item.pk}": "10"})
+        self.assertContains(response, "Please answer")
+
+        response = self.client.post(
+            receive_url,
+            {
+                f"qty_{item.pk}": "10",
+                "answer": "yes",
+                "amount": "700",
+                "paid_at": "2026-02-01",
+                "proof": _proof_file(),
+            },
+        )
+        self.assertRedirects(response, f"/distributor/purchase-orders/{po.pk}/")
+
+        po.refresh_from_db()
+        item.refresh_from_db()
+        self.assertEqual(item.quantity_received, Decimal("10"))
+        self.assertEqual(po.status, PurchaseOrder.Status.RECEIVED)
+        self.assertEqual(po.advance_paid, Decimal("300.00"))
+        self.assertEqual(po.final_paid, Decimal("700.00"))
+        self.assertEqual(po.payment_scenario, "30.0% advance + 70.0% on receipt")
+
+        # Final payment awaits the Owner; both parts show on both sides.
+        self.assertEqual(po.total_paid, Decimal("300.00"))
+        detail = self.client.get(f"/distributor/purchase-orders/{po.pk}/")
+        self.assertContains(detail, "View proof", count=2)
+        self.assertContains(detail, "Awaiting Owner")
+
+        owner_client = Client()
+        owner_client.force_login(self.owner)
+        owner_detail = owner_client.get(f"/owner/purchase-orders/{po.pk}/")
+        self.assertContains(owner_detail, "30.0% advance + 70.0% on receipt")
+        self.assertContains(owner_detail, "View proof", count=2)
+
+    def test_no_advance_then_everything_on_receipt(self):
+        self.distributor_user.distributor_profile.upfront_payment_percentage = Decimal("0")
+        self.distributor_user.distributor_profile.save()
+        po = self._place_order()
+
+        response = self.client.post(f"/distributor/purchase-orders/{po.pk}/advance/", {"answer": "no"})
+        self.assertRedirects(response, f"/distributor/purchase-orders/{po.pk}/")
+        po.refresh_from_db()
+        self.assertIs(po.pays_advance, False)
+
+        item = po.items.get()
+        ship_purchase_order_item(
+            actor=self.owner, item_id=item.pk, allocations=[(self.batch, Decimal("10"))]
+        )
+        self.client.post(
+            f"/distributor/purchase-orders/{po.pk}/received/",
+            {
+                f"qty_{item.pk}": "10",
+                "answer": "yes",
+                "amount": "1000",
+                "paid_at": "2026-02-01",
+                "proof": _proof_file(),
+            },
+        )
+
+        po.refresh_from_db()
+        self.assertEqual(po.final_paid, Decimal("1000.00"))
+        self.assertEqual(po.payment_scenario, "No advance — paid in full on receipt")
+
+    def test_cannot_claim_more_than_is_owed(self):
+        po = self._place_order()
+
+        with self.assertRaises(ValidationError):
+            record_payment(
+                actor=self.distributor_user,
+                purchase_order_id=po.pk,
+                amount=Decimal("1000.01"),
+                paid_at="2026-01-01",
+                proof=_proof_file(),
+            )
+
+    def test_rejected_advance_can_be_paid_again_before_shipping(self):
+        po = self._place_order()
+        self.client.post(
+            f"/distributor/purchase-orders/{po.pk}/advance/",
+            {"answer": "yes", "amount": "300", "paid_at": "2026-01-01", "proof": _proof_file()},
+        )
+        reject_payment(actor=self.owner, payment_id=po.payments.get().pk, reason="Wrong slip")
+
+        po.refresh_from_db()
+        self.assertEqual(po.advance_paid, Decimal("0.00"))
+        self.assertEqual(po.remaining_amount, Decimal("1000.00"))
+
+        detail = self.client.get(f"/distributor/purchase-orders/{po.pk}/")
+        self.assertContains(detail, "Pay advance")
+
+        self.client.post(
+            f"/distributor/purchase-orders/{po.pk}/payments/",
+            {"amount": "300", "paid_at": "2026-01-02", "proof": _proof_file()},
+        )
+        retry = po.payments.exclude(status=PurchaseOrderPayment.Status.REJECTED).get()
+        self.assertEqual(retry.kind, PurchaseOrderPayment.Kind.ADVANCE)
 
 
 class OrdersHubAndNotificationTests(TestCase):

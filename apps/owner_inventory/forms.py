@@ -29,8 +29,10 @@ class ReceiveStockForm(forms.Form):
     batch_number = forms.CharField(
         label="Batch number",
         max_length=100,
-        required=False,
-        help_text="Your own lot label, e.g. BV-GL-AML-001. Optional.",
+        help_text=(
+            "This lot's own label, e.g. BV-GL-AML-001. Every delivery is "
+            "its own batch — never merged with earlier stock."
+        ),
     )
     received_date = forms.DateField(
         required=False,
@@ -38,9 +40,8 @@ class ReceiveStockForm(forms.Form):
         help_text="Defaults to today if left blank.",
     )
     expiry_date = forms.DateField(
-        required=False,
         widget=forms.DateInput(attrs={"type": "date"}),
-        help_text="Optional, but needed for this lot to be prioritized by FEFO.",
+        help_text="Soonest-to-expire batches are suggested first.",
     )
     reference = forms.CharField(
         label="Note",

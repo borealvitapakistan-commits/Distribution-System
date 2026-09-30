@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    Advance Payment — {{ purchase_order.po_number }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Step 2 of 3 · Advance payment</p>
+        <h1>{{ purchase_order.po_number }}</h1>
+        <p>Order placed. Tell us whether you're paying anything up front.</p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'distributor-purchase-order-detail' purchase_order.pk %}">
+            Skip for now
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <dl class="details-list">
+        <div><dt>Order total</dt><dd>{{ purchase_order.grand_total|money }}</dd></div>
+        {% if purchase_order.distributor_profile.upfront_payment_percentage > 0 %}
+            <div>
+                <dt>Required before the Owner ships</dt>
+                <dd>
+                    {{ purchase_order.distributor_profile.upfront_payment_percentage }}%
+                    ({{ purchase_order.required_upfront_amount|money }})
+                </dd>
+            </div>
+        {% endif %}
+    </dl>
+</section>
+
+<section class="panel form-panel">
+    <form method="post" enctype="multipart/form-data" class="form-layout">
+        {% csrf_token %}
+
+        {% if purchase_order.distributor_profile.upfront_payment_percentage > 0 %}
+            {% with total=purchase_order.grand_total none_message="No advance payment — note your terms require an advance before the Owner can ship. You can still pay it later from the order page." %}
+                {% include "core/_paid_question.html" %}
+            {% endwith %}
+        {% else %}
+            {% with total=purchase_order.grand_total none_message="No advance payment — the full amount will be paid when the order arrives." %}
+                {% include "core/_paid_question.html" %}
+            {% endwith %}
+        {% endif %}
+
+        <p class="stat-detail">
+            Your payment counts once the Owner confirms they've received it.
+        </p>
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                Save
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

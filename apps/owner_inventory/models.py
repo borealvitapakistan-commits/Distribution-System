@@ -192,6 +192,20 @@ class StockBatch(AuditedModel):
         ),
     )
 
+    shipped_for = models.ForeignKey(
+        "requests.PurchaseOrderItem",
+        on_delete=models.PROTECT,
+        related_name="transit_batches",
+        null=True,
+        blank=True,
+        help_text=(
+            "For a lot sitting in Transit: the Distributor purchase order "
+            "line it was shipped on, so only that order's receipt can "
+            "draw it down — two orders for the same product never swap "
+            "batches."
+        ),
+    )
+
     batch_number = models.CharField(
         max_length=100,
         blank=True,
