@@ -22,6 +22,26 @@
     </a>
 </div>
 
+{% if agreements_to_sign_count %}
+    <div class="notification-card">
+        <h2>
+            {{ agreements_to_sign_count }} agreement{{ agreements_to_sign_count|pluralize }} from the Owner waiting for your signature
+        </h2>
+
+        <div class="notification-list">
+            {% for agreement in agreements_to_sign %}
+                <a href="{% url 'distributor-agreement-detail' agreement.pk %}">
+                    <span>
+                        <strong>{{ agreement.agreement_number }}</strong> —
+                        {{ agreement.discount_percentage|floatformat:"-2" }}% off list price
+                    </span>
+                    <span>{{ agreement.start_date|date:"M d, Y" }} – {{ agreement.end_date|date:"M d, Y" }}</span>
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+{% endif %}
+
 <div class="content-grid">
     <section class="panel">
         <div class="panel-header">

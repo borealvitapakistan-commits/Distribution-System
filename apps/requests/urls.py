@@ -17,6 +17,8 @@ from .views import (
     RecordPaymentView,
     RejectPaymentView,
     ShipPurchaseOrderItemView,
+    UpdateLineDiscountsView,
+    UpdateLineStatusView,
     UpdatePricingView,
 )
 
@@ -76,6 +78,16 @@ urlpatterns = [
         "owner/purchase-orders/<uuid:pk>/items/<uuid:item_id>/ship/",
         ShipPurchaseOrderItemView.as_view(),
         name="purchase-order-item-ship",
+    ),
+    path(
+        "owner/purchase-orders/<uuid:pk>/discounts/",
+        UpdateLineDiscountsView.as_view(),
+        name="purchase-order-update-discounts",
+    ),
+    path(
+        "owner/purchase-orders/<uuid:pk>/items/<uuid:item_id>/status/",
+        UpdateLineStatusView.as_view(),
+        name="purchase-order-item-status",
     ),
     path(
         "owner/purchase-orders/<uuid:pk>/pricing/",

@@ -53,33 +53,167 @@
     </div>
 {% endif %}
 
-<section class="panel">
-    <div class="table-wrapper">
-        <table>
-            <thead>
-                <tr>
-                    <th>Product</th>
-                    <th>Requested</th>
-                    <th>Unit Price</th>
-                    <th>Shipped</th>
-                    <th>Received</th>
-                </tr>
-            </thead>
+{% include "requests/_agreement_banner.html" %}
 
-            <tbody>
-                {% for item, ship_form in items_with_ship_forms %}
-                    <tr>
-                        <td>{{ item.product.name }} ({{ item.product.sku }})</td>
-                        <td>{{ item.quantity_requested }}</td>
-                        <td>{{ item.unit_price|money }}</td>
-                        <td>{{ item.quantity_shipped }}</td>
-                        <td>{{ item.quantity_received }}</td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Products &amp; prices</h2>
+            <p>
+                Each line starts at the agreement's discount. Change any line's % before it
+                ships — prices and totals update as you type.
+            </p>
+        </div>
+        <span class="badge {% if purchase_order.status == 'RECEIVED' %}badge-open{% elif purchase_order.status == 'DECLINED' %}badge-closed{% elif purchase_order.status == 'PENDING' %}badge-pending{% else %}badge-neutral{% endif %}">
+            {{ purchase_order.get_status_display }}
+        </span>
     </div>
+
+    <form
+        method="post"
+        action="{% url 'purchase-order-update-discounts' purchase_order.pk %}"
+        data-live-pricing
+        data-tax="{{ purchase_order.tax_percentage }}"
+        data-shipping="{{ purchase_order.shipping_amount }}"
+    >
+        {% csrf_token %}
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>Requested</th>
+                        <th>List price</th>
+                        <th>Discount %</th>
+                        <th>Unit price</th>
+                        <th>Line total</th>
+                        <th>Shipped</th>
+                        <th>Received</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {% for item in purchase_order.items.all %}
+                        <tr
+                            data-price-row
+                            data-list-price="{{ item.list_price }}"
+                            data-quantity="{{ item.quantity_ordered }}"
+                            data-discount="{{ item.discount_percentage }}"
+                        >
+                            <td>
+                                {{ item.product.name }} ({{ item.product.sku }})
+                                {% if item.owner_note %}<small class="line-note">“{{ item.owner_note }}”</small>{% endif %}
+                            </td>
+                            <td>{{ item.quantity_requested|floatformat:"-4" }}</td>
+                            <td>{{ item.list_price|money }}</td>
+                            <td>
+                                {% if purchase_order.is_open and item.can_reprice %}
+                                    <input
+                                        type="number"
+                                        class="discount-input"
+                                        name="discount_{{ item.pk }}"
+                                        value="{{ item.discount_percentage }}"
+                                        min="0"
+                                        max="100"
+                                        step="0.01"
+                                        aria-label="Discount % for {{ item.product.name }}"
+                                    >
+                                {% else %}
+                                    {{ item.discount_percentage|floatformat:"-2" }}%
+                                {% endif %}
+                            </td>
+                            <td data-unit-price>{{ item.unit_price|money }}</td>
+                            <td data-line-total>{{ item.line_total|money }}</td>
+                            <td>{{ item.quantity_shipped|floatformat:"-4" }}</td>
+                            <td>{{ item.quantity_received|floatformat:"-4" }}</td>
+                            <td>
+                                {% if item.unavailable %}
+                                    <span class="badge badge-closed">Unavailable</span>
+                                    {% if item.quantity_dropped %}<small class="line-note">{{ item.quantity_dropped|floatformat:"-4" }} dropped</small>{% endif %}
+                                {% elif item.is_complete %}
+                                    <span class="badge badge-open">Complete</span>
+                                {% elif item.quantity_to_ship_remaining > 0 %}
+                                    <span class="badge badge-pending">{{ item.quantity_to_ship_remaining|floatformat:"-4" }} to ship</span>
+                                {% else %}
+                                    <span class="badge badge-neutral">In transit</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+
+                <tfoot>
+                    <tr>
+                        <th colspan="5">Subtotal</th>
+                        <th data-subtotal>{{ purchase_order.subtotal|money }}</th>
+                        <th colspan="3"></th>
+                    </tr>
+                    <tr>
+                        <th colspan="5">Order total (incl. tax {{ purchase_order.tax_percentage }}% + shipping)</th>
+                        <th data-grand-total>{{ purchase_order.grand_total|money }}</th>
+                        <th colspan="3"></th>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+
+        {% if any_repriceable %}
+            <div class="panel-actions">
+                <button class="button button-primary" type="submit">Save Prices</button>
+            </div>
+        {% endif %}
+    </form>
 </section>
+
+{% if purchase_order.is_open %}
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Comments &amp; availability</h2>
+                <p>
+                    Leave a comment on any product for the Distributor. If you can't supply a
+                    product, tick “Not available” — what hasn't shipped is dropped from the
+                    order and its total, so the order can complete without it. Otherwise the
+                    order stays open until that product ships (e.g. after you order it from a
+                    Manufacturer).
+                </p>
+            </div>
+        </div>
+
+        <div class="line-status-grid">
+            {% for item, status_form in items_with_status_forms %}
+                {% if not item.is_complete or item.unavailable or item.owner_note %}
+                    <form
+                        method="post"
+                        action="{% url 'purchase-order-item-status' purchase_order.pk item.pk %}"
+                        class="line-status-card form-layout"
+                    >
+                        {% csrf_token %}
+                        <h3>{{ item.product.name }}</h3>
+
+                        <div class="form-group">
+                            <label for="{{ status_form.note.id_for_label }}">{{ status_form.note.label }}</label>
+                            {{ status_form.note }}
+                        </div>
+
+                        {% if item.unavailable or item.quantity_shipped < item.quantity_requested %}
+                            <label class="checkbox-label">
+                                {{ status_form.unavailable }}
+                                {{ status_form.unavailable.label }}
+                            </label>
+                        {% endif %}
+
+                        <div class="form-actions">
+                            <button class="button button-secondary button-small" type="submit">Save</button>
+                        </div>
+                    </form>
+                {% endif %}
+            {% endfor %}
+        </div>
+    </section>
+{% endif %}
 
 {% if purchase_order.status != "DECLINED" and purchase_order.upfront_amount_satisfied %}
     <section class="panel">
@@ -249,7 +383,7 @@
                             <td>{{ payment.amount|money }}</td>
                             <td>{% widthratio payment.amount purchase_order.grand_total 100 %}%</td>
                             <td>{{ payment.note|default:"—" }}</td>
-                            <td><a href="{{ payment.proof.url }}" target="_blank" rel="noopener">View proof</a></td>
+                            <td><a href="{{ payment.proof.url }}" target="_blank" rel="noopener" data-proof-viewer>View proof</a></td>
                             <td>
                                 {% if payment.status == "PENDING" %}
                                     <span class="badge badge-pending">Pending confirmation</span>

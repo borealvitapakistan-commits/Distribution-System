@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+
+{% block title %}{{ agreement.agreement_number }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Agreements</p>
+        <h1>{{ agreement.agreement_number }} — {{ agreement.distributor_profile.name }}</h1>
+        <p><span class="badge {{ agreement.state_badge }}">{{ agreement.state_label }}</span></p>
+    </div>
+
+    <a
+        href="{% if is_owner_view %}{% url 'owner-agreement-list' %}{% else %}{% url 'distributor-agreement-list' %}{% endif %}"
+        class="button button-secondary"
+    >
+        Back
+    </a>
+</div>
+
+{% if not is_owner_view and agreement.status == "SENT" %}
+    <div class="notification-card">
+        <h2>The Owner has sent you this agreement. Review it and sign below — or decline it.</h2>
+    </div>
+{% endif %}
+
+<section class="panel agreement-sheet">
+    <h2 class="agreement-title">Agreement Form</h2>
+
+    <dl class="details-list">
+        <div><dt>Distributor's name</dt><dd>{{ agreement.distributor_profile.name }}</dd></div>
+        <div>
+            <dt>Discount off list price</dt>
+            <dd>{{ agreement.discount_percentage|floatformat:"-2" }}% <small class="stat-detail">(1,000 becomes {{ agreement.example_price|floatformat:"2g" }})</small></dd>
+        </div>
+        <div><dt>Start date</dt><dd>{{ agreement.start_date|date:"M d, Y" }}</dd></div>
+        <div><dt>End date</dt><dd>{{ agreement.end_date|date:"M d, Y" }}</dd></div>
+        {% if agreement.terms %}
+            <div><dt>Terms</dt><dd>{{ agreement.terms|linebreaksbr }}</dd></div>
+        {% endif %}
+        {% if agreement.response_note %}
+            <div>
+                <dt>{% if agreement.status == "DECLINED" %}Declined because{% else %}Cancelled because{% endif %}</dt>
+                <dd>{{ agreement.response_note }}</dd>
+            </div>
+        {% endif %}
+    </dl>
+
+    {% if agreement.product_rates.all %}
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>List price</th>
+                        <th>Discount</th>
+                        <th>Your price</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for rate in agreement.product_rates.all %}
+                        <tr>
+                            <td>{{ rate.product.name }}</td>
+                            <td>{{ rate.product.base_retail_price|floatformat:2 }}</td>
+                            <td>{{ rate.discount_percentage|floatformat:"-2" }}% <small class="stat-detail">override</small></td>
+                            <td>{{ rate.price_now|floatformat:2 }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <p class="stat-detail panel-note">
+            Every other product gets the default {{ agreement.discount_percentage|floatformat:"-2" }}%.
+        </p>
+    {% endif %}
+
+    <div class="agreement-signatures">
+        <div>
+            <span class="signature-line">{{ agreement.owner_signed_by.get_full_name|default:agreement.owner_signed_by.email }}</span>
+            <small>Signature of Owner — {{ agreement.owner_signed_at|date:"M d, Y H:i" }}</small>
+        </div>
+        <div>
+            {% if agreement.distributor_signature %}
+                <span class="signature-line">{{ agreement.distributor_signature }}</span>
+                <small>Signature of Distributor — {{ agreement.distributor_signed_at|date:"M d, Y H:i" }}</small>
+            {% else %}
+                <span class="signature-line signature-pending">
+                    {% if agreement.status == "SENT" %}Awaiting{% else %}Not signed{% endif %}
+                </span>
+                <small>Signature of Distributor</small>
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+{% if not is_owner_view and agreement.status == "SENT" %}
+    <div class="content-grid">
+        <section class="panel form-panel">
+            <h2>Sign</h2>
+            <p>By signing, your orders placed between these dates get these prices.</p>
+
+            <form method="post" action="{% url 'distributor-agreement-sign' agreement.pk %}" class="form-layout">
+                {% csrf_token %}
+                <div class="form-group">
+                    <label for="{{ sign_form.signature.id_for_label }}">{{ sign_form.signature.label }}</label>
+                    {{ sign_form.signature }}
+                </div>
+                <div class="form-actions">
+                    <button class="button button-primary" type="submit">Sign Agreement</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="panel form-panel">
+            <h2>Decline</h2>
+            <p>Tell the Owner why, so they can send a new one.</p>
+
+            <form
+                method="post"
+                action="{% url 'distributor-agreement-decline' agreement.pk %}"
+                class="form-layout confirm-form"
+                data-confirm="Decline this agreement?"
+            >
+                {% csrf_token %}
+                {{ decline_form.reason }}
+                <div class="form-actions">
+                    <button class="button button-danger" type="submit">Decline</button>
+                </div>
+            </form>
+        </section>
+    </div>
+{% endif %}
+
+{% if is_owner_view and agreement.status == "SENT" or is_owner_view and agreement.status == "ACCEPTED" %}
+    <section class="panel form-panel">
+        <h2>Cancel Agreement</h2>
+        <p>Orders already placed keep their prices; new orders stop getting this discount.</p>
+
+        <form
+            method="post"
+            action="{% url 'owner-agreement-cancel' agreement.pk %}"
+            class="form-layout confirm-form"
+            data-confirm="Cancel this agreement?"
+        >
+            {% csrf_token %}
+            {{ cancel_form.reason }}
+            <div class="form-actions">
+                <button class="button button-danger" type="submit">Cancel Agreement</button>
+            </div>
+        </form>
+    </section>
+{% endif %}
+{% endblock %}

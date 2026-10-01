@@ -351,3 +351,45 @@ class ProductIngredient(AuditedModel):
             f"{self.product.sku} - "
             f"{self.ingredient.name}"
         )
+
+
+class BottleSize(models.IntegerChoices):
+    """How many capsules are in the bottle we order from a
+    Manufacturer — the price per bottle depends on it."""
+
+    CAPS_30 = 30, "30 capsules"
+    CAPS_60 = 60, "60 capsules"
+    CAPS_90 = 90, "90 capsules"
+    CAPS_120 = 120, "120 capsules"
+
+
+class ProductBottlePrice(AuditedModel):
+    """The price we expect to pay a Manufacturer for one bottle of a
+    product at a given bottle size. Pre-fills a Request to Quote line;
+    the Manufacturer's real quote can be saved back here."""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="bottle_prices",
+    )
+    bottle_size = models.PositiveSmallIntegerField(choices=BottleSize.choices)
+    price = models.DecimalField(
+        max_digits=18,
+        decimal_places=3,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+
+    objects = OwnerOnlyQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["product__name", "bottle_size"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "bottle_size"],
+                name="unique_bottle_price_per_product_size",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product.sku} - {self.get_bottle_size_display()} - {self.price}"

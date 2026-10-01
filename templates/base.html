@@ -84,13 +84,29 @@
 
                     <a
                         href="{% url 'owner-purchase-orders-hub' %}"
-                        class="{% if request.resolver_match.url_name == 'owner-purchase-orders-hub' or request.resolver_match.url_name == 'owner-purchase-order-list' or request.resolver_match.url_name == 'owner-purchase-order-detail' or request.resolver_match.url_name == 'manufacturer-order-list' or request.resolver_match.url_name == 'manufacturer-order-create' or request.resolver_match.url_name == 'manufacturer-order-detail' %}active{% endif %}"
+                        class="{% if request.resolver_match.url_name == 'owner-purchase-orders-hub' or request.resolver_match.url_name == 'owner-purchase-order-list' or request.resolver_match.url_name == 'owner-purchase-order-detail' or request.resolver_match.url_name == 'manufacturer-order-list' or request.resolver_match.url_name == 'manufacturer-order-create' or request.resolver_match.url_name == 'manufacturer-order-detail' or request.resolver_match.url_name == 'manufacturer-order-edit' or request.resolver_match.url_name == 'manufacturer-order-quote' or request.resolver_match.url_name == 'manufacturer-order-received' or request.resolver_match.url_name == 'manufacturer-order-advance' %}active{% endif %}"
                     >
                         <span class="nav-icon">✉</span>
                         Purchase Orders
                         {% if new_purchase_orders_count %}
                             <span class="nav-badge">{{ new_purchase_orders_count }}</span>
                         {% endif %}
+                    </a>
+
+                    <a
+                        href="{% url 'vendor-list' %}"
+                        class="{% if request.resolver_match.url_name == 'vendor-list' or request.resolver_match.url_name == 'vendor-create' or request.resolver_match.url_name == 'vendor-detail' or request.resolver_match.url_name == 'vendor-edit' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">⇄</span>
+                        Vendors
+                    </a>
+
+                    <a
+                        href="{% url 'owner-agreement-list' %}"
+                        class="{% if request.resolver_match.url_name == 'owner-agreement-list' or request.resolver_match.url_name == 'owner-agreement-create' or request.resolver_match.url_name == 'owner-agreement-detail' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">✎</span>
+                        Agreements
                     </a>
 
                     <a
@@ -123,6 +139,17 @@
                     >
                         <span class="nav-icon">✉</span>
                         Orders
+                    </a>
+
+                    <a
+                        href="{% url 'distributor-agreement-list' %}"
+                        class="{% if request.resolver_match.url_name == 'distributor-agreement-list' or request.resolver_match.url_name == 'distributor-agreement-detail' %}active{% endif %}"
+                    >
+                        <span class="nav-icon">✎</span>
+                        Agreements
+                        {% if agreements_to_sign_count %}
+                            <span class="nav-badge">{{ agreements_to_sign_count }}</span>
+                        {% endif %}
                     </a>
 
                     <a
@@ -310,5 +337,50 @@
     class="sidebar-overlay"
     id="sidebarOverlay"
 ></div>
+
+<dialog
+    class="modal proof-modal"
+    id="proofModal"
+    aria-labelledby="proofModalTitle"
+>
+    <div class="proof-modal-body">
+        <div class="modal-header">
+            <h2 id="proofModalTitle">Payment proof</h2>
+
+            <button
+                type="button"
+                class="modal-close"
+                data-proof-close
+                aria-label="Close"
+            >
+                ×
+            </button>
+        </div>
+
+        <div
+            class="proof-frame"
+            id="proofModalContent"
+        ></div>
+
+        <div class="modal-actions">
+            <a
+                href="#"
+                class="button button-secondary"
+                id="proofModalDownload"
+                download
+            >
+                Download
+            </a>
+
+            <button
+                type="button"
+                class="button button-primary"
+                data-proof-close
+            >
+                Close
+            </button>
+        </div>
+    </div>
+</dialog>
 </body>
 </html>

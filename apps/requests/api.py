@@ -66,7 +66,6 @@ class DistributorPurchaseOrderListCreateAPIView(APIView):
                 {
                     "product": product,
                     "quantity_requested": row.get("quantity_requested"),
-                    "requested_price": row.get("requested_price"),
                 }
             )
 

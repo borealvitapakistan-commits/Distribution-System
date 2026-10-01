@@ -1,6 +1,12 @@
 from django.urls import path
 
 from .views import (
+    VendorDetailView,
+    VendorFormView,
+    VendorListView,
+    ConfirmPurchaseOrderView,
+    ManufacturerOrderEditView,
+    ManufacturerOrderQuoteView,
     ManufacturerCreateView,
     ManufacturerDetailView,
     ManufacturerListView,
@@ -17,6 +23,10 @@ from .views import (
 
 
 urlpatterns = [
+    path("owner/vendors/", VendorListView.as_view(), name="vendor-list"),
+    path("owner/vendors/new/", VendorFormView.as_view(), name="vendor-create"),
+    path("owner/vendors/<uuid:pk>/", VendorDetailView.as_view(), name="vendor-detail"),
+    path("owner/vendors/<uuid:pk>/edit/", VendorFormView.as_view(), name="vendor-edit"),
     path("owner/manufacturers/", ManufacturerListView.as_view(), name="manufacturer-list"),
     path("owner/manufacturers/new/", ManufacturerCreateView.as_view(), name="manufacturer-create"),
     path("owner/manufacturers/<uuid:pk>/", ManufacturerDetailView.as_view(), name="manufacturer-detail"),
@@ -35,6 +45,21 @@ urlpatterns = [
         "owner/manufacturer-orders/<uuid:pk>/",
         ManufacturerOrderDetailView.as_view(),
         name="manufacturer-order-detail",
+    ),
+    path(
+        "owner/manufacturer-orders/<uuid:pk>/edit/",
+        ManufacturerOrderEditView.as_view(),
+        name="manufacturer-order-edit",
+    ),
+    path(
+        "owner/manufacturer-orders/<uuid:pk>/quote/",
+        ManufacturerOrderQuoteView.as_view(),
+        name="manufacturer-order-quote",
+    ),
+    path(
+        "owner/manufacturer-orders/<uuid:pk>/confirm/",
+        ConfirmPurchaseOrderView.as_view(),
+        name="manufacturer-order-confirm",
     ),
     path(
         "owner/manufacturer-orders/<uuid:pk>/received/",

@@ -1,7 +1,30 @@
 from decimal import Decimal
 
 from django import forms
+from django.utils.html import format_html
+
 from .models import Brand
+
+
+class ColorPickerWidget(forms.TextInput):
+    """A colour swatch you can click and drag to pick from, kept in sync
+    with a hex-code box you can type or paste into."""
+
+    def render(self, name, value, attrs=None, renderer=None):
+        attrs = {
+            **(attrs or {}),
+            "data-color-hex": "",
+            "maxlength": "7",
+            "placeholder": "#1f7a4d",
+        }
+        text_input = super().render(name, value, attrs, renderer)
+        return format_html(
+            '<div class="color-picker" data-color-picker>'
+            '<input type="color" value="{}" data-color-swatch aria-label="Pick a colour">'
+            "{}</div>",
+            value or "#1f7a4d",
+            text_input,
+        )
 
 
 class BrandForm(forms.ModelForm):
@@ -16,6 +39,7 @@ class BrandForm(forms.ModelForm):
             "fiscal_year_start_month",
             "default_country",
             "logo",
+            "primary_color",
             "address",
             "phone",
             "email",
@@ -24,6 +48,7 @@ class BrandForm(forms.ModelForm):
 
 
         widgets = {
+            "primary_color": ColorPickerWidget(),
             "address": forms.Textarea(
                 attrs={
                     "rows": 4,

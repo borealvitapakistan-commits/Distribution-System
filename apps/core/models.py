@@ -1,7 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator, RegexValidator
 from apps.core.querysets import OwnerManagedQuerySet
 
 
@@ -72,6 +72,18 @@ class Brand(UUIDModel, TimeStampedModel):
         blank=True
     )
 
+    primary_color = models.CharField(
+        max_length=7,
+        default="#1f7a4d",
+        validators=[
+            RegexValidator(
+                r"^#[0-9a-fA-F]{6}$",
+                "Pick a colour or enter a hex code like #1f7a4d.",
+            )
+        ],
+        help_text="Theme colour for this brand's Requests to Quote and Purchase Orders.",
+    )
+
     address = models.TextField(blank=True)
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
@@ -81,6 +93,21 @@ class Brand(UUIDModel, TimeStampedModel):
 
     class Meta:
         ordering = ["name"]
+
+    def tinted_color(self, white_share):
+        """The brand colour mixed with white — white_share 0 is the
+        colour itself, 1 is pure white."""
+        try:
+            channels = [int(self.primary_color[i:i + 2], 16) for i in (1, 3, 5)]
+        except (TypeError, ValueError):
+            channels = [0x1F, 0x7A, 0x4D]
+
+        mixed = [round(c + (255 - c) * white_share) for c in channels]
+        return "#" + "".join(f"{c:02x}" for c in mixed)
+
+    @property
+    def primary_color_soft(self):
+        return self.tinted_color(0.88)
 
     def __str__(self):
         return self.name

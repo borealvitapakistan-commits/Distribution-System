@@ -42,27 +42,61 @@
     </section>
 {% endif %}
 
+{% include "requests/_agreement_banner.html" %}
+
 <section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Products &amp; prices</h2>
+            <p>The Owner may adjust a product's discount before it ships.</p>
+        </div>
+        <span class="badge {% if purchase_order.status == 'RECEIVED' %}badge-open{% elif purchase_order.status == 'DECLINED' %}badge-closed{% elif purchase_order.status == 'PENDING' %}badge-pending{% else %}badge-neutral{% endif %}">
+            {{ purchase_order.get_status_display }}
+        </span>
+    </div>
+
     <div class="table-wrapper">
         <table>
             <thead>
                 <tr>
                     <th>Product</th>
                     <th>Requested</th>
-                    <th>Unit Price</th>
+                    <th>List price</th>
+                    <th>Discount</th>
+                    <th>Unit price</th>
+                    <th>Line total</th>
                     <th>Shipped</th>
                     <th>Received</th>
+                    <th>Status</th>
                 </tr>
             </thead>
 
             <tbody>
                 {% for item in purchase_order.items.all %}
                     <tr>
-                        <td>{{ item.product.name }} ({{ item.product.sku }})</td>
-                        <td>{{ item.quantity_requested }}</td>
+                        <td>
+                            {{ item.product.name }} ({{ item.product.sku }})
+                            {% if item.owner_note %}<small class="line-note">Owner: “{{ item.owner_note }}”</small>{% endif %}
+                        </td>
+                        <td>{{ item.quantity_requested|floatformat:"-4" }}</td>
+                        <td>{{ item.list_price|money }}</td>
+                        <td>{{ item.discount_percentage|floatformat:"-2" }}%</td>
                         <td>{{ item.unit_price|money }}</td>
-                        <td>{{ item.quantity_shipped }}</td>
-                        <td>{{ item.quantity_received }}</td>
+                        <td>{{ item.line_total|money }}</td>
+                        <td>{{ item.quantity_shipped|floatformat:"-4" }}</td>
+                        <td>{{ item.quantity_received|floatformat:"-4" }}</td>
+                        <td>
+                            {% if item.unavailable %}
+                                <span class="badge badge-closed">Unavailable</span>
+                                {% if item.quantity_dropped %}<small class="line-note">{{ item.quantity_dropped|floatformat:"-4" }} won't be supplied</small>{% endif %}
+                            {% elif item.is_complete %}
+                                <span class="badge badge-open">Complete</span>
+                            {% elif item.quantity_to_receive_remaining > 0 %}
+                                <span class="badge badge-neutral">On its way</span>
+                            {% else %}
+                                <span class="badge badge-pending">Awaiting shipment</span>
+                            {% endif %}
+                        </td>
                     </tr>
                 {% endfor %}
             </tbody>
@@ -166,7 +200,7 @@
                             <td>{{ payment.paid_at|date:"M d, Y" }}</td>
                             <td>{{ payment.amount|money }}</td>
                             <td>{% widthratio payment.amount purchase_order.grand_total 100 %}%</td>
-                            <td><a href="{{ payment.proof.url }}" target="_blank" rel="noopener">View proof</a></td>
+                            <td><a href="{{ payment.proof.url }}" target="_blank" rel="noopener" data-proof-viewer>View proof</a></td>
                             <td>
                                 {% if payment.status == "PENDING" %}
                                     <span class="badge badge-pending">Awaiting Owner</span>

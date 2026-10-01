@@ -1,5 +1,6 @@
 import csv
 import io
+from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -8,8 +9,10 @@ from apps.accounts.services import require_owner
 from apps.audit.services import record_audit_event
 
 from .models import (
+    BottleSize,
     Ingredient,
     Product,
+    ProductBottlePrice,
     ProductCategory,
     ProductIngredient,
 )
@@ -371,3 +374,98 @@ def export_products_csv(queryset):
         ])
 
     return buffer.getvalue()
+
+
+@transaction.atomic
+def save_bottle_price(*, actor, product, bottle_size, price):
+    """Creates or replaces our saved price for one bottle of a product
+    at one bottle size. price=None removes the saved price."""
+    require_owner(actor)
+
+    if bottle_size not in BottleSize.values:
+        raise ValidationError("Not a valid bottle size.")
+
+    saved = ProductBottlePrice.objects.filter(
+        product=product, bottle_size=bottle_size
+    ).first()
+    before = None if saved is None else str(saved.price)
+
+    if price in (None, ""):
+        if saved is not None:
+            saved.delete()
+            record_audit_event(
+                user=actor,
+                action="products.bottle_price_removed",
+                instance=product,
+                before_data={"bottle_size": bottle_size, "price": before},
+            )
+        return None
+
+    try:
+        price = Decimal(str(price))
+    except (InvalidOperation, TypeError):
+        raise ValidationError("Price must be a number.")
+
+    if price < 0:
+        raise ValidationError("Price cannot be negative.")
+
+    if saved is not None and saved.price == price:
+        return saved
+
+    if saved is None:
+        saved = ProductBottlePrice(
+            product=product,
+            bottle_size=bottle_size,
+            created_by=actor,
+        )
+
+    saved.price = price
+    saved.updated_by = actor
+    saved.full_clean()
+    saved.save()
+
+    record_audit_event(
+        user=actor,
+        action="products.bottle_price_saved",
+        instance=saved,
+        before_data={"price": before},
+        after_data={
+            "product_id": str(product.pk),
+            "bottle_size": bottle_size,
+            "price": str(price),
+        },
+    )
+
+    return saved
+
+
+@transaction.atomic
+def set_product_bottle_prices(*, actor, product, prices):
+    """prices: {bottle_size: Decimal | None} — None clears that size."""
+    require_owner(actor)
+
+    for bottle_size, price in prices.items():
+        save_bottle_price(
+            actor=actor,
+            product=product,
+            bottle_size=int(bottle_size),
+            price=price,
+        )
+
+
+def bottle_price_map(products=None):
+    """{product_id_str: {bottle_size_str: "price"}} — handed to the
+    Request to Quote form so picking a product and bottle size
+    pre-fills the price."""
+    queryset = ProductBottlePrice.objects.all()
+
+    if products is not None:
+        queryset = queryset.filter(product__in=products)
+
+    prices = {}
+    for row in queryset.values("product_id", "bottle_size", "price"):
+        prices.setdefault(str(row["product_id"]), {})[str(row["bottle_size"])] = str(
+            row["price"]
+        )
+
+    return prices

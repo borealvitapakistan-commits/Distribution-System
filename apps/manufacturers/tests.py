@@ -14,6 +14,7 @@ from apps.products.services import create_product
 
 from .models import Manufacturer, ManufacturerOrder, ManufacturerOrderPayment
 from .services import (
+    create_vendor,
     create_manufacturer,
     create_manufacturer_order,
     mark_manufacturer_order_received,
@@ -499,11 +500,13 @@ class ManufacturerPaymentFlowTests(TestCase):
         from apps.core.models import Brand
 
         brand = Brand.objects.create(name="Flow Brand")
+        vendor = create_vendor(actor=self.owner, name="Flow Vendor")
         self.client.force_login(self.owner)
 
         response = self.client.post(
             reverse("manufacturer-order-create"),
             {
+                "vendor": vendor.pk,
                 "manufacturer": self.manufacturer.pk,
                 "brand": brand.pk,
                 "items-TOTAL_FORMS": "1",
@@ -516,8 +519,27 @@ class ManufacturerPaymentFlowTests(TestCase):
             },
         )
 
+        # Step one is a Request to Quote: nothing is stocked yet.
         order = ManufacturerOrder.objects.exclude(pk=self.order.pk).get()
+        detail_url = reverse("manufacturer-order-detail", kwargs={"pk": order.pk})
+        self.assertRedirects(response, detail_url)
+        self.assertEqual(order.status, ManufacturerOrder.Status.QUOTE)
+
+        item = order.items.get()
+        response = self.client.post(
+            reverse("manufacturer-order-quote", kwargs={"pk": order.pk}),
+            {
+                "quote_file": proof_file("quote.png"),
+                f"quote_price_{item.pk}": "200",
+                f"quote_qty_{item.pk}": "5",
+            },
+        )
+        self.assertRedirects(response, detail_url)
+
         advance_url = reverse("manufacturer-order-advance", kwargs={"pk": order.pk})
+        response = self.client.post(
+            reverse("manufacturer-order-confirm", kwargs={"pk": order.pk})
+        )
         self.assertRedirects(response, advance_url)
 
         page = self.client.get(advance_url)
@@ -541,8 +563,9 @@ class ManufacturerPaymentFlowTests(TestCase):
         page = self.client.get(receive_url)
         self.assertContains(page, "Have you paid the remaining amount?")
         self.assertContains(page, "Goods received")
-        self.assertNotContains(page, "Invoice number")
-        self.assertNotContains(page, "Invoice file")
+        # The Manufacturer's invoice is recorded here too.
+        self.assertContains(page, "Invoice number")
+        self.assertContains(page, "Invoice document")
 
         item = order.items.get()
         invoice = {
@@ -757,3 +780,299 @@ class ManufacturerApiTests(TestCase):
         self.assertTrue(
             Manufacturer.objects.filter(name="API Manufacturer").exists()
         )
+
+
+@override_settings(MEDIA_ROOT=MEDIA_ROOT)
+class RequestToQuoteFlowTests(TestCase):
+    """Request to Quote → Manufacturer's quote → Purchase Order."""
+
+    def setUp(self):
+        from apps.core.models import Brand
+        from apps.products.models import BottleSize
+        from apps.products.services import save_bottle_price
+
+        self.owner = User.objects.create_user(
+            email="owner@rtq.test",
+            password="OwnerPassword123!",
+            role=User.Role.OWNER,
+            is_active=True,
+        )
+        self.brand = Brand.objects.create(name="Herbal Aid", primary_color="#1f7a4d")
+        self.manufacturer = create_manufacturer(actor=self.owner, name="Glorious Labs")
+        self.vendor = create_vendor(
+            actor=self.owner, name="Middleman Traders", email="buy@middleman.test",
+            phone="0300-1234567", address="Shop 4, Main Market",
+        )
+        self.ashwagandha = create_product(
+            actor=self.owner, sku="RTQ-ASH", barcode="", name="Ashwagandha",
+            base_retail_price=Decimal("100"), currency="pkr",
+        )
+        self.vitamin_d = create_product(
+            actor=self.owner, sku="RTQ-D3", barcode="", name="Vitamin D3",
+            base_retail_price=Decimal("100"), currency="pkr",
+        )
+        save_bottle_price(
+            actor=self.owner, product=self.ashwagandha,
+            bottle_size=BottleSize.CAPS_60, price=Decimal("10"),
+        )
+        save_bottle_price(
+            actor=self.owner, product=self.vitamin_d,
+            bottle_size=BottleSize.CAPS_60, price=Decimal("10"),
+        )
+
+    def make_quote(self):
+        from .services import create_request_to_quote
+
+        return create_request_to_quote(
+            actor=self.owner,
+            vendor=self.vendor,
+            manufacturer=self.manufacturer,
+            brand=self.brand,
+            terms="50% advance.",
+            items=[
+                {"product": self.ashwagandha, "bottle_size": 60, "quantity": "100", "unit_price": "10"},
+                {"product": self.ashwagandha, "bottle_size": 120, "quantity": "50", "unit_price": None},
+                {"product": self.vitamin_d, "bottle_size": 60, "quantity": "100", "unit_price": "10"},
+            ],
+        )
+
+    def lines(self, order):
+        return {(item.product_id, item.bottle_size): item for item in order.items.all()}
+
+    def test_quote_has_optional_prices_and_no_batches(self):
+        order = self.make_quote()
+
+        self.assertEqual(order.status, ManufacturerOrder.Status.QUOTE)
+        self.assertEqual(order.document_title, "Request to Quote")
+        self.assertEqual(order.items.count(), 3)
+        unpriced = self.lines(order)[(self.ashwagandha.pk, 120)]
+        self.assertIsNone(unpriced.unit_price)
+        self.assertEqual(order.subtotal, Decimal("2000.00"))
+        self.assertFalse(any(item.price_changed for item in order.items.all()))
+        self.assertFalse(order.items.filter(batch__isnull=False).exists())
+
+    def test_same_product_and_size_twice_is_rejected(self):
+        from .services import create_request_to_quote
+
+        with self.assertRaises(ValidationError):
+            create_request_to_quote(
+                actor=self.owner,
+                vendor=self.vendor,
+                manufacturer=self.manufacturer,
+                items=[
+                    {"product": self.ashwagandha, "bottle_size": 60, "quantity": "1"},
+                    {"product": self.ashwagandha, "bottle_size": 60, "quantity": "2"},
+                ],
+            )
+
+    def test_quote_highlights_changes_and_saves_only_chosen_prices(self):
+        from apps.products.models import ProductBottlePrice
+
+        from .services import record_manufacturer_quote
+
+        order = self.make_quote()
+        lines = self.lines(order)
+        ash60 = lines[(self.ashwagandha.pk, 60)]
+        ash120 = lines[(self.ashwagandha.pk, 120)]
+        d3 = lines[(self.vitamin_d.pk, 60)]
+
+        # No document, no quote.
+        with self.assertRaises(ValidationError):
+            record_manufacturer_quote(
+                actor=self.owner, order_id=order.pk,
+                item_updates={str(ash60.pk): {"unit_price": Decimal("20")}},
+            )
+
+        record_manufacturer_quote(
+            actor=self.owner,
+            order_id=order.pk,
+            quote_file=proof_file("quote.png"),
+            item_updates={
+                str(ash60.pk): {"unit_price": Decimal("20"), "quantity": Decimal("100")},
+                str(ash120.pk): {"unit_price": Decimal("30"), "quantity": Decimal("50")},
+                str(d3.pk): {"unit_price": Decimal("10"), "quantity": Decimal("100")},
+            },
+            save_price_item_ids=[ash60.pk],
+        )
+
+        order.refresh_from_db()
+        lines = self.lines(order)
+        self.assertTrue(lines[(self.ashwagandha.pk, 60)].price_changed)
+        self.assertTrue(lines[(self.ashwagandha.pk, 120)].price_changed)
+        self.assertFalse(lines[(self.vitamin_d.pk, 60)].price_changed)
+        self.assertIsNotNone(order.quoted_at)
+
+        saved = {
+            (row.product_id, row.bottle_size): row.price
+            for row in ProductBottlePrice.objects.all()
+        }
+        self.assertEqual(saved[(self.ashwagandha.pk, 60)], Decimal("20"))
+        self.assertNotIn((self.ashwagandha.pk, 120), saved)
+        self.assertEqual(saved[(self.vitamin_d.pk, 60)], Decimal("10"))
+
+    def test_confirm_needs_quote_then_creates_batches(self):
+        from .services import confirm_purchase_order, record_manufacturer_quote
+
+        order = self.make_quote()
+
+        with self.assertRaises(ValidationError):
+            confirm_purchase_order(actor=self.owner, order_id=order.pk)
+
+        with self.assertRaises(ValidationError):
+            record_manufacturer_payment(
+                actor=self.owner, order_id=order.pk, amount="1",
+                paid_at="2026-01-01", proof=proof_file(),
+            )
+
+        ash120 = self.lines(order)[(self.ashwagandha.pk, 120)]
+        record_manufacturer_quote(
+            actor=self.owner,
+            order_id=order.pk,
+            quote_file=proof_file("quote.png"),
+            item_updates={
+                str(item.pk): {"unit_price": Decimal("12")} for item in order.items.all()
+            },
+            remove_item_ids=[ash120.pk],
+        )
+
+        order = confirm_purchase_order(actor=self.owner, order_id=order.pk)
+
+        self.assertEqual(order.status, ManufacturerOrder.Status.SENT)
+        self.assertIsNotNone(order.po_sent_at)
+        self.assertEqual(order.items.count(), 2)
+        self.assertEqual(order.items.filter(batch__isnull=False).count(), 2)
+        self.assertEqual(order.subtotal, Decimal("2400.00"))
+
+        with self.assertRaises(ValidationError):
+            confirm_purchase_order(actor=self.owner, order_id=order.pk)
+
+    def test_pages_and_pdfs(self):
+        from .services import record_manufacturer_quote
+
+        order = self.make_quote()
+        self.client.force_login(self.owner)
+
+        create_page = self.client.get(reverse("manufacturer-order-create"))
+        self.assertContains(create_page, 'id="moBottlePrices"')
+        self.assertContains(create_page, "60 capsules")
+
+        for route in ["manufacturer-order-detail", "manufacturer-order-edit", "manufacturer-order-quote"]:
+            with self.subTest(route=route):
+                response = self.client.get(reverse(route, kwargs={"pk": order.pk}))
+                self.assertEqual(response.status_code, 200)
+
+        for query in ["", "?copy=team"]:
+            response = self.client.get(
+                reverse("manufacturer-order-pdf", kwargs={"pk": order.pk}) + query
+            )
+            self.assertEqual(response["Content-Type"], "application/pdf")
+            self.assertIn("RTQ-", response["Content-Disposition"])
+
+        record_manufacturer_quote(
+            actor=self.owner,
+            order_id=order.pk,
+            quote_file=proof_file("quote.png"),
+            item_updates={
+                str(item.pk): {"unit_price": Decimal("20")} for item in order.items.all()
+            },
+        )
+
+        # Once the quote is in, the request itself is locked.
+        response = self.client.get(reverse("manufacturer-order-edit", kwargs={"pk": order.pk}))
+        self.assertRedirects(response, reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
+
+        detail = self.client.get(reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
+        self.assertContains(detail, "mo-row-changed")
+        self.assertContains(detail, "Send Purchase Order")
+
+        list_page = self.client.get(reverse("manufacturer-order-list") + "?status=QUOTE&q=Glorious")
+        self.assertContains(list_page, order.po_number)
+        list_page = self.client.get(reverse("manufacturer-order-list") + "?status=GOOD")
+        self.assertNotContains(list_page, order.po_number)
+
+    def test_product_page_saves_bottle_prices(self):
+        self.client.force_login(self.owner)
+
+        response = self.client.post(
+            reverse("product-bottle-prices", kwargs={"pk": self.ashwagandha.pk}),
+            {"price_30": "5.5", "price_60": "", "price_90": "", "price_120": "15.250"},
+        )
+        self.assertRedirects(response, reverse("product-detail", kwargs={"pk": self.ashwagandha.pk}))
+
+        prices = {row.bottle_size: row.price for row in self.ashwagandha.bottle_prices.all()}
+        self.assertEqual(prices, {30: Decimal("5.5"), 120: Decimal("15.25")})
+
+    def test_brand_colour_must_be_a_hex_code(self):
+        self.brand.primary_color = "green"
+        with self.assertRaises(ValidationError):
+            self.brand.full_clean()
+
+        self.brand.primary_color = "#000000"
+        self.assertEqual(self.brand.tinted_color(1), "#ffffff")
+
+    def test_vendor_is_required_and_shown(self):
+        from .services import create_request_to_quote
+
+        with self.assertRaises(ValidationError):
+            create_request_to_quote(
+                actor=self.owner,
+                vendor=None,
+                manufacturer=self.manufacturer,
+                items=[{"product": self.ashwagandha, "bottle_size": 60, "quantity": "1"}],
+            )
+
+        order = self.make_quote()
+        self.assertEqual(order.vendor, self.vendor)
+        self.client.force_login(self.owner)
+
+        detail = self.client.get(reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
+        self.assertContains(detail, "Middleman Traders")
+        self.assertContains(detail, "Glorious Labs")
+
+        list_page = self.client.get(reverse("manufacturer-order-list") + "?q=Middleman")
+        self.assertContains(list_page, order.po_number)
+
+        vendor_page = self.client.get(reverse("vendor-detail", kwargs={"pk": self.vendor.pk}))
+        self.assertContains(vendor_page, order.po_number)
+
+    def test_vendor_pages(self):
+        from .models import Vendor
+
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.get(reverse("vendor-list")).status_code, 200)
+        self.assertEqual(self.client.get(reverse("vendor-create")).status_code, 200)
+
+        response = self.client.post(
+            reverse("vendor-create"),
+            {"name": "New Vendor", "email": "v@vendor.test", "phone": "123",
+             "address": "Lahore", "notes": "", "active": "on"},
+        )
+        vendor = Vendor.objects.get(name="New Vendor")
+        self.assertRedirects(response, reverse("vendor-detail", kwargs={"pk": vendor.pk}))
+
+        response = self.client.post(
+            reverse("vendor-edit", kwargs={"pk": vendor.pk}),
+            {"name": "Renamed Vendor", "email": "v@vendor.test", "phone": "123",
+             "address": "Lahore", "notes": "", "active": "on"},
+        )
+        vendor.refresh_from_db()
+        self.assertEqual(vendor.name, "Renamed Vendor")
+
+    def test_document_groups_bottle_sizes_into_price_columns(self):
+        from .views import document_table
+
+        order = self.make_quote()
+        columns, rows = document_table(list(order.items.all()))
+
+        self.assertEqual([c["label"] for c in columns], ["Unit price (60 caps)", "Unit price (120 caps)"])
+        self.assertEqual([row["product"].name for row in rows], ["Ashwagandha", "Vitamin D3"])
+
+        ashwagandha = rows[0]
+        # 100 x 60-cap and 50 x 120-cap: quantities differ, so each cell shows its own.
+        self.assertIsNone(ashwagandha["quantity"])
+        self.assertTrue(ashwagandha["cells"][0]["show_quantity"])
+        self.assertEqual(ashwagandha["total"], Decimal("1000.00"))
+
+        vitamin_d = rows[1]
+        self.assertEqual(vitamin_d["quantity"], Decimal("100"))
+        self.assertIsNone(vitamin_d["cells"][1]["item"])

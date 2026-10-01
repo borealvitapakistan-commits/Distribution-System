@@ -9,8 +9,8 @@
 <div class="page-header">
     <div>
         <p class="eyebrow">Manufacturers</p>
-        <h1>Purchase Orders</h1>
-        <p>Orders you've placed with Manufacturers.</p>
+        <h1>Manufacture</h1>
+        <p>Requests to Quote and Purchase Orders sent through your vendors to Manufacturers — from quote to invoice.</p>
     </div>
 
     <div>
@@ -18,67 +18,124 @@
             Back
         </a>
         <a class="button button-primary" href="{% url 'manufacturer-order-create' %}">
-            New Order
+            + New Request to Quote
         </a>
     </div>
 </div>
 
 <section class="panel">
+    <form method="get" class="mo-filters">
+        <input
+            type="search"
+            name="q"
+            value="{{ filters.q }}"
+            placeholder="Search PO number, vendor, manufacturer, brand or product…"
+            aria-label="Search orders"
+        >
+        <select name="status" aria-label="Status" onchange="this.form.submit()">
+            <option value="">All statuses</option>
+            {% for value, label in status_choices %}
+                <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <select name="days" aria-label="Date" onchange="this.form.submit()">
+            {% for value, label in date_ranges %}
+                <option value="{{ value }}" {% if filters.days == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="button button-secondary">Search</button>
+        {% if filters.q or filters.status or filters.days %}
+            <a class="button button-secondary" href="{% url 'manufacturer-order-list' %}">Clear</a>
+        {% endif %}
+    </form>
+
     <div class="table-wrapper">
         <table>
             <thead>
                 <tr>
-                    <th>PO Number</th>
+                    <th>Order</th>
+                    <th>Vendor</th>
                     <th>Manufacturer</th>
                     <th>Brand</th>
-                    <th>Created</th>
+                    <th>Date</th>
                     <th>Items</th>
-                    <th>Grand Total</th>
-                    <th>Status</th>
-                    <th></th>
+                    <th>Total</th>
+                    <th>Actions</th>
                 </tr>
             </thead>
 
             <tbody>
                 {% for order in orders %}
-                    <tr>
-                        <td><strong>{{ order.po_number }}</strong></td>
-                        <td>{{ order.manufacturer.name }}</td>
-                        <td>{{ order.brand.name|default:"—" }}</td>
-                        <td>{{ order.created_at|date:"M d, Y" }}</td>
-                        <td>{{ order.items.count }}</td>
-                        <td>{{ order.grand_total|money }}</td>
+                    <tr {% if order.status == "QUOTE" or order.status == "SENT" %}class="mo-row-active"{% endif %}>
                         <td>
-                            {% if order.status == "SENT" %}
-                                <span class="badge badge-neutral">Sent</span>
-                            {% elif order.status == "RECEIVED" %}
-                                <span class="badge badge-pending">Received</span>
-                            {% elif order.status == "GOOD" %}
-                                <span class="badge badge-open">Good</span>
-                            {% elif order.status == "DISPUTED" %}
-                                <span class="badge badge-pending">Under discussion</span>
+                            <strong>{{ order.po_number }}</strong>
+                            {% include "manufacturers/_order_status_badge.html" %}
+                        </td>
+                        <td>{{ order.vendor.name|default:"—" }}</td>
+                        <td>{{ order.manufacturer.name }}</td>
+                        <td>
+                            {% if order.brand %}
+                                <span class="color-chip" style="background: {{ order.brand.primary_color }};"></span>
+                                {{ order.brand.name }}
                             {% else %}
-                                <span class="badge badge-closed">Refunded</span>
+                                —
                             {% endif %}
                         </td>
+                        <td>{{ order.created_at|date:"M d, Y" }}</td>
+                        <td>{{ order.items.all|length }}</td>
+                        <td>{{ order.grand_total|money }}</td>
                         <td>
-                            <a
-                                class="button button-secondary button-small"
-                                href="{% url 'manufacturer-order-detail' order.pk %}"
-                            >
-                                View
-                            </a>
+                            {% if order.status == "QUOTE" or order.status == "SENT" or order.status == "RECEIVED" or order.status == "DISPUTED" %}
+                                <a
+                                    class="button button-primary button-small"
+                                    href="{% url 'manufacturer-order-detail' order.pk %}"
+                                >
+                                    Manage
+                                </a>
+                            {% else %}
+                                <a
+                                    class="button button-secondary button-small"
+                                    href="{% url 'manufacturer-order-detail' order.pk %}"
+                                >
+                                    View
+                                </a>
+                            {% endif %}
                         </td>
                     </tr>
                 {% empty %}
                     <tr>
                         <td colspan="8" class="empty-table">
-                            No manufacturer orders yet.
+                            {% if filters.q or filters.status or filters.days %}
+                                No orders match these filters.
+                            {% else %}
+                                No manufacturer orders yet — start with a Request to Quote.
+                            {% endif %}
                         </td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
+    </div>
+
+    <div class="pagination">
+        <span>
+            {% if page_obj %}
+                Showing {{ page_obj.start_index }} to {{ page_obj.end_index }} of {{ page_obj.paginator.count }} results
+            {% endif %}
+        </span>
+        {% if is_paginated %}
+            {% if page_obj.has_previous %}
+                <a href="?{% if filter_query %}{{ filter_query }}&{% endif %}page={{ page_obj.previous_page_number }}" class="button button-secondary button-small">
+                    Previous
+                </a>
+            {% endif %}
+            <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+            {% if page_obj.has_next %}
+                <a href="?{% if filter_query %}{{ filter_query }}&{% endif %}page={{ page_obj.next_page_number }}" class="button button-secondary button-small">
+                    Next
+                </a>
+            {% endif %}
+        {% endif %}
     </div>
 </section>
 {% endblock %}

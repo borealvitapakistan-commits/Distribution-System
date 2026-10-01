@@ -1,0 +1,34 @@
+{% comment %}
+The top of a Request to Quote / Purchase Order sheet.
+Expects: brand, doc_title, doc_number (blank = not saved yet), doc_date, and
+optionally doc_chip, number_label.
+{% endcomment %}
+<div class="doc-head">
+    <div>
+        <div class="doc-logo {% if brand.logo %}has-logo{% elif brand.name %}has-name{% endif %}" data-doc-logo>
+            {% if brand.logo %}
+                <img src="{{ brand.logo.url }}" alt="{{ brand.name }}">
+            {% elif brand.name %}
+                <span class="doc-logo-name">{{ brand.name }}</span>
+            {% else %}
+                LOGO
+            {% endif %}
+        </div>
+        <div class="doc-brand-lines" data-doc-brand-lines>{% if brand.name %}{{ brand.legal_name|default:brand.name }}{% if brand.address %}<br>{{ brand.address|linebreaksbr }}{% endif %}{% endif %}</div>
+    </div>
+
+    <div class="doc-title-block">
+        <h2 class="doc-title">
+            {{ doc_title }}
+            {% if doc_chip %}<span class="doc-chip">{{ doc_chip }}</span>{% endif %}
+        </h2>
+        <span class="doc-meta-label">Date</span>
+        <span class="doc-meta-value">{{ doc_date|date:"Y-m-d" }}</span>
+        <span class="doc-meta-label">{{ number_label|default:"RTQ number" }}</span>
+        {% if doc_number %}
+            <span class="doc-meta-value">{{ doc_number }}</span>
+        {% else %}
+            <span class="doc-pending">auto-generated on save</span>
+        {% endif %}
+    </div>
+</div>

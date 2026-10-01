@@ -8,6 +8,7 @@ from django.db import models
 from apps.core.models import AuditedModel
 from apps.core.payments import AdvanceFinalPaymentsMixin, PaymentKind
 from apps.core.querysets import OwnerManagedQuerySet
+from apps.products.models import BottleSize
 
 
 class Manufacturer(AuditedModel):
@@ -53,8 +54,38 @@ class Manufacturer(AuditedModel):
         return self.name
 
 
+class Vendor(AuditedModel):
+    """The middleman between the Owner and a Manufacturer: takes our
+    Request to Quote / Purchase Order to the Manufacturer, brings back
+    their prices, and delivers the goods from the Manufacturer to us."""
+
+    name = models.CharField(max_length=200, unique=True)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    address = models.TextField(blank=True)
+    notes = models.TextField(blank=True)
+    active = models.BooleanField(default=True)
+
+    objects = OwnerManagedQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["name"]
+
+    def clean(self):
+        super().clean()
+
+        self.name = self.name.strip()
+
+        if not self.name:
+            raise ValidationError({"name": "Vendor name is required."})
+
+    def __str__(self):
+        return self.name
+
+
 class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
     class Status(models.TextChoices):
+        QUOTE = "QUOTE", "Request to Quote"
         SENT = "SENT", "Sent"
         RECEIVED = "RECEIVED", "Received"
         GOOD = "GOOD", "Good — no issues"
@@ -65,6 +96,19 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         Manufacturer,
         on_delete=models.PROTECT,
         related_name="orders",
+    )
+
+    vendor = models.ForeignKey(
+        Vendor,
+        on_delete=models.PROTECT,
+        related_name="orders",
+        null=True,
+        blank=True,
+        help_text=(
+            "Who we send the Request to Quote / Purchase Order to; they deal "
+            "with the Manufacturer and deliver the goods to us. Blank on "
+            "orders placed before vendors existed."
+        ),
     )
 
     brand = models.ForeignKey(
@@ -84,6 +128,28 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
     )
 
     owner_note = models.TextField(blank=True)
+    terms = models.TextField(
+        blank=True,
+        help_text="Terms and conditions printed on the Request to Quote / Purchase Order.",
+    )
+
+    quote_file = models.FileField(
+        upload_to="manufacturer_order_quotes/",
+        null=True,
+        blank=True,
+        help_text="The Manufacturer's reply to our Request to Quote, with their real prices.",
+    )
+    quoted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the Manufacturer's quoted prices were entered.",
+    )
+    po_sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the Request to Quote became a Purchase Order.",
+    )
+
     outcome_note = models.TextField(
         blank=True,
         help_text="Why this was disputed or refunded.",
@@ -140,6 +206,26 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def is_quote(self):
+        return self.status == self.Status.QUOTE
+
+    @property
+    def document_title(self):
+        return "Request to Quote" if self.is_quote else "Purchase Order"
+
+    @property
+    def purchase_order_date(self):
+        """Older orders were placed directly as Purchase Orders, before
+        the Request to Quote step existed."""
+        if self.is_quote:
+            return None
+        return self.po_sent_at or self.created_at
+
+    @property
+    def has_price_changes(self):
+        return any(item.price_changed for item in self.items.all())
 
     @property
     def subtotal(self):
@@ -208,33 +294,62 @@ class ManufacturerOrderItem(AuditedModel):
         ),
     )
 
+    bottle_size = models.PositiveSmallIntegerField(
+        choices=BottleSize.choices,
+        null=True,
+        blank=True,
+        help_text="Capsules per bottle. Blank for products not sold by capsule count.",
+    )
+
     quantity = models.DecimalField(
         max_digits=18,
         decimal_places=4,
         validators=[MinValueValidator(Decimal("0.0001"))],
+        help_text="Number of bottles (units).",
+    )
+
+    requested_unit_price = models.DecimalField(
+        max_digits=18,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
+        help_text="The price we asked for on the Request to Quote (blank = asked them to quote).",
     )
 
     unit_price = models.DecimalField(
         max_digits=18,
-        decimal_places=2,
+        decimal_places=3,
+        null=True,
+        blank=True,
         validators=[MinValueValidator(Decimal("0"))],
+        help_text="The current agreed price per bottle. Blank only on a Request to Quote.",
     )
 
     class Meta:
-        ordering = ["product__name"]
+        ordering = ["product__name", "bottle_size"]
         constraints = [
             models.UniqueConstraint(
-                fields=["order", "product"],
-                name="unique_product_per_manufacturer_order",
+                fields=["order", "product", "bottle_size"],
+                name="unique_product_size_per_manufacturer_order",
             ),
         ]
 
     @property
     def line_total(self):
+        if self.unit_price is None:
+            return Decimal("0.00")
         return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
 
+    @property
+    def price_changed(self):
+        """True when the Manufacturer's price differs from what we
+        asked for — these lines are highlighted yellow."""
+        return self.unit_price != self.requested_unit_price
+
     def __str__(self):
-        return f"{self.product.sku} - {self.quantity}"
+        size = f" ({self.get_bottle_size_display()})" if self.bottle_size else ""
+        return f"{self.product.sku}{size} - {self.quantity}"
 
 
 class ManufacturerOrderPayment(AuditedModel):

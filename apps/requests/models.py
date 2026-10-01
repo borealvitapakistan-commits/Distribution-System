@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
-from django.core.validators import MinValueValidator
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 
 from apps.core.models import AuditedModel
@@ -18,6 +18,7 @@ class PurchaseOrder(AdvanceFinalPaymentsMixin, AuditedModel):
 
     class Status(models.TextChoices):
         PENDING = "PENDING", "Pending"
+        PARTIALLY_SHIPPED = "PARTIALLY_SHIPPED", "Partially shipped"
         SHIPPED = "SHIPPED", "Shipped"
         RECEIVED = "RECEIVED", "Received"
         DECLINED = "DECLINED", "Declined"
@@ -29,6 +30,18 @@ class PurchaseOrder(AdvanceFinalPaymentsMixin, AuditedModel):
     )
 
     po_number = models.CharField(max_length=20, unique=True, editable=False)
+
+    agreement = models.ForeignKey(
+        "agreements.Agreement",
+        on_delete=models.PROTECT,
+        related_name="purchase_orders",
+        null=True,
+        blank=True,
+        help_text=(
+            "The signed agreement in force on the day the order was placed. "
+            "Its discounts pre-filled each line. Blank = list prices."
+        ),
+    )
     status = models.CharField(
         max_length=20,
         choices=Status.choices,
@@ -114,6 +127,10 @@ class PurchaseOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         ]
 
     @property
+    def is_open(self):
+        return self.status not in (self.Status.RECEIVED, self.Status.DECLINED)
+
+    @property
     def awaiting_receipt(self):
         """Anything shipped that the Distributor hasn't confirmed yet."""
         return any(item.quantity_to_receive_remaining > 0 for item in self.items.all())
@@ -150,10 +167,47 @@ class PurchaseOrderItem(AuditedModel):
         validators=[MinValueValidator(Decimal("0.0001"))],
     )
 
+    list_price = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0"))],
+        help_text="The product's price before any discount, when ordered.",
+    )
+
+    discount_percentage = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[
+            MinValueValidator(Decimal("0")),
+            MaxValueValidator(Decimal("100")),
+        ],
+        help_text=(
+            "Starts at the agreement's discount for this product; the "
+            "Owner can change it until the line ships."
+        ),
+    )
+
     unit_price = models.DecimalField(
         max_digits=18,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0"))],
+        help_text="list_price less discount_percentage.",
+    )
+
+    owner_note = models.TextField(
+        blank=True,
+        help_text="The Owner's comment on this product, shown to the Distributor.",
+    )
+
+    unavailable = models.BooleanField(
+        default=False,
+        help_text=(
+            "The Owner can't supply the rest of this line. Whatever hasn't "
+            "shipped is dropped from the order (and its total), so the "
+            "order can complete without it."
+        ),
     )
 
     quantity_shipped = models.DecimalField(
@@ -180,16 +234,37 @@ class PurchaseOrderItem(AuditedModel):
         ]
 
     @property
+    def quantity_ordered(self):
+        """What this line will actually supply — everything requested,
+        unless the Owner marked it unavailable, then only what shipped."""
+        if self.unavailable:
+            return self.quantity_shipped
+        return self.quantity_requested
+
+    @property
+    def quantity_dropped(self):
+        return self.quantity_requested - self.quantity_ordered
+
+    @property
     def quantity_to_ship_remaining(self):
-        return self.quantity_requested - self.quantity_shipped
+        return self.quantity_ordered - self.quantity_shipped
 
     @property
     def quantity_to_receive_remaining(self):
         return self.quantity_shipped - self.quantity_received
 
     @property
+    def is_complete(self):
+        return self.quantity_received >= self.quantity_ordered
+
+    @property
+    def can_reprice(self):
+        """Prices are settled once anything on the line has shipped."""
+        return self.quantity_shipped == 0 and not self.unavailable
+
+    @property
     def line_total(self):
-        return (self.quantity_requested * self.unit_price).quantize(Decimal("0.01"))
+        return (self.quantity_ordered * self.unit_price).quantize(Decimal("0.01"))
 
     def __str__(self):
         return f"{self.product.sku} - {self.quantity_requested}"

@@ -10,8 +10,8 @@
         <p class="eyebrow">Orders</p>
         <h1>Place Order</h1>
         <p>
-            Pick products and quantities. Price is optional — leave it
-            blank if you don't know it and the Owner will set it.
+            Pick products and quantities. Prices come from your signed
+            agreement; the Owner confirms them when the order arrives.
         </p>
     </div>
 
@@ -21,6 +21,21 @@
     >
         Back
     </a>
+</div>
+
+<div class="notification-card">
+    {% if agreement %}
+        <h2>
+            Your agreement {{ agreement.agreement_number }} gives you
+            {{ agreement.discount_percentage|floatformat:"-2" }}% off list price{% if agreement.product_rates.all %}
+            (some products have their own discount){% endif %} — valid until {{ agreement.end_date|date:"M d, Y" }}.
+        </h2>
+    {% else %}
+        <h2>
+            You have no signed agreement covering today, so list prices apply.
+            <a href="{% url 'distributor-agreement-list' %}">See your agreements</a>.
+        </h2>
+    {% endif %}
 </div>
 
 <section class="panel form-panel">
@@ -67,11 +82,8 @@
                     </div>
 
                     <div class="form-group">
-                        <label>{{ item_form.requested_price.label }}</label>
-                        {{ item_form.requested_price }}
-                        {% for error in item_form.requested_price.errors %}
-                            <span class="field-error">{{ error }}</span>
-                        {% endfor %}
+                        <label>Your price</label>
+                        <span class="po-unit-price">—</span>
                     </div>
 
                     <div class="form-group">
@@ -130,8 +142,8 @@
         </div>
 
         <div class="form-group">
-            <label>{{ formset.empty_form.requested_price.label }}</label>
-            {{ formset.empty_form.requested_price }}
+            <label>Your price</label>
+            <span class="po-unit-price">—</span>
         </div>
 
         <div class="form-group">
@@ -183,17 +195,23 @@
         rowsContainer.querySelectorAll(".nested-form").forEach(function (row) {
             var select = row.querySelector("select[name$='-product']");
             var qtyInput = row.querySelector("input[name$='-quantity_requested']");
-            var priceInput = row.querySelector("input[name$='-requested_price']");
+            var unitEl = row.querySelector(".po-unit-price");
             var totalEl = row.querySelector(".po-line-total");
 
             if (!select || !qtyInput || !totalEl) { return; }
 
             var option = select.options[select.selectedIndex];
-            var basePrice = option ? parseFloat(option.getAttribute("data-price") || "0") : 0;
-            var requestedPrice = priceInput && priceInput.value ? parseFloat(priceInput.value) : NaN;
-            var price = isNaN(requestedPrice) ? basePrice : requestedPrice;
+            var listPrice = option ? parseFloat(option.getAttribute("data-price") || "0") : 0;
+            var discount = option ? parseFloat(option.getAttribute("data-discount") || "0") : 0;
+            var price = Math.round(listPrice * (100 - discount)) / 100;
             var qty = parseFloat(qtyInput.value || "0");
             var lineTotal = (isNaN(price) || isNaN(qty)) ? 0 : price * qty;
+
+            if (unitEl) {
+                unitEl.textContent = option && option.value
+                    ? formatMoney(price) + (discount > 0 ? " (" + formatMoney(listPrice) + " less " + discount + "%)" : "")
+                    : "—";
+            }
 
             totalEl.textContent = formatMoney(lineTotal);
             grandTotal += lineTotal;

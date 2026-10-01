@@ -8,46 +8,35 @@ from .models import PurchaseOrder, PurchaseOrderItem, PurchaseOrderPayment
 
 
 class ProductPriceSelect(forms.Select):
-    """A <select> whose <option>s carry data-price, so the create-PO page
-    can show a live running total in JS without a server round trip."""
+    """A <select> whose <option>s carry data-price (list price) and
+    data-discount (this Distributor's agreement discount for it), so the
+    create-PO page can show live prices in JS without a round trip."""
+
+    agreement = None
 
     def create_option(self, name, value, label, selected, index, subindex=None, attrs=None):
         option = super().create_option(name, value, label, selected, index, subindex, attrs)
-        raw_value = getattr(value, "value", value)
+        product = getattr(value, "instance", None)
 
-        if raw_value:
-            price = (
-                Product.objects
-                .filter(pk=raw_value)
-                .values_list("base_retail_price", flat=True)
-                .first()
-            )
-
-            if price is not None:
-                option["attrs"]["data-price"] = str(price)
+        if product is not None:
+            discount = self.agreement.discount_for(product) if self.agreement else Decimal("0")
+            option["attrs"]["data-price"] = str(product.base_retail_price)
+            option["attrs"]["data-discount"] = str(discount)
 
         return option
 
 
 class PurchaseOrderItemForm(forms.ModelForm):
-    requested_price = forms.DecimalField(
-        max_digits=18,
-        decimal_places=2,
-        min_value=Decimal("0"),
-        required=False,
-        label="Requested price (optional)",
-        help_text="Leave blank if you don't know the price.",
-    )
-
     class Meta:
         model = PurchaseOrderItem
         fields = ["product", "quantity_requested"]
         widgets = {"product": ProductPriceSelect}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, agreement=None, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.fields["product"].queryset = Product.objects.filter(active=True)
+        self.fields["product"].widget.agreement = agreement
 
 
 PurchaseOrderItemFormSet = inlineformset_factory(
@@ -101,6 +90,18 @@ class ShipPurchaseOrderItemForm(forms.Form):
                 allocations.append((batch, quantity))
 
         return allocations
+
+
+class LineStatusForm(forms.Form):
+    note = forms.CharField(
+        required=False,
+        label="Comment to Distributor",
+        widget=forms.Textarea(attrs={"rows": 2}),
+    )
+    unavailable = forms.BooleanField(
+        required=False,
+        label="Not available — close this product on the order",
+    )
 
 
 class PricingForm(forms.ModelForm):

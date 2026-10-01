@@ -6,6 +6,7 @@ from .views import (
     DistributorProductListView,
     IngredientCreateView,
     ProductCreateView,
+    ProductBottlePricesView,
     ProductCSVExportView,
     ProductDetailView,
     ProductListView,
@@ -53,6 +54,11 @@ urlpatterns = [
         "owner/products/<uuid:pk>/",
         ProductDetailView.as_view(),
         name="product-detail",
+    ),
+    path(
+        "owner/products/<uuid:pk>/bottle-prices/",
+        ProductBottlePricesView.as_view(),
+        name="product-bottle-prices",
     ),
     path(
         "owner/products/<uuid:pk>/edit/",

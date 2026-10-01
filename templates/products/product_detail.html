@@ -95,5 +95,28 @@
             </div>
         {% endfor %}
     </section>
+
+    <section class="panel">
+        <h2>Manufacturer price per bottle</h2>
+        <p class="stat-detail">
+            What we expect to pay for one bottle at each size. A new Request to
+            Quote fills these in automatically — leave a size blank if it isn't ordered.
+        </p>
+
+        <form method="post" action="{% url 'product-bottle-prices' product.pk %}" class="form-layout">
+            {% csrf_token %}
+            <div class="form-grid">
+                {% for field in bottle_price_form %}
+                    <div class="form-group">
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                    </div>
+                {% endfor %}
+            </div>
+            <div class="form-actions">
+                <button type="submit" class="button button-primary">Save Prices</button>
+            </div>
+        </form>
+    </section>
 </div>
 {% endblock %}

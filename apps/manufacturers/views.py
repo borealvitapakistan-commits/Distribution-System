@@ -1,12 +1,19 @@
+from datetime import timedelta
+from decimal import Decimal
+
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.views import View
 from django.views.generic import DetailView, ListView
 
 from apps.accounts.mixins import OwnerRequiredMixin
+from apps.core.models import Brand
 from apps.core.utils import render_pdf
+from apps.products.services import bottle_price_map
 
 from .forms import (
     ManufacturerAdvancePaymentForm,
@@ -17,11 +24,18 @@ from .forms import (
     ManufacturerOrderOutcomeForm,
     ManufacturerOrderPaymentForm,
     ManufacturerOrderReceiveForm,
+    ManufacturerQuoteForm,
+    VendorForm,
 )
-from .models import Manufacturer, ManufacturerOrder
+from .models import Manufacturer, ManufacturerOrder, Vendor
 from .services import (
+    confirm_purchase_order,
     create_manufacturer,
-    create_manufacturer_order,
+    create_request_to_quote,
+    create_vendor,
+    record_manufacturer_quote,
+    update_request_to_quote,
+    update_vendor,
     receive_manufacturer_order,
     receiving_steps,
     record_advance_decision,
@@ -129,6 +143,73 @@ class ManufacturerUpdateView(OwnerRequiredMixin, View):
         return redirect("manufacturer-detail", pk=manufacturer.pk)
 
 
+class VendorListView(OwnerRequiredMixin, ListView):
+    template_name = "manufacturers/vendor_list.html"
+    context_object_name = "vendors"
+
+    def get_queryset(self):
+        return Vendor.objects.for_user(self.request.user)
+
+
+class VendorDetailView(OwnerRequiredMixin, DetailView):
+    template_name = "manufacturers/vendor_detail.html"
+    context_object_name = "vendor"
+
+    def get_queryset(self):
+        return Vendor.objects.for_user(self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["orders"] = (
+            self.object.orders.select_related("manufacturer", "brand")
+            .prefetch_related("items")[:20]
+        )
+        return context
+
+
+class VendorFormView(OwnerRequiredMixin, View):
+    """Adds a vendor, or edits one when there's a pk."""
+
+    template_name = "manufacturers/vendor_form.html"
+
+    def get_object(self, pk):
+        if pk is None:
+            return None
+        vendor = Vendor.objects.for_user(self.request.user).filter(pk=pk).first()
+        if vendor is None:
+            raise Http404
+        return vendor
+
+    def get(self, request, pk=None):
+        vendor = self.get_object(pk)
+        return render(
+            request,
+            self.template_name,
+            {"form": VendorForm(instance=vendor), "object": vendor},
+        )
+
+    def post(self, request, pk=None):
+        vendor = self.get_object(pk)
+        form = VendorForm(request.POST, instance=vendor)
+
+        if not form.is_valid():
+            return render(request, self.template_name, {"form": form, "object": vendor})
+
+        try:
+            if vendor is None:
+                vendor = create_vendor(actor=request.user, **form.cleaned_data)
+            else:
+                vendor = update_vendor(
+                    actor=request.user, vendor_id=vendor.pk, **form.cleaned_data
+                )
+        except (PermissionDenied, ValidationError) as exc:
+            form.add_error(None, exc)
+            return render(request, self.template_name, {"form": form, "object": vendor})
+
+        messages.success(request, "Vendor saved.")
+        return redirect("vendor-detail", pk=vendor.pk)
+
+
 def manufacturer_order_item_rows(formset):
     rows = []
 
@@ -145,6 +226,7 @@ def manufacturer_order_item_rows(formset):
         rows.append(
             {
                 "product": form.cleaned_data["product"],
+                "bottle_size": form.cleaned_data.get("bottle_size"),
                 "quantity": form.cleaned_data["quantity"],
                 "unit_price": form.cleaned_data["unit_price"],
                 "source_purchase_order_item": form.cleaned_data.get(
@@ -159,18 +241,128 @@ def manufacturer_order_item_rows(formset):
 class ManufacturerOrderListView(OwnerRequiredMixin, ListView):
     template_name = "manufacturers/manufacturer_order_list.html"
     context_object_name = "orders"
+    paginate_by = 25
+
+    DATE_RANGES = [
+        ("", "All dates"),
+        ("7", "Last 7 days"),
+        ("30", "Last 30 days"),
+        ("90", "Last 90 days"),
+        ("365", "Last 12 months"),
+    ]
 
     def get_queryset(self):
-        return (
+        queryset = (
             ManufacturerOrder.objects
             .for_user(self.request.user)
-            .select_related("manufacturer", "brand")
+            .select_related("vendor", "manufacturer", "brand")
             .prefetch_related("items")
         )
 
+        query = self.request.GET.get("q", "").strip()
+        if query:
+            queryset = queryset.filter(
+                Q(po_number__icontains=query)
+                | Q(vendor__name__icontains=query)
+                | Q(manufacturer__name__icontains=query)
+                | Q(brand__name__icontains=query)
+                | Q(items__product__name__icontains=query)
+            ).distinct()
 
-class ManufacturerOrderCreateView(OwnerRequiredMixin, View):
+        status = self.request.GET.get("status", "")
+        if status in ManufacturerOrder.Status.values:
+            queryset = queryset.filter(status=status)
+
+        days = self.request.GET.get("days", "")
+        if days.isdigit():
+            queryset = queryset.filter(
+                created_at__gte=timezone.now() - timedelta(days=int(days))
+            )
+
+        return queryset
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        params = self.request.GET.copy()
+        params.pop("page", None)
+        context.update(
+            {
+                "status_choices": ManufacturerOrder.Status.choices,
+                "date_ranges": self.DATE_RANGES,
+                "filters": {
+                    "q": self.request.GET.get("q", ""),
+                    "status": self.request.GET.get("status", ""),
+                    "days": self.request.GET.get("days", ""),
+                },
+                "filter_query": params.urlencode(),
+            }
+        )
+        return context
+
+
+def _brand_sheet_data(brand):
+    return {
+        "name": brand.name,
+        "legal_name": brand.legal_name or brand.name,
+        "address": brand.address,
+        "phone": brand.phone,
+        "email": brand.email,
+        "color": brand.primary_color,
+        "soft": brand.primary_color_soft,
+        "logo": brand.logo.url if brand.logo else "",
+    }
+
+
+def document_sheet_data():
+    """Everything the on-screen document needs to fill itself in as the
+    Owner picks a vendor or brand: {"vendors": {id: {...}}, "brands": {id: {...}}}."""
+    return {
+        "vendors": {
+            str(vendor.pk): {
+                "name": vendor.name,
+                "address": vendor.address,
+                "email": vendor.email,
+                "phone": vendor.phone,
+            }
+            for vendor in Vendor.objects.filter(active=True)
+        },
+        "brands": {
+            str(brand.pk): _brand_sheet_data(brand)
+            for brand in Brand.objects.filter(active=True)
+        },
+    }
+
+
+class RequestToQuoteFormMixin:
+    """Shared by creating and editing a Request to Quote."""
+
     template_name = "manufacturers/manufacturer_order_form.html"
+
+    def render_form(self, request, form, formset, order=None, service_error=None):
+        brand = None
+        brand_id = form["brand"].value()
+        brand_id = getattr(brand_id, "pk", brand_id)
+        if brand_id:
+            brand = Brand.objects.filter(pk=brand_id).first()
+
+        return render(
+            request,
+            self.template_name,
+            {
+                "form": form,
+                "formset": formset,
+                "order": order,
+                "service_error": service_error,
+                "bottle_prices": bottle_price_map(),
+                "sheet_data": document_sheet_data(),
+                "brand": brand,
+                "today": timezone.localdate(),
+            },
+        )
+
+
+class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, View):
+    """Step one: a new Request to Quote."""
 
     def get(self, request):
         formset_kwargs = {"instance": ManufacturerOrder()}
@@ -185,13 +377,22 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, View):
                 }
             ]
 
-        return render(
+        last_terms = (
+            ManufacturerOrder.objects.exclude(terms="")
+            .order_by("-created_at")
+            .values_list("terms", flat=True)
+            .first()
+        )
+
+        return self.render_form(
             request,
-            self.template_name,
-            {
-                "form": ManufacturerOrderForm(),
-                "formset": ManufacturerOrderItemFormSet(**formset_kwargs),
-            },
+            ManufacturerOrderForm(
+                initial={
+                    "brand": Brand.objects.filter(active=True).first(),
+                    "terms": last_terms or "",
+                }
+            ),
+            ManufacturerOrderItemFormSet(**formset_kwargs),
         )
 
     def post(self, request):
@@ -202,28 +403,234 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, View):
         )
 
         if not form.is_valid() or not formset.is_valid():
-            return render(
-                request,
-                self.template_name,
-                {"form": form, "formset": formset},
-            )
+            return self.render_form(request, form, formset)
 
         try:
-            order = create_manufacturer_order(
+            order = create_request_to_quote(
                 actor=request.user,
+                vendor=form.cleaned_data["vendor"],
                 manufacturer=form.cleaned_data["manufacturer"],
                 brand=form.cleaned_data["brand"],
+                terms=form.cleaned_data["terms"],
                 items=manufacturer_order_item_rows(formset),
             )
         except (PermissionDenied, ValidationError) as exc:
-            return render(
-                request,
-                self.template_name,
-                {"form": form, "formset": formset, "service_error": exc},
-            )
+            return self.render_form(request, form, formset, service_error=exc)
 
-        messages.success(request, f"Order {order.po_number} placed.")
+        messages.success(
+            request,
+            f"Request to Quote {order.po_number} created. Download it and give it "
+            "to the vendor, then enter the prices when they come back.",
+        )
+        return redirect("manufacturer-order-detail", pk=order.pk)
+
+
+class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, View):
+    """Changes a Request to Quote before the Manufacturer's quote is in."""
+
+    def get_order(self, request, pk):
+        order = _get_owner_order(request, pk)
+        if not order.is_quote or order.quoted_at is not None:
+            return None
+        return order
+
+    def _locked(self, request, pk):
+        messages.info(
+            request,
+            "This Request to Quote can no longer be edited — the Manufacturer's "
+            "quote is already entered.",
+        )
+        return redirect("manufacturer-order-detail", pk=pk)
+
+    def get(self, request, pk):
+        order = self.get_order(request, pk)
+        if order is None:
+            return self._locked(request, pk)
+
+        initial = [
+            {
+                "product": item.product_id,
+                "bottle_size": item.bottle_size,
+                "quantity": f"{item.quantity.normalize():f}",
+                "unit_price": item.requested_unit_price,
+                "source_purchase_order_item": item.source_purchase_order_item_id,
+            }
+            for item in order.items.all()
+        ]
+        formset = ManufacturerOrderItemFormSet(
+            instance=ManufacturerOrder(),
+            initial=initial,
+        )
+        formset.extra = len(initial) or 1
+
+        return self.render_form(
+            request,
+            ManufacturerOrderForm(
+                initial={
+                    "vendor": order.vendor,
+                    "manufacturer": order.manufacturer,
+                    "brand": order.brand,
+                    "terms": order.terms,
+                }
+            ),
+            formset,
+            order=order,
+        )
+
+    def post(self, request, pk):
+        order = self.get_order(request, pk)
+        if order is None:
+            return self._locked(request, pk)
+
+        form = ManufacturerOrderForm(request.POST)
+        formset = ManufacturerOrderItemFormSet(request.POST, instance=ManufacturerOrder())
+
+        if not form.is_valid() or not formset.is_valid():
+            return self.render_form(request, form, formset, order=order)
+
+        try:
+            update_request_to_quote(
+                actor=request.user,
+                order_id=order.pk,
+                vendor=form.cleaned_data["vendor"],
+                manufacturer=form.cleaned_data["manufacturer"],
+                brand=form.cleaned_data["brand"],
+                terms=form.cleaned_data["terms"],
+                items=manufacturer_order_item_rows(formset),
+            )
+        except (PermissionDenied, ValidationError) as exc:
+            return self.render_form(request, form, formset, order=order, service_error=exc)
+
+        messages.success(request, f"{order.po_number} updated.")
+        return redirect("manufacturer-order-detail", pk=order.pk)
+
+
+class ManufacturerOrderQuoteView(OwnerRequiredMixin, View):
+    """The Manufacturer's reply: upload their document and type in the
+    real prices. Changed prices are highlighted yellow."""
+
+    template_name = "manufacturers/manufacturer_order_quote.html"
+
+    def _render(self, request, order, form):
+        return render(
+            request,
+            self.template_name,
+            {"order": order, "form": form, "brand": _order_brand(order)},
+        )
+
+    def _get(self, request, pk):
+        order = _get_owner_order(request, pk)
+        if not order.is_quote:
+            messages.info(request, f"{order.po_number} is already a Purchase Order.")
+            return order, redirect("manufacturer-order-detail", pk=order.pk)
+        return order, None
+
+    def _form(self, order, *args):
+        return ManufacturerQuoteForm(
+            *args,
+            order=order,
+            saved_prices=bottle_price_map(
+                products=order.items.values_list("product_id", flat=True)
+            ),
+        )
+
+    def get(self, request, pk):
+        order, done = self._get(request, pk)
+        return done or self._render(request, order, self._form(order))
+
+    def post(self, request, pk):
+        order, done = self._get(request, pk)
+        if done:
+            return done
+
+        form = self._form(order, request.POST, request.FILES)
+
+        if not form.is_valid():
+            return self._render(request, order, form)
+
+        try:
+            record_manufacturer_quote(
+                actor=request.user,
+                order_id=order.pk,
+                item_updates=form.item_updates(),
+                quote_file=form.cleaned_data["quote_file"],
+                remove_item_ids=form.removed_item_ids(),
+                save_price_item_ids=form.save_price_item_ids(),
+            )
+        except (PermissionDenied, ValidationError) as exc:
+            form.add_error(None, exc)
+            return self._render(request, order, form)
+
+        saved = len(form.save_price_item_ids())
+        messages.success(
+            request,
+            "Manufacturer's quote saved."
+            + (f" {saved} saved price(s) updated." if saved else "")
+            + " Review the highlighted changes, then send the Purchase Order.",
+        )
+        return redirect("manufacturer-order-detail", pk=order.pk)
+
+
+class ConfirmPurchaseOrderView(OwnerRequiredMixin, View):
+    """Step two: the quote becomes the Purchase Order."""
+
+    def post(self, request, pk):
+        try:
+            order = confirm_purchase_order(actor=request.user, order_id=pk)
+        except (PermissionDenied, ValidationError) as exc:
+            messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("manufacturer-order-detail", pk=pk)
+
+        messages.success(
+            request,
+            f"Purchase Order {order.po_number} is ready — download it and give it "
+            "to the vendor.",
+        )
         return redirect("manufacturer-order-advance", pk=order.pk)
+
+
+def order_steps(order):
+    """The Request to Quote → Purchase Order → Invoice tracker at the top
+    of an order. Each step is "done", "current" or "upcoming"."""
+    invoiced = order.invoice_approved_at is not None
+
+    if order.is_quote:
+        states = ["current", "upcoming", "upcoming"]
+    elif not invoiced:
+        states = ["done", "current", "upcoming"]
+    else:
+        states = ["done", "done", "done"]
+
+    quote_note = (
+        "Quote received" if order.quoted_at else "Waiting for the prices from the vendor"
+    )
+    po_note = "With the vendor"
+    if order.status == ManufacturerOrder.Status.RECEIVED or order.received_at:
+        po_note = "Goods received"
+
+    return [
+        {
+            "number": 1,
+            "title": "Request to Quote",
+            "state": states[0],
+            "date": order.created_at,
+            "note": quote_note if states[0] == "current" else "Completed",
+        },
+        {
+            "number": 2,
+            "title": "Purchase Order",
+            "state": states[1],
+            "date": order.purchase_order_date,
+            "note": {"current": po_note, "done": "Completed"}.get(states[1], "Upcoming"),
+        },
+        {
+            "number": 3,
+            "title": "Invoice",
+            "state": states[2],
+            "date": order.invoice_approved_at,
+            "note": "Completed" if invoiced else "Upcoming",
+        },
+    ]
 
 
 class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
@@ -234,7 +641,7 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
         return (
             ManufacturerOrder.objects
             .for_user(self.request.user)
-            .select_related("manufacturer", "brand")
+            .select_related("vendor", "manufacturer", "brand")
             .prefetch_related(
                 "items__product",
                 "items__batch",
@@ -247,6 +654,11 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
         context = super().get_context_data(**kwargs)
         context["outcome_form"] = ManufacturerOrderOutcomeForm()
         context["payment_form"] = ManufacturerOrderPaymentForm()
+        context["steps"] = order_steps(self.object)
+        context["items"] = list(self.object.items.all())
+        context["changed_count"] = sum(1 for item in context["items"] if item.price_changed)
+        context["can_edit_quote"] = self.object.is_quote and self.object.quoted_at is None
+        context["brand"] = _order_brand(self.object)
         return context
 
 
@@ -254,7 +666,7 @@ def _get_owner_order(request, pk):
     order = (
         ManufacturerOrder.objects
         .for_user(request.user)
-        .select_related("manufacturer")
+        .select_related("vendor", "manufacturer", "brand")
         .filter(pk=pk)
         .first()
     )
@@ -263,6 +675,11 @@ def _get_owner_order(request, pk):
         raise Http404
 
     return order
+
+
+def _order_brand(order):
+    """The brand whose logo and colour the order is shown in."""
+    return order.brand or Brand.objects.filter(active=True).first() or Brand()
 
 
 class ManufacturerOrderAdvanceView(OwnerRequiredMixin, View):
@@ -416,6 +833,14 @@ class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
                 actor=request.user,
                 order_id=order.pk,
                 item_prices=invoice_form.get_item_prices() if invoice_form else None,
+                invoice_number=invoice_form.cleaned_data["invoice_number"] if invoice_form else "",
+                invoice_file=invoice_form.cleaned_data["invoice_file"] if invoice_form else None,
+                shipping_amount=(
+                    invoice_form.charges(order)[1] if invoice_form else None
+                ),
+                tax_percentage=(
+                    invoice_form.charges(order)[0] if invoice_form else None
+                ),
                 paid_remaining=bool(form.cleaned_data["answer"]),
                 amount=form.cleaned_data["amount"],
                 paid_at=form.cleaned_data["paid_at"],
@@ -489,12 +914,58 @@ class RecordManufacturerPaymentView(OwnerRequiredMixin, View):
         return redirect("manufacturer-order-detail", pk=pk)
 
 
+def document_table(items):
+    """Lays order lines out like the paper Request to Quote / Purchase
+    Order: one row per product, one unit-price column per bottle size
+    used on the order (plus a plain "Unit price" column for lines
+    without a size). Returns (columns, rows)."""
+    sizes = sorted({item.bottle_size for item in items if item.bottle_size})
+    columns = [
+        {"size": size, "label": f"Unit price ({size} caps)"} for size in sizes
+    ]
+    if any(not item.bottle_size for item in items):
+        columns.append({"size": None, "label": "Unit price"})
+
+    grouped = {}
+    for item in items:
+        grouped.setdefault(item.product_id, []).append(item)
+
+    rows = []
+    for lines in grouped.values():
+        by_size = {line.bottle_size: line for line in lines}
+        quantities = {line.quantity for line in lines}
+        same_quantity = len(quantities) == 1
+        priced = [line for line in lines if line.unit_price is not None]
+
+        rows.append(
+            {
+                "product": lines[0].product,
+                "quantity": quantities.pop() if same_quantity else None,
+                "cells": [
+                    {"item": by_size.get(column["size"]), "show_quantity": not same_quantity}
+                    for column in columns
+                ],
+                "total": (
+                    sum((line.line_total for line in priced), Decimal("0.00"))
+                    if priced else None
+                ),
+                "changed": any(line.price_changed for line in lines),
+            }
+        )
+
+    return columns, rows
+
+
 class ManufacturerOrderPDFView(OwnerRequiredMixin, View):
+    """The Request to Quote or Purchase Order, themed in the order's brand
+    logo and colour. ?copy=team is the internal copy with changed prices
+    highlighted yellow; the default is the clean copy for the Manufacturer."""
+
     def get(self, request, pk):
         order = (
             ManufacturerOrder.objects
             .for_user(request.user)
-            .select_related("manufacturer", "brand")
+            .select_related("vendor", "manufacturer", "brand")
             .prefetch_related("items__product")
             .filter(pk=pk)
             .first()
@@ -503,15 +974,27 @@ class ManufacturerOrderPDFView(OwnerRequiredMixin, View):
         if order is None:
             raise Http404
 
-        from apps.core.models import Brand
+        team_copy = request.GET.get("copy") == "team"
+        brand = _order_brand(order)
+        columns, rows = document_table(list(order.items.all()))
 
         pdf_bytes = render_pdf(
             "manufacturers/manufacturer_order_pdf.html",
-            {"order": order, "brand": Brand.objects.first()},
+            {
+                "order": order,
+                "brand": brand,
+                "columns": columns,
+                "rows": rows,
+                "highlight_changes": team_copy,
+            },
         )
 
+        kind = "RTQ" if order.is_quote else "PO"
+        suffix = "-team" if team_copy else ""
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         disposition = "attachment" if request.GET.get("download") else "inline"
-        response["Content-Disposition"] = f'{disposition}; filename="{order.po_number}.pdf"'
+        response["Content-Disposition"] = (
+            f'{disposition}; filename="{kind}-{order.po_number}{suffix}.pdf"'
+        )
 
         return response

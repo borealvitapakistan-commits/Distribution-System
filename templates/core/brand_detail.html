@@ -56,6 +56,14 @@
         </div>
 
         <div>
+            <dt>Document colour</dt>
+            <dd>
+                <span class="color-chip" style="background: {{ brand_obj.primary_color }};"></span>
+                {{ brand_obj.primary_color }}
+            </dd>
+        </div>
+
+        <div>
             <dt>Phone</dt>
             <dd>{{ brand_obj.phone|default:"—" }}</dd>
         </div>

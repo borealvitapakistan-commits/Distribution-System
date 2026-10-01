@@ -1,0 +1,13 @@
+{% load money_filters %}
+<div class="notification-card">
+    {% if purchase_order.agreement %}
+        <h2>
+            Priced by agreement {{ purchase_order.agreement.agreement_number }} —
+            {{ purchase_order.agreement.discount_percentage|floatformat:"-2" }}% off list price
+            {% if purchase_order.agreement.product_rates.all %}(with product overrides){% endif %},
+            valid {{ purchase_order.agreement.start_date|date:"M d, Y" }} – {{ purchase_order.agreement.end_date|date:"M d, Y" }}.
+        </h2>
+    {% else %}
+        <h2>No signed agreement covered the order date — lines started at list price.</h2>
+    {% endif %}
+</div>

@@ -1,0 +1,39 @@
+<div class="doc-row doc-line" data-line>
+    <span class="doc-sr"></span>
+
+    <div class="doc-description">
+        {{ line.product }}
+        {{ line.bottle_size }}
+        <span class="doc-hint" data-line-hint>—select above—</span>
+        {% for error in line.product.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+        {% for error in line.bottle_size.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+        {% for error in line.non_field_errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+    </div>
+
+    <div class="doc-figure">
+        <span class="doc-cell-label">Qty (bottles)</span>
+        {{ line.quantity }}
+        {% for error in line.quantity.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+    </div>
+
+    <div class="doc-figure">
+        <span class="doc-cell-label">Unit price</span>
+        {{ line.unit_price }}
+        {% for error in line.unit_price.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+    </div>
+
+    <div class="doc-total" data-line-total>—</div>
+
+    <div>
+        <span hidden>{{ line.DELETE }}</span>
+        <button type="button" class="doc-remove" data-remove-line title="Remove line" aria-label="Remove line">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 6h18"></path>
+                <path d="M8 6V4h8v2"></path>
+                <path d="M19 6l-1 14H6L5 6"></path>
+            </svg>
+        </button>
+    </div>
+
+    {% for hidden in line.hidden_fields %}{{ hidden }}{% endfor %}
+</div>

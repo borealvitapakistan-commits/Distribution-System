@@ -124,27 +124,13 @@ class PurchaseOrderWorkflowTests(TestCase):
         self.assertEqual(item_x.unit_price, Decimal("100.00"))
         self.assertEqual(po.subtotal, Decimal("650.00"))
 
-    def test_requested_price_directly_sets_unit_price(self):
-        po = create_purchase_order(
-            actor=self.distributor_user,
-            items=[
-                {
-                    "product": self.product_x,
-                    "quantity_requested": Decimal("4"),
-                    "requested_price": Decimal("77.50"),
-                },
-                {
-                    "product": self.product_y,
-                    "quantity_requested": Decimal("2"),
-                },
-            ],
-        )
+    def test_without_an_agreement_lines_are_at_list_price(self):
+        po = self.make_po()
 
-        item_x = po.items.get(product=self.product_x)
-        item_y = po.items.get(product=self.product_y)
-
-        self.assertEqual(item_x.unit_price, Decimal("77.50"))
-        self.assertEqual(item_y.unit_price, Decimal("50.00"))
+        self.assertIsNone(po.agreement)
+        for item in po.items.all():
+            self.assertEqual(item.discount_percentage, Decimal("0"))
+            self.assertEqual(item.unit_price, item.list_price)
 
     def test_only_approved_distributor_can_create(self):
         with self.assertRaises(PermissionDenied):
@@ -191,7 +177,8 @@ class PurchaseOrderWorkflowTests(TestCase):
         self.assertEqual(transit_balance.quantity, Decimal("4"))
 
         po.refresh_from_db()
-        self.assertEqual(po.status, PurchaseOrder.Status.SHIPPED)
+        # Product Y hasn't shipped yet, so the order stays open.
+        self.assertEqual(po.status, PurchaseOrder.Status.PARTIALLY_SHIPPED)
         self.assertIsNotNone(po.invoiced_at)
 
     def test_receive_moves_stock_from_transit_to_the_distributors_own_system(self):

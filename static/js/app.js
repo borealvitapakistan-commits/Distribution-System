@@ -353,3 +353,181 @@ function initializeFiscalPeriodModal() {
         }
     );
 }
+document.addEventListener("DOMContentLoaded", () => {
+    const modal = document.getElementById("proofModal");
+    const content = document.getElementById("proofModalContent");
+    const download = document.getElementById("proofModalDownload");
+
+    if (!modal || !content || !download) {
+        return;
+    }
+
+    const imageTypes = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+
+    function renderProof(url) {
+        const path = new URL(url, window.location.href).pathname;
+
+        content.replaceChildren();
+
+        if (imageTypes.test(path)) {
+            const image = document.createElement("img");
+            image.src = url;
+            image.alt = "Payment proof";
+            content.append(image);
+        } else if (/\.pdf$/i.test(path)) {
+            const frame = document.createElement("iframe");
+            frame.src = url;
+            frame.title = "Payment proof";
+            content.append(frame);
+        } else {
+            const message = document.createElement("p");
+            message.textContent =
+                "This file type can't be previewed here. Use Download to open it.";
+            content.append(message);
+        }
+
+        download.href = url;
+    }
+
+    // Any "View proof" link opens in the in-page viewer instead of a new tab.
+    document.addEventListener("click", (event) => {
+        const link = event.target.closest("a[data-proof-viewer]");
+
+        if (
+            !link ||
+            event.ctrlKey ||
+            event.metaKey ||
+            event.shiftKey
+        ) {
+            return;
+        }
+
+        event.preventDefault();
+        renderProof(link.href);
+        modal.showModal();
+    });
+
+    modal
+        .querySelectorAll("[data-proof-close]")
+        .forEach((button) => {
+            button.addEventListener("click", () => modal.close());
+        });
+
+    // Clicking the dimmed backdrop closes the viewer.
+    modal.addEventListener("click", (event) => {
+        if (event.target === modal) {
+            modal.close();
+        }
+    });
+
+    modal.addEventListener("close", () => {
+        content.replaceChildren();
+    });
+});
+
+function formatMoney(amount) {
+    // Mirrors the server's `money` filter: "29,700.00 (29.7k)".
+    const grouped = amount.toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+    const abs = Math.abs(amount);
+    let suffix = "";
+
+    if (abs >= 10000000) {
+        suffix = `${(abs / 10000000).toFixed(2)} CR`;
+    } else if (abs >= 100000) {
+        suffix = `${(abs / 100000).toFixed(1)} Lakh`;
+    } else if (abs >= 1000) {
+        suffix = `${(abs / 1000).toFixed(1)}k`;
+    }
+
+    return suffix ? `${grouped} (${suffix})` : grouped;
+}
+
+// Owner's purchase order: re-price each line as its discount % changes.
+// Works in whole paisa so the running totals don't drift.
+document.addEventListener("DOMContentLoaded", () => {
+    document
+        .querySelectorAll("[data-live-pricing]")
+        .forEach((form) => {
+            const taxPercentage = parseFloat(form.dataset.tax || "0");
+            const shippingPaisa = Math.round(
+                parseFloat(form.dataset.shipping || "0") * 100
+            );
+
+            function recompute() {
+                let subtotalPaisa = 0;
+
+                form
+                    .querySelectorAll("[data-price-row]")
+                    .forEach((row) => {
+                        const input = row.querySelector(".discount-input");
+                        let discount = parseFloat(
+                            input ? input.value : row.dataset.discount
+                        );
+
+                        if (Number.isNaN(discount)) {
+                            discount = 0;
+                        }
+
+                        discount = Math.min(Math.max(discount, 0), 100);
+
+                        const listPaisa = Math.round(
+                            parseFloat(row.dataset.listPrice) * 100
+                        );
+                        const unitPaisa = Math.round(
+                            (listPaisa * (100 - discount)) / 100
+                        );
+                        const linePaisa = Math.round(
+                            unitPaisa * parseFloat(row.dataset.quantity)
+                        );
+
+                        row.querySelector("[data-unit-price]").textContent =
+                            formatMoney(unitPaisa / 100);
+                        row.querySelector("[data-line-total]").textContent =
+                            formatMoney(linePaisa / 100);
+
+                        subtotalPaisa += linePaisa;
+                    });
+
+                const taxPaisa = Math.round(
+                    (subtotalPaisa * taxPercentage) / 100
+                );
+
+                form.querySelector("[data-subtotal]").textContent =
+                    formatMoney(subtotalPaisa / 100);
+                form.querySelector("[data-grand-total]").textContent =
+                    formatMoney(
+                        (subtotalPaisa + taxPaisa + shippingPaisa) / 100
+                    );
+            }
+
+            form.addEventListener("input", recompute);
+        });
+});
+
+
+// Brand colour picker: drag the swatch or type a hex code — each keeps
+// the other in step.
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-color-picker]").forEach((picker) => {
+        const swatch = picker.querySelector("[data-color-swatch]");
+        const hex = picker.querySelector("[data-color-hex]");
+
+        if (!swatch || !hex) {
+            return;
+        }
+
+        swatch.addEventListener("input", () => {
+            hex.value = swatch.value;
+        });
+
+        hex.addEventListener("input", () => {
+            const value = hex.value.trim();
+            if (/^#[0-9a-fA-F]{6}$/.test(value)) {
+                swatch.value = value.toLowerCase();
+            }
+        });
+    });
+});

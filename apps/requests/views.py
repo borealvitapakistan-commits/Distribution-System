@@ -10,11 +10,13 @@ from apps.accounts.mixins import (
     DistributorRequiredMixin,
     OwnerRequiredMixin,
 )
+from apps.agreements.services import agreement_in_force
 from apps.core.utils import render_pdf
 
 from .forms import (
     DeclinePurchaseOrderForm,
     DistributorAdvancePaymentForm,
+    LineStatusForm,
     OwnerCommentForm,
     PricingForm,
     PurchaseOrderItemFormSet,
@@ -35,6 +37,8 @@ from .services import (
     record_payment,
     reject_payment,
     ship_purchase_order_item,
+    update_line_discounts,
+    update_line_status,
     update_pricing,
 )
 
@@ -56,7 +60,6 @@ def purchase_order_item_rows(formset):
             {
                 "product": form.cleaned_data["product"],
                 "quantity_requested": form.cleaned_data["quantity_requested"],
-                "requested_price": form.cleaned_data.get("requested_price"),
             }
         )
 
@@ -66,27 +69,35 @@ def purchase_order_item_rows(formset):
 class PurchaseOrderCreateView(DistributorRequiredMixin, View):
     template_name = "requests/purchase_order_form.html"
 
-    def get(self, request):
-        formset = PurchaseOrderItemFormSet(instance=PurchaseOrder())
+    def _agreement(self, request):
+        profile = getattr(request.user, "distributor_profile", None)
+        return agreement_in_force(profile) if profile else None
 
+    def _render(self, request, formset, agreement, service_error=None):
         return render(
             request,
             self.template_name,
-            {"formset": formset},
+            {"formset": formset, "agreement": agreement, "service_error": service_error},
         )
 
+    def get(self, request):
+        agreement = self._agreement(request)
+        formset = PurchaseOrderItemFormSet(
+            instance=PurchaseOrder(),
+            form_kwargs={"agreement": agreement},
+        )
+        return self._render(request, formset, agreement)
+
     def post(self, request):
+        agreement = self._agreement(request)
         formset = PurchaseOrderItemFormSet(
             request.POST,
             instance=PurchaseOrder(),
+            form_kwargs={"agreement": agreement},
         )
 
         if not formset.is_valid():
-            return render(
-                request,
-                self.template_name,
-                {"formset": formset},
-            )
+            return self._render(request, formset, agreement)
 
         try:
             purchase_order = create_purchase_order(
@@ -94,11 +105,7 @@ class PurchaseOrderCreateView(DistributorRequiredMixin, View):
                 items=purchase_order_item_rows(formset),
             )
         except (PermissionDenied, ValidationError) as exc:
-            return render(
-                request,
-                self.template_name,
-                {"formset": formset, "service_error": exc},
-            )
+            return self._render(request, formset, agreement, exc)
 
         messages.success(request, f"Purchase order {purchase_order.po_number} submitted.")
         return redirect("distributor-purchase-order-advance", pk=purchase_order.pk)
@@ -128,6 +135,7 @@ class DistributorPurchaseOrderDetailView(DistributorRequiredMixin, DetailView):
         return (
             PurchaseOrder.objects
             .for_user(self.request.user)
+            .select_related("agreement")
             .prefetch_related("items__product", "payments")
         )
 
@@ -162,7 +170,7 @@ class OwnerPurchaseOrderDetailView(OwnerRequiredMixin, DetailView):
         return (
             PurchaseOrder.objects
             .for_user(self.request.user)
-            .select_related("distributor_profile")
+            .select_related("distributor_profile", "agreement")
             .prefetch_related(
                 "items__product",
                 "items__manufacturer_order_items__order",
@@ -183,6 +191,19 @@ class OwnerPurchaseOrderDetailView(OwnerRequiredMixin, DetailView):
             (item, ShipPurchaseOrderItemForm(product=item.product))
             for item in self.object.items.all()
         ]
+        context["items_with_status_forms"] = [
+            (
+                item,
+                LineStatusForm(
+                    initial={"note": item.owner_note, "unavailable": item.unavailable},
+                    prefix=f"line-{item.pk}",
+                ),
+            )
+            for item in self.object.items.all()
+        ]
+        context["any_repriceable"] = self.object.is_open and any(
+            item.can_reprice for item in self.object.items.all()
+        )
         context["decline_form"] = DeclinePurchaseOrderForm()
         context["comment_form"] = OwnerCommentForm(
             initial={"comment": self.object.owner_comment}
@@ -213,6 +234,58 @@ class UpdatePricingView(OwnerRequiredMixin, View):
             return redirect("owner-purchase-order-detail", pk=pk)
 
         messages.success(request, "Tax and shipping updated.")
+        return redirect("owner-purchase-order-detail", pk=pk)
+
+
+class UpdateLineDiscountsView(OwnerRequiredMixin, View):
+    """Saves the Owner's per-line discount %s (inputs named
+    discount_<item id>) — the page recomputes prices live as they type."""
+
+    def post(self, request, pk):
+        discounts = {
+            key.removeprefix("discount_"): value
+            for key, value in request.POST.items()
+            if key.startswith("discount_")
+        }
+
+        try:
+            update_line_discounts(
+                actor=request.user,
+                purchase_order_id=pk,
+                discounts=discounts,
+            )
+        except (PermissionDenied, ValidationError) as exc:
+            messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("owner-purchase-order-detail", pk=pk)
+
+        messages.success(request, "Prices updated.")
+        return redirect("owner-purchase-order-detail", pk=pk)
+
+
+class UpdateLineStatusView(OwnerRequiredMixin, View):
+    def post(self, request, pk, item_id):
+        form = LineStatusForm(request.POST, prefix=f"line-{item_id}")
+
+        if not form.is_valid():
+            messages.error(request, "Could not save the comment.")
+            return redirect("owner-purchase-order-detail", pk=pk)
+
+        try:
+            item = update_line_status(
+                actor=request.user,
+                item_id=item_id,
+                note=form.cleaned_data["note"],
+                unavailable=form.cleaned_data["unavailable"],
+            )
+        except (PermissionDenied, ValidationError) as exc:
+            messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("owner-purchase-order-detail", pk=pk)
+
+        messages.success(
+            request,
+            f"{item.product.name} closed as unavailable." if item.unavailable
+            else f"Comment on {item.product.name} saved.",
+        )
         return redirect("owner-purchase-order-detail", pk=pk)
 
 

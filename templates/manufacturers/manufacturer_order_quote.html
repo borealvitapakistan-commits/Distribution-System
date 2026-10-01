@@ -1,0 +1,316 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Purchase Order — {{ order.po_number }}
+{% endblock %}
+
+{% block content %}
+<form method="post" enctype="multipart/form-data" id="quoteForm" novalidate>
+    {% csrf_token %}
+
+    <div class="doc-toolbar">
+        <div class="doc-toolbar-title">
+            <h1>Purchase Order {{ order.po_number }}</h1>
+            <a class="mo-back-link" href="{% url 'manufacturer-order-detail' order.pk %}">← Back to order</a>
+        </div>
+
+        <div class="doc-toolbar-actions">
+            <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team" target="_blank">Print PDF</a>
+            <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team&download=1">Download PDF</a>
+        </div>
+    </div>
+
+    <div class="doc-toolbar">
+        <span class="stat-detail">
+            Type the real prices that came back from the vendor. Rows whose price changed
+            from the Request to Quote turn <mark class="mo-changed-mark">yellow</mark> —
+            <strong><span id="quoteChangedCount">0</span></strong> changed so far.
+        </span>
+        <div class="doc-toolbar-actions">
+            <span class="stat-detail">Brand: <strong>{{ brand.name|default:"—" }}</strong></span>
+            <button type="submit" class="button button-doc" style="--doc-color: {{ brand.primary_color }};">Save Prices</button>
+        </div>
+    </div>
+
+    {% if form.errors %}
+        <div class="form-errors">
+            The prices weren't saved — please fix the fields marked below.
+            {% for error in form.non_field_errors %}<br>{{ error }}{% endfor %}
+        </div>
+    {% endif %}
+
+    <section
+        class="doc-sheet"
+        style="--doc-color: {{ brand.primary_color }}; --doc-soft: {{ brand.primary_color_soft }};"
+    >
+        {% include "manufacturers/_doc_head.html" with doc_title="Purchase Order" doc_chip="Draft" doc_number=order.po_number doc_date=order.created_at number_label="P.O. number" %}
+
+        <div class="doc-field" style="max-width: none;">
+            <label for="{{ form.quote_file.id_for_label }}">
+                Document with the real prices
+                {% if form.quote_file.field.required %}<span class="required">*</span>{% endif %}
+            </label>
+            {{ form.quote_file }}
+            {% if order.quote_file %}
+                <div class="doc-hint">
+                    Already uploaded:
+                    <a href="{{ order.quote_file.url }}" target="_blank" rel="noopener" data-proof-viewer>view current document</a>
+                    — choose a new file only to replace it.
+                </div>
+            {% else %}
+                <div class="doc-hint">{{ form.quote_file.help_text }}</div>
+            {% endif %}
+            {% for error in form.quote_file.errors %}<div class="doc-errors">{{ error }}</div>{% endfor %}
+        </div>
+
+        <div class="doc-parties">
+            <div>
+                <span class="doc-label">Vendor</span>
+                {% with party=order.vendor|default:order.manufacturer %}
+                    <div class="doc-party-name">{{ party.name }}</div>
+                    {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
+                    {% if party.email %}<div class="doc-party-line">Mail: {{ party.email }}</div>{% endif %}
+                    {% if party.phone %}<div class="doc-party-line">Phone: {{ party.phone }}</div>{% endif %}
+                {% endwith %}
+                {% if order.vendor %}<div class="doc-party-line">Manufacturer: {{ order.manufacturer.name }}</div>{% endif %}
+            </div>
+            <div>
+                <span class="doc-label">Ship to</span>
+                <div class="doc-party-name">{{ brand.legal_name|default:brand.name }}</div>
+                {% if brand.address %}<div class="doc-party-line">{{ brand.address }}</div>{% endif %}
+                {% if brand.phone %}<div class="doc-party-line">Phone: {{ brand.phone }}</div>{% endif %}
+            </div>
+        </div>
+
+        <div class="doc-lines">
+            <div class="doc-row doc-row-head">
+                <span>Sr#</span>
+                <span>Description</span>
+                <span>Qty</span>
+                <span>Unit price</span>
+                <span>Total price</span>
+                <span></span>
+            </div>
+
+            {% for row in form.item_rows %}
+                <div
+                    class="doc-row doc-line quote-row"
+                    data-requested="{{ row.item.requested_unit_price|default_if_none:'' }}"
+                    data-saved="{{ row.saved_price|default_if_none:'' }}"
+                    data-save-id="{{ row.save.id_for_label }}"
+                    data-has-size="{% if row.item.bottle_size %}1{% endif %}"
+                >
+                    <span class="doc-sr"></span>
+
+                    <div class="doc-description">
+                        <strong>{{ row.item.product.name }}</strong>
+                        <span class="doc-hint">
+                            {{ row.item.get_bottle_size_display|default:"No bottle size" }} · {{ row.item.product.sku }}
+                        </span>
+                    </div>
+
+                    <div class="doc-figure">
+                        <span class="doc-cell-label">Qty (bottles)</span>
+                        {{ row.quantity }}
+                        {% for error in row.quantity.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+                    </div>
+
+                    <div class="doc-figure">
+                        <span class="doc-cell-label">Unit price</span>
+                        {{ row.price }}
+                        <span class="doc-requested">
+                            Requested: {% if row.item.requested_unit_price is not None %}{{ row.item.requested_unit_price }}{% else %}to quote{% endif %}
+                        </span>
+                        {% for error in row.price.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+                    </div>
+
+                    <div class="doc-total quote-line-total">—</div>
+
+                    <div>
+                        <span hidden>{{ row.remove }}</span>
+                        <button type="button" class="doc-remove" data-drop-line title="Drop — the manufacturer can't supply it" aria-label="Drop line">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M3 6h18"></path>
+                                <path d="M8 6V4h8v2"></path>
+                                <path d="M19 6l-1 14H6L5 6"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="doc-foot">
+            <div>
+                {% if order.terms %}
+                    <span class="doc-label">Terms and conditions</span>
+                    <div class="doc-terms-text">{{ order.terms|linebreaksbr }}</div>
+                {% endif %}
+            </div>
+
+            <div class="doc-totals">
+                <div class="doc-totals-row"><span>Subtotal</span><strong id="quoteSubtotal">0.00</strong></div>
+                <div class="doc-grand" id="quoteGrand">0.00</div>
+                <div class="doc-note">Shipping and tax are added from the invoice.</div>
+            </div>
+        </div>
+    </section>
+
+    <dialog class="modal" id="savePricesModal">
+        <div class="proof-modal-body">
+            <div class="modal-header">
+                <div>
+                    <p class="eyebrow">Saved prices</p>
+                    <h2>Update your saved prices too?</h2>
+                </div>
+            </div>
+            <p>
+                These prices differ from the prices saved for the product. Tick the ones
+                that should become the new saved price for future Requests to Quote — or
+                leave them unticked to only change this order.
+            </p>
+            <div class="save-price-list">
+                {% for row in form.item_rows %}
+                    <label class="checkbox-label save-price-option" data-for="{{ row.save.id_for_label }}" hidden>
+                        {{ row.save }}
+                        <span>
+                            <strong>{{ row.item.product.name }}{% if row.item.bottle_size %} ({{ row.item.get_bottle_size_display }}){% endif %}</strong>
+                            <span class="table-secondary save-price-detail"></span>
+                        </span>
+                    </label>
+                {% endfor %}
+            </div>
+            <div class="modal-actions">
+                <button type="button" class="button button-secondary" id="savePricesBack">Back</button>
+                <button type="button" class="button button-primary" id="savePricesConfirm">Save Prices</button>
+            </div>
+        </div>
+    </dialog>
+</form>
+
+<script>
+(function () {
+    var form = document.getElementById("quoteForm");
+    var modal = document.getElementById("savePricesModal");
+    var confirmed = false;
+
+    function num(value) {
+        if (value === "" || value === null || value === undefined) { return null; }
+        var parsed = parseFloat(value);
+        return isNaN(parsed) ? null : parsed;
+    }
+
+    function differs(a, b) {
+        if (a === null || b === null) { return a !== b; }
+        return Math.abs(a - b) > 0.0005;
+    }
+
+    function money(value) {
+        return value.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function rows() {
+        return Array.prototype.slice.call(form.querySelectorAll(".quote-row"));
+    }
+
+    function rowState(row) {
+        return {
+            price: num(row.querySelector("input[name^='quote_price_']").value),
+            qty: num(row.querySelector("input[name^='quote_qty_']").value),
+            dropped: row.querySelector("input[name^='quote_remove_']").checked,
+            requested: num(row.dataset.requested),
+            saved: num(row.dataset.saved),
+            hasSize: row.dataset.hasSize === "1",
+        };
+    }
+
+    function refresh() {
+        var changed = 0;
+        var subtotal = 0;
+
+        rows().forEach(function (row) {
+            var state = rowState(row);
+            var isChanged = !state.dropped && state.price !== null && differs(state.price, state.requested);
+
+            row.classList.toggle("mo-row-changed", isChanged);
+            row.classList.toggle("is-dropped", state.dropped);
+            if (isChanged) { changed += 1; }
+
+            var totalCell = row.querySelector(".quote-line-total");
+            if (state.dropped) {
+                totalCell.textContent = "Dropped";
+            } else if (state.price === null || state.qty === null) {
+                totalCell.textContent = "—";
+            } else {
+                subtotal += state.price * state.qty;
+                totalCell.textContent = money(state.price * state.qty);
+            }
+        });
+
+        document.getElementById("quoteChangedCount").textContent = changed;
+        document.getElementById("quoteSubtotal").textContent = money(subtotal);
+        document.getElementById("quoteGrand").textContent = money(subtotal);
+    }
+
+    // Lines worth offering to save: a bottle size is set, not dropped, and
+    // the price is different from the saved one.
+    function saveCandidates() {
+        var candidates = [];
+
+        rows().forEach(function (row) {
+            var state = rowState(row);
+            var option = modal.querySelector(".save-price-option[data-for='" + row.dataset.saveId + "']");
+            if (!option) { return; }
+
+            var offer = state.hasSize && !state.dropped && state.price !== null && differs(state.price, state.saved);
+            option.hidden = !offer;
+
+            if (!offer) {
+                option.querySelector("input").checked = false;
+                return;
+            }
+
+            option.querySelector(".save-price-detail").textContent =
+                " — saved " + (state.saved === null ? "none" : state.saved.toFixed(3)) +
+                " → new " + state.price.toFixed(3);
+            candidates.push(option);
+        });
+
+        return candidates;
+    }
+
+    form.addEventListener("click", function (event) {
+        var button = event.target.closest("[data-drop-line]");
+        if (!button) { return; }
+        var box = button.closest(".quote-row").querySelector("input[name^='quote_remove_']");
+        box.checked = !box.checked;
+        button.title = box.checked ? "Put back" : "Drop — the manufacturer can't supply it";
+        refresh();
+    });
+
+    form.addEventListener("input", refresh);
+    form.addEventListener("change", refresh);
+
+    form.addEventListener("submit", function (event) {
+        if (confirmed) { return; }
+
+        if (saveCandidates().length && typeof modal.showModal === "function") {
+            event.preventDefault();
+            modal.showModal();
+        }
+    });
+
+    document.getElementById("savePricesBack").addEventListener("click", function () {
+        modal.close();
+    });
+
+    document.getElementById("savePricesConfirm").addEventListener("click", function () {
+        confirmed = true;
+        modal.close();
+        form.requestSubmit ? form.requestSubmit() : form.submit();
+    });
+
+    refresh();
+})();
+</script>
+{% endblock %}

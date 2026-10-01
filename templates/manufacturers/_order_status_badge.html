@@ -1,0 +1,17 @@
+{% if order.status == "QUOTE" %}
+    {% if order.quoted_at %}
+        <span class="badge badge-quote">Quote received</span>
+    {% else %}
+        <span class="badge badge-neutral">Request to Quote</span>
+    {% endif %}
+{% elif order.status == "SENT" %}
+    <span class="badge badge-progress">PO sent</span>
+{% elif order.status == "RECEIVED" %}
+    <span class="badge badge-pending">Received</span>
+{% elif order.status == "GOOD" %}
+    <span class="badge badge-open">Completed</span>
+{% elif order.status == "DISPUTED" %}
+    <span class="badge badge-pending">Under discussion</span>
+{% else %}
+    <span class="badge badge-closed">Refunded</span>
+{% endif %}

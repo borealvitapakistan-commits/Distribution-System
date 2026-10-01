@@ -95,7 +95,7 @@
             <dt>Payment proof</dt>
             <dd>
                 {% if sale.payment_proof %}
-                    <a href="{{ sale.payment_proof.url }}" target="_blank" rel="noopener">View proof</a>
+                    <a href="{{ sale.payment_proof.url }}" target="_blank" rel="noopener" data-proof-viewer>View proof</a>
                 {% else %}
                     <span class="badge badge-pending">Not received</span>
                 {% endif %}

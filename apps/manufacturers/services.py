@@ -6,6 +6,8 @@ from django.utils import timezone
 
 from apps.accounts.services import require_owner
 from apps.audit.services import record_audit_event
+from apps.products.models import BottleSize
+from apps.products.services import save_bottle_price
 from apps.batches.services import (
     cancel_pending_batches_for_order,
     create_batches_for_order,
@@ -13,6 +15,7 @@ from apps.batches.services import (
 )
 
 from .models import (
+    Vendor,
     Manufacturer,
     ManufacturerOrder,
     ManufacturerOrderItem,
@@ -80,6 +83,57 @@ def update_manufacturer(*, actor, manufacturer_id, **data):
     return manufacturer
 
 
+def _vendor_payload(vendor):
+    return {
+        "name": vendor.name,
+        "email": vendor.email,
+        "phone": vendor.phone,
+        "active": vendor.active,
+    }
+
+
+@transaction.atomic
+def create_vendor(*, actor, **data):
+    require_owner(actor)
+
+    vendor = Vendor(created_by=actor, updated_by=actor, **data)
+    vendor.full_clean()
+    vendor.save()
+
+    record_audit_event(
+        user=actor,
+        action="vendor.created",
+        instance=vendor,
+        after_data=_vendor_payload(vendor),
+    )
+    return vendor
+
+
+@transaction.atomic
+def update_vendor(*, actor, vendor_id, **data):
+    require_owner(actor)
+
+    vendor = Vendor.objects.select_for_update().filter(pk=vendor_id).first()
+    if vendor is None:
+        raise ValidationError("Vendor was not found.")
+
+    before = _vendor_payload(vendor)
+    for field, value in data.items():
+        setattr(vendor, field, value)
+    vendor.updated_by = actor
+    vendor.full_clean()
+    vendor.save()
+
+    record_audit_event(
+        user=actor,
+        action="vendor.updated",
+        instance=vendor,
+        before_data=before,
+        after_data=_vendor_payload(vendor),
+    )
+    return vendor
+
+
 def _as_decimal(value):
     try:
         return Decimal(value)
@@ -87,7 +141,10 @@ def _as_decimal(value):
         raise ValidationError("Value must be a number.")
 
 
-def _validate_order_items(items):
+def _validate_order_items(items, *, require_price=True):
+    """Each row: product, bottle_size (optional), quantity (bottles) and
+    unit_price — which may be left blank on a Request to Quote, meaning
+    "please quote us"."""
     if not items:
         raise ValidationError("An order needs at least one product.")
 
@@ -96,6 +153,7 @@ def _validate_order_items(items):
 
     for row in items:
         product = row.get("product")
+        bottle_size = row.get("bottle_size") or None
         quantity = row.get("quantity")
         unit_price = row.get("unit_price")
         source_purchase_order_item = row.get("source_purchase_order_item")
@@ -103,25 +161,37 @@ def _validate_order_items(items):
         if not product:
             raise ValidationError("Every row needs a product.")
 
-        if product.pk in seen:
+        if bottle_size is not None:
+            bottle_size = int(bottle_size)
+            if bottle_size not in BottleSize.values:
+                raise ValidationError("Not a valid bottle size.")
+
+        key = (product.pk, bottle_size)
+        if key in seen:
             raise ValidationError(
-                "A product can appear only once on an order."
+                f"{product.name} appears more than once with the same bottle size."
             )
 
-        seen.add(product.pk)
+        seen.add(key)
 
         quantity = _as_decimal(quantity)
-        unit_price = _as_decimal(unit_price)
 
         if quantity <= 0:
             raise ValidationError("Quantity must be greater than zero.")
 
-        if unit_price < 0:
-            raise ValidationError("Unit price cannot be negative.")
+        if unit_price in (None, ""):
+            if require_price:
+                raise ValidationError(f"{product.name} needs a unit price.")
+            unit_price = None
+        else:
+            unit_price = _as_decimal(unit_price)
+            if unit_price < 0:
+                raise ValidationError("Unit price cannot be negative.")
 
         rows.append(
             {
                 "product": product,
+                "bottle_size": bottle_size,
                 "quantity": quantity,
                 "unit_price": unit_price,
                 "source_purchase_order_item": source_purchase_order_item,
@@ -129,6 +199,45 @@ def _validate_order_items(items):
         )
 
     return rows
+
+
+def _rows_payload(rows):
+    return [
+        {
+            "product_id": str(row["product"].pk),
+            "bottle_size": row["bottle_size"],
+            "quantity": str(row["quantity"]),
+            "unit_price": None if row["unit_price"] is None else str(row["unit_price"]),
+            "source_purchase_order_item_id": (
+                str(row["source_purchase_order_item"].pk)
+                if row.get("source_purchase_order_item")
+                else None
+            ),
+        }
+        for row in rows
+    ]
+
+
+def _create_order_lines(*, actor, order, rows):
+    lines = [
+        ManufacturerOrderItem(
+            order=order,
+            product=row["product"],
+            bottle_size=row["bottle_size"],
+            quantity=row["quantity"],
+            requested_unit_price=row["unit_price"],
+            unit_price=row["unit_price"],
+            source_purchase_order_item=row.get("source_purchase_order_item"),
+            created_by=actor,
+            updated_by=actor,
+        )
+        for row in rows
+    ]
+
+    for line in lines:
+        line.full_clean()
+
+    return ManufacturerOrderItem.objects.bulk_create(lines)
 
 
 def _next_manufacturer_po_number():
@@ -146,16 +255,29 @@ def _next_manufacturer_po_number():
 
 @transaction.atomic
 def create_manufacturer_order(
-    *, actor, manufacturer, items, brand=None, tax_percentage=0, shipping_amount=0, note=""
+    *,
+    actor,
+    manufacturer,
+    items,
+    vendor=None,
+    brand=None,
+    tax_percentage=0,
+    shipping_amount=0,
+    note="",
 ):
+    """Places a Purchase Order directly, skipping the Request to Quote
+    step — every line needs its agreed price."""
     require_owner(actor)
 
     rows = _validate_order_items(items)
 
     order = ManufacturerOrder(
         manufacturer=manufacturer,
+        vendor=vendor,
         brand=brand,
         po_number=_next_manufacturer_po_number(),
+        status=ManufacturerOrder.Status.SENT,
+        po_sent_at=timezone.now(),
         owner_note=(note or "").strip(),
         tax_percentage=_as_decimal(tax_percentage or 0),
         shipping_amount=_as_decimal(shipping_amount or 0),
@@ -165,24 +287,7 @@ def create_manufacturer_order(
     order.full_clean()
     order.save()
 
-    lines = [
-        ManufacturerOrderItem(
-            order=order,
-            product=row["product"],
-            quantity=row["quantity"],
-            unit_price=row["unit_price"],
-            source_purchase_order_item=row.get("source_purchase_order_item"),
-            created_by=actor,
-            updated_by=actor,
-        )
-        for row in rows
-    ]
-
-    for line in lines:
-        line.full_clean()
-
-    ManufacturerOrderItem.objects.bulk_create(lines)
-
+    lines = _create_order_lines(actor=actor, order=order, rows=rows)
     create_batches_for_order(actor=actor, order=order, items=lines)
 
     record_audit_event(
@@ -193,20 +298,236 @@ def create_manufacturer_order(
             "po_number": order.po_number,
             "manufacturer_id": str(manufacturer.pk),
             "brand_id": str(brand.pk) if brand else None,
-            "items": [
-                {
-                    "product_id": str(row["product"].pk),
-                    "quantity": str(row["quantity"]),
-                    "unit_price": str(row["unit_price"]),
-                    "source_purchase_order_item_id": (
-                        str(row["source_purchase_order_item"].pk)
-                        if row.get("source_purchase_order_item")
-                        else None
-                    ),
-                }
-                for row in rows
-            ],
+            "items": _rows_payload(rows),
         },
+    )
+
+    return order
+
+
+@transaction.atomic
+def create_request_to_quote(*, actor, vendor, manufacturer, items, brand=None, terms=""):
+    """Step one: the products, bottle sizes and quantities we want, at the
+    prices we'd like (pre-filled from our saved prices, each optional).
+    Printed and handed to the Vendor, who takes it to the Manufacturer —
+    nothing is stocked or paid yet, so no batches are created until it
+    becomes a Purchase Order."""
+    require_owner(actor)
+
+    if vendor is None:
+        raise ValidationError("Choose the vendor this goes to.")
+
+    rows = _validate_order_items(items, require_price=False)
+
+    order = ManufacturerOrder(
+        vendor=vendor,
+        manufacturer=manufacturer,
+        brand=brand,
+        po_number=_next_manufacturer_po_number(),
+        status=ManufacturerOrder.Status.QUOTE,
+        terms=(terms or "").strip(),
+        created_by=actor,
+        updated_by=actor,
+    )
+    order.full_clean()
+    order.save()
+
+    _create_order_lines(actor=actor, order=order, rows=rows)
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.quote_requested",
+        instance=order,
+        after_data={
+            "po_number": order.po_number,
+            "vendor_id": str(vendor.pk),
+            "manufacturer_id": str(manufacturer.pk),
+            "brand_id": str(brand.pk) if brand else None,
+            "items": _rows_payload(rows),
+        },
+    )
+
+    return order
+
+
+def _get_quote_for_update(order_id):
+    order = _get_order_for_update(order_id)
+
+    if order.status != ManufacturerOrder.Status.QUOTE:
+        raise ValidationError(
+            "This is already a Purchase Order — its Request to Quote can't change."
+        )
+
+    return order
+
+
+@transaction.atomic
+def update_request_to_quote(
+    *, actor, order_id, vendor, manufacturer, items, brand=None, terms=""
+):
+    """Rewrites a Request to Quote's lines — only until the
+    Manufacturer's quote has been entered, since after that the
+    asked-for prices are what the quote is compared against."""
+    require_owner(actor)
+
+    order = _get_quote_for_update(order_id)
+
+    if order.quoted_at is not None:
+        raise ValidationError(
+            "The Manufacturer's quote is already entered — edit the quoted prices instead."
+        )
+
+    if vendor is None:
+        raise ValidationError("Choose the vendor this goes to.")
+
+    rows = _validate_order_items(items, require_price=False)
+
+    order.vendor = vendor
+    order.manufacturer = manufacturer
+    order.brand = brand
+    order.terms = (terms or "").strip()
+    order.updated_by = actor
+    order.full_clean()
+    order.save()
+
+    order.items.all().delete()
+    _create_order_lines(actor=actor, order=order, rows=rows)
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.quote_request_updated",
+        instance=order,
+        after_data={
+            "vendor_id": str(vendor.pk),
+            "manufacturer_id": str(manufacturer.pk),
+            "brand_id": str(brand.pk) if brand else None,
+            "items": _rows_payload(rows),
+        },
+    )
+
+    return order
+
+
+@transaction.atomic
+def record_manufacturer_quote(
+    *, actor, order_id, item_updates, quote_file=None, remove_item_ids=(), save_price_item_ids=()
+):
+    """The Manufacturer's real prices came back to us through the Vendor
+    (on paper, by email, a picture, ...). The Owner uploads that reply and
+    types each line's quoted price; lines whose price changed from what
+    we asked for are highlighted on the order. Lines the Manufacturer
+    can't supply can be dropped. For the lines in save_price_item_ids,
+    the quoted price also replaces our saved price for that product and
+    bottle size. Can be re-entered until the order is confirmed.
+
+    item_updates: {item_pk_as_str: {"unit_price": Decimal, "quantity": Decimal}}"""
+    require_owner(actor)
+
+    order = _get_quote_for_update(order_id)
+
+    if not quote_file and not order.quote_file:
+        raise ValidationError("Upload the Manufacturer's quote document.")
+
+    remove_item_ids = {str(pk) for pk in remove_item_ids}
+    save_price_item_ids = {str(pk) for pk in save_price_item_ids}
+
+    items = list(order.items.select_for_update().select_related("product"))
+    kept = [item for item in items if str(item.pk) not in remove_item_ids]
+
+    if not kept:
+        raise ValidationError("At least one product must stay on the order.")
+
+    changes = []
+
+    for item in items:
+        if str(item.pk) in remove_item_ids:
+            changes.append({"item_id": str(item.pk), "removed": True})
+            item.delete()
+            continue
+
+        update = item_updates.get(str(item.pk)) or {}
+        unit_price = update.get("unit_price")
+        quantity = update.get("quantity")
+
+        if unit_price is None:
+            raise ValidationError(f"Enter the quoted price for {item.product.name}.")
+
+        item.unit_price = _as_decimal(unit_price)
+        if quantity is not None:
+            item.quantity = _as_decimal(quantity)
+
+        item.updated_by = actor
+        item.full_clean()
+        item.save(update_fields=["unit_price", "quantity", "updated_at", "updated_by"])
+
+        changes.append(
+            {
+                "item_id": str(item.pk),
+                "requested_unit_price": (
+                    None if item.requested_unit_price is None
+                    else str(item.requested_unit_price)
+                ),
+                "unit_price": str(item.unit_price),
+                "quantity": str(item.quantity),
+            }
+        )
+
+        if str(item.pk) in save_price_item_ids and item.bottle_size:
+            save_bottle_price(
+                actor=actor,
+                product=item.product,
+                bottle_size=item.bottle_size,
+                price=item.unit_price,
+            )
+
+    if quote_file:
+        order.quote_file = quote_file
+
+    order.quoted_at = timezone.now()
+    order.updated_by = actor
+    order.save(update_fields=["quote_file", "quoted_at", "updated_at", "updated_by"])
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.quote_recorded",
+        instance=order,
+        after_data={"items": changes},
+    )
+
+    return order
+
+
+@transaction.atomic
+def confirm_purchase_order(*, actor, order_id):
+    """Step two: the quoted prices are agreed, so the Request to Quote
+    becomes the Purchase Order we hand the Vendor for the Manufacturer. From here the
+    usual flow continues — advance payment, receiving, invoice."""
+    require_owner(actor)
+
+    order = _get_quote_for_update(order_id)
+
+    if order.quoted_at is None:
+        raise ValidationError(
+            "Enter the Manufacturer's quote before turning this into a Purchase Order."
+        )
+
+    lines = list(order.items.select_related("product"))
+
+    if any(line.unit_price is None for line in lines):
+        raise ValidationError("Every product needs a price before it can be ordered.")
+
+    order.status = ManufacturerOrder.Status.SENT
+    order.po_sent_at = timezone.now()
+    order.updated_by = actor
+    order.save(update_fields=["status", "po_sent_at", "updated_at", "updated_by"])
+
+    create_batches_for_order(actor=actor, order=order, items=lines)
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.purchase_order_confirmed",
+        instance=order,
+        after_data={"po_number": order.po_number, "grand_total": str(order.grand_total)},
     )
 
     return order
@@ -258,7 +579,14 @@ def mark_manufacturer_order_received(*, actor, order_id):
 
 @transaction.atomic
 def record_manufacturer_invoice(
-    *, actor, order_id, invoice_file=None, invoice_number="", item_prices=None
+    *,
+    actor,
+    order_id,
+    invoice_file=None,
+    invoice_number="",
+    item_prices=None,
+    shipping_amount=None,
+    tax_percentage=None,
 ):
     """The Manufacturer's own invoice, entered and approved as one action:
     the Owner updates each line's actual price and quantity to match what
@@ -304,6 +632,12 @@ def record_manufacturer_invoice(
 
     order.invoice_number = (invoice_number or "").strip()
 
+    if shipping_amount is not None:
+        order.shipping_amount = _as_decimal(shipping_amount)
+
+    if tax_percentage is not None:
+        order.tax_percentage = _as_decimal(tax_percentage)
+
     if invoice_file:
         order.invoice_file = invoice_file
 
@@ -314,7 +648,8 @@ def record_manufacturer_invoice(
     order.save(
         update_fields=[
             "invoice_number", "invoice_file", "invoice_approved_at",
-            "invoice_approved_by", "updated_at", "updated_by",
+            "invoice_approved_by", "shipping_amount", "tax_percentage",
+            "updated_at", "updated_by",
         ]
     )
 
@@ -415,6 +750,11 @@ def record_manufacturer_payment(
     order = _get_order_for_update(order_id)
     amount = _as_decimal(amount)
 
+    if order.status == ManufacturerOrder.Status.QUOTE:
+        raise ValidationError(
+            "This is still a Request to Quote — confirm the Purchase Order before paying."
+        )
+
     if amount <= 0:
         raise ValidationError("Payment amount must be greater than zero.")
 
@@ -504,6 +844,9 @@ def receiving_steps(order):
     what puts the stock into Inventory). An order can have one without
     the other — older orders were sometimes invoiced before arriving,
     or received and never invoiced."""
+    if order.status == ManufacturerOrder.Status.QUOTE:
+        return False, False
+
     needs_receipt = order.status == ManufacturerOrder.Status.SENT
     needs_invoice = (
         order.invoice_approved_at is None
@@ -520,6 +863,8 @@ def receive_manufacturer_order(
     invoice_number="",
     invoice_file=None,
     item_prices=None,
+    shipping_amount=None,
+    tax_percentage=None,
     paid_remaining=False,
     amount=None,
     paid_at=None,
@@ -550,6 +895,8 @@ def receive_manufacturer_order(
             invoice_file=invoice_file,
             invoice_number=invoice_number,
             item_prices=item_prices,
+            shipping_amount=shipping_amount,
+            tax_percentage=tax_percentage,
         )
 
     if order.pays_advance is None:

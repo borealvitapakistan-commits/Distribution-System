@@ -45,6 +45,8 @@
                         <td>
                             {% if purchase_order.status == "PENDING" %}
                                 <span class="badge badge-pending">Pending</span>
+                            {% elif purchase_order.status == "PARTIALLY_SHIPPED" %}
+                                <span class="badge badge-neutral">Partially shipped</span>
                             {% elif purchase_order.status == "SHIPPED" %}
                                 <span class="badge badge-neutral">Shipped</span>
                             {% elif purchase_order.status == "RECEIVED" %}

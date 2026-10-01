@@ -1,9 +1,12 @@
+from decimal import Decimal
+
 from django import forms
 from django.forms import inlineformset_factory
 
 from apps.core.models import Brand
 
 from .models import (
+    BottleSize,
     Ingredient,
     Product,
     ProductCategory,
@@ -123,3 +126,32 @@ ProductIngredientFormSet = inlineformset_factory(
     extra=1,
     can_delete=True,
 )
+
+
+class ProductBottlePricesForm(forms.Form):
+    """Our saved price per bottle size — what a Request to Quote line is
+    pre-filled with. Leave a size blank to have no saved price."""
+
+    def __init__(self, *args, product=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        saved = {}
+        if product is not None:
+            saved = {row.bottle_size: row.price for row in product.bottle_prices.all()}
+
+        for size, label in BottleSize.choices:
+            self.fields[f"price_{size}"] = forms.DecimalField(
+                max_digits=18,
+                decimal_places=3,
+                min_value=Decimal("0"),
+                required=False,
+                label=label,
+                initial=saved.get(size),
+                widget=forms.NumberInput(attrs={"step": "0.001", "placeholder": "Not set"}),
+            )
+
+    def prices(self):
+        return {
+            size: self.cleaned_data.get(f"price_{size}")
+            for size in BottleSize.values
+        }

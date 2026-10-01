@@ -64,11 +64,27 @@
                 <div class="form-errors">{{ invoice_form.non_field_errors }}</div>
             {% endif %}
 
+            <div class="form-grid panel-body">
+                {% for field in invoice_form %}
+                    {% if field.name == "invoice_number" or field.name == "invoice_file" or field.name == "shipping_amount" or field.name == "tax_percentage" %}
+                        <div class="form-group">
+                            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                            {% for error in field.errors %}
+                                <span class="field-error">{{ error }}</span>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+
             <div class="table-wrapper">
                 <table class="input-table">
                     <thead>
                         <tr>
                             <th>Product</th>
+                            <th>Bottle</th>
                             <th>Batch</th>
                             <th>Quantity</th>
                             <th>Unit Price</th>
@@ -83,6 +99,7 @@
                                     {{ item.product.name }}
                                     <small class="table-secondary">{{ item.product.sku }}</small>
                                 </td>
+                                <td>{{ item.get_bottle_size_display|default:"—" }}</td>
                                 <td>{{ item.batch.code }}</td>
                                 <td>
                                     {{ qty_field }}
@@ -158,8 +175,12 @@
         return;
     }
 
-    const taxPercentage = parseFloat("{{ order.tax_percentage|stringformat:'s' }}") || 0;
-    const shipping = parseFloat("{{ order.shipping_amount|stringformat:'s' }}") || 0;
+    const taxInput = document.getElementById("{{ invoice_form.tax_percentage.id_for_label }}");
+    const shippingInput = document.getElementById("{{ invoice_form.shipping_amount.id_for_label }}");
+    const orderTax = parseFloat("{{ order.tax_percentage|stringformat:'s' }}") || 0;
+    const orderShipping = parseFloat("{{ order.shipping_amount|stringformat:'s' }}") || 0;
+    const charge = (input, fallback) =>
+        input && input.value !== "" ? (parseFloat(input.value) || 0) : fallback;
     const alreadyPaid = parseFloat("{{ order.total_paid|stringformat:'s' }}") || 0;
 
     const box = document.querySelector("[data-paid-question]");
@@ -187,6 +208,8 @@
 
     function recompute() {
         let subtotal = 0;
+        const taxPercentage = charge(taxInput, orderTax);
+        const shipping = charge(shippingInput, orderShipping);
 
         lines.forEach(function (line) {
             const inputs = line.querySelectorAll("input[type='number'], input:not([type])");
@@ -219,6 +242,11 @@
 
     lines.forEach(function (line) {
         line.addEventListener("input", recompute);
+    });
+    [taxInput, shippingInput].forEach(function (input) {
+        if (input) {
+            input.addEventListener("input", recompute);
+        }
     });
     recompute();
 })();

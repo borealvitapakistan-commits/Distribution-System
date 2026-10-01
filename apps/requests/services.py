@@ -5,6 +5,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.accounts.services import require_approved_distributor, require_owner
+from apps.agreements.models import discounted_price
+from apps.agreements.services import agreement_in_force
 from apps.audit.services import record_audit_event
 from apps.distributor_inventory.services import receive_stock as distributor_receive_stock
 from apps.owner_inventory.services import (
@@ -32,7 +34,6 @@ def _validate_items(items):
     for row in items:
         product = row.get("product")
         quantity = row.get("quantity_requested")
-        requested_price = row.get("requested_price")
 
         if not product:
             raise ValidationError("Every row needs a product.")
@@ -49,19 +50,10 @@ def _validate_items(items):
         if quantity <= 0:
             raise ValidationError("Quantity must be greater than zero.")
 
-        if requested_price not in (None, ""):
-            requested_price = _as_decimal(requested_price)
-
-            if requested_price < 0:
-                raise ValidationError("Price cannot be negative.")
-        else:
-            requested_price = None
-
         rows.append(
             {
                 "product": product,
                 "quantity_requested": quantity,
-                "requested_price": requested_price,
             }
         )
 
@@ -89,8 +81,13 @@ def create_purchase_order(*, actor, items):
 
     distributor_profile = actor.distributor_profile
 
+    # The agreement is checked first: only one signed for this Distributor
+    # and covering today prices the order; otherwise list prices apply.
+    agreement = agreement_in_force(distributor_profile)
+
     purchase_order = PurchaseOrder(
         distributor_profile=distributor_profile,
+        agreement=agreement,
         po_number=_next_po_number(),
         created_by=actor,
         updated_by=actor,
@@ -98,21 +95,24 @@ def create_purchase_order(*, actor, items):
     purchase_order.full_clean()
     purchase_order.save()
 
-    lines = [
-        PurchaseOrderItem(
-            purchase_order=purchase_order,
-            product=row["product"],
-            quantity_requested=row["quantity_requested"],
-            unit_price=(
-                row["requested_price"]
-                if row["requested_price"] is not None
-                else row["product"].base_retail_price
-            ),
-            created_by=actor,
-            updated_by=actor,
+    lines = []
+
+    for row in rows:
+        product = row["product"]
+        discount = agreement.discount_for(product) if agreement else Decimal("0")
+
+        lines.append(
+            PurchaseOrderItem(
+                purchase_order=purchase_order,
+                product=product,
+                quantity_requested=row["quantity_requested"],
+                list_price=product.base_retail_price,
+                discount_percentage=discount,
+                unit_price=discounted_price(product.base_retail_price, discount),
+                created_by=actor,
+                updated_by=actor,
+            )
         )
-        for row in rows
-    ]
 
     for line in lines:
         line.full_clean()
@@ -126,17 +126,16 @@ def create_purchase_order(*, actor, items):
         after_data={
             "po_number": purchase_order.po_number,
             "distributor_profile_id": str(distributor_profile.pk),
+            "agreement_id": str(agreement.pk) if agreement else None,
             "items": [
                 {
-                    "product_id": str(row["product"].pk),
-                    "quantity_requested": str(row["quantity_requested"]),
-                    "requested_price": (
-                        str(row["requested_price"])
-                        if row["requested_price"] is not None
-                        else None
-                    ),
+                    "product_id": str(line.product_id),
+                    "quantity_requested": str(line.quantity_requested),
+                    "list_price": str(line.list_price),
+                    "discount_percentage": str(line.discount_percentage),
+                    "unit_price": str(line.unit_price),
                 }
-                for row in rows
+                for line in lines
             ],
         },
     )
@@ -145,15 +144,26 @@ def create_purchase_order(*, actor, items):
 
 
 def _recompute_status(purchase_order):
+    """An order stays open until every line has either arrived in full
+    or been closed by the Owner as unavailable (after whatever part of
+    it did ship arrived) - e.g. while the Owner waits on a Manufacturer
+    for one product, the order sits at Partially shipped."""
     items = list(purchase_order.items.all())
 
     if purchase_order.status == PurchaseOrder.Status.DECLINED:
         return
 
-    if all(item.quantity_received >= item.quantity_requested for item in items):
+    if all(item.quantity_ordered == 0 for item in items):
+        # Every product was closed as unavailable before any shipped.
+        purchase_order.status = PurchaseOrder.Status.DECLINED
+    elif all(item.is_complete for item in items):
         purchase_order.status = PurchaseOrder.Status.RECEIVED
     elif any(item.quantity_shipped > 0 for item in items):
-        purchase_order.status = PurchaseOrder.Status.SHIPPED
+        purchase_order.status = (
+            PurchaseOrder.Status.PARTIALLY_SHIPPED
+            if any(item.quantity_to_ship_remaining > 0 for item in items)
+            else PurchaseOrder.Status.SHIPPED
+        )
     else:
         purchase_order.status = PurchaseOrder.Status.PENDING
 
@@ -381,6 +391,135 @@ def update_pricing(*, actor, purchase_order_id, tax_percentage, shipping_amount)
     )
 
     return purchase_order
+
+
+def _get_open_order_for_update(purchase_order_id):
+    purchase_order = (
+        PurchaseOrder.objects
+        .select_for_update()
+        .filter(pk=purchase_order_id)
+        .first()
+    )
+
+    if purchase_order is None:
+        raise ValidationError("Purchase order was not found.")
+
+    if not purchase_order.is_open:
+        raise ValidationError(
+            f"This purchase order is {purchase_order.get_status_display().lower()} "
+            "and can no longer be changed."
+        )
+
+    return purchase_order
+
+
+@transaction.atomic
+def update_line_discounts(*, actor, purchase_order_id, discounts):
+    """The Owner keeps or changes each line's discount - e.g. the
+    agreement gives 18% but Ashwagandha goes at 15% on this order.
+    discounts: {item_id_as_str: percentage}. Only lines that haven't
+    shipped yet can change; the unit price follows the percentage."""
+    require_owner(actor)
+
+    purchase_order = _get_open_order_for_update(purchase_order_id)
+    changes = {}
+
+    for item in purchase_order.items.select_for_update().select_related("product"):
+        raw = (discounts or {}).get(str(item.pk))
+
+        if raw in (None, ""):
+            continue
+
+        percentage = _as_decimal(raw)
+
+        if not Decimal("0") <= percentage <= Decimal("100"):
+            raise ValidationError(f"{item.product.name}: discount must be between 0 and 100.")
+
+        if percentage == item.discount_percentage:
+            continue
+
+        if not item.can_reprice:
+            raise ValidationError(
+                f"{item.product.name} has already shipped (or was closed), "
+                "so its price is settled."
+            )
+
+        changes[str(item.pk)] = {
+            "product_id": str(item.product_id),
+            "from": str(item.discount_percentage),
+            "to": str(percentage),
+        }
+
+        item.discount_percentage = percentage
+        item.unit_price = discounted_price(item.list_price, percentage)
+        item.updated_by = actor
+        item.full_clean()
+        item.save(
+            update_fields=["discount_percentage", "unit_price", "updated_at", "updated_by"]
+        )
+
+    if changes:
+        record_audit_event(
+            user=actor,
+            action="requests.purchase_order_discounts_updated",
+            instance=purchase_order,
+            after_data={"lines": changes},
+        )
+
+    return purchase_order
+
+
+@transaction.atomic
+def update_line_status(*, actor, item_id, note, unavailable):
+    """The Owner's comment on one product line, and whether it's
+    unavailable. Marking it unavailable drops whatever hasn't shipped
+    from the order (needs a comment saying why); clearing the flag puts
+    it back, e.g. once stock arrives from a Manufacturer after all."""
+    require_owner(actor)
+
+    item = (
+        PurchaseOrderItem.objects
+        .select_for_update()
+        .select_related("product")
+        .filter(pk=item_id)
+        .first()
+    )
+
+    if item is None:
+        raise ValidationError("Purchase order line was not found.")
+
+    purchase_order = _get_open_order_for_update(item.purchase_order_id)
+
+    note = (note or "").strip()
+    unavailable = bool(unavailable)
+
+    if unavailable and not item.unavailable:
+        if not note:
+            raise ValidationError(
+                f"Add a comment telling the Distributor why {item.product.name} isn't available."
+            )
+
+        if item.quantity_shipped >= item.quantity_requested:
+            raise ValidationError(f"{item.product.name} has already shipped in full.")
+
+    before = {"owner_note": item.owner_note, "unavailable": item.unavailable}
+
+    item.owner_note = note
+    item.unavailable = unavailable
+    item.updated_by = actor
+    item.save(update_fields=["owner_note", "unavailable", "updated_at", "updated_by"])
+
+    _recompute_status(purchase_order)
+
+    record_audit_event(
+        user=actor,
+        action="requests.purchase_order_line_updated",
+        instance=item,
+        before_data=before,
+        after_data={"owner_note": note, "unavailable": unavailable},
+    )
+
+    return item
 
 
 @transaction.atomic

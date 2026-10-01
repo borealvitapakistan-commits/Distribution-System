@@ -3,86 +3,175 @@
 <head>
 <meta charset="UTF-8">
 <style>
-    @page { size: A4; margin: 2cm; }
-    body { font-family: Helvetica, Arial, sans-serif; font-size: 11pt; color: #0f172a; }
-    h1 { font-size: 20pt; color: #2563eb; margin: 0 0 4px 0; }
-    .doc-type { font-size: 13pt; color: #475569; margin: 0 0 20px 0; }
-    table.meta { width: 100%; margin-bottom: 20px; }
-    table.meta td { vertical-align: top; padding: 0; }
-    .label { color: #64748b; font-size: 9pt; text-transform: uppercase; }
-    table.items { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-    table.items th { background: #f1f5f9; text-align: left; padding: 6px 8px; font-size: 9pt; text-transform: uppercase; color: #475569; }
-    table.items td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
-    table.totals { width: 40%; margin-left: 60%; }
-    table.totals td { padding: 4px 0; }
-    table.totals td.value { text-align: right; }
-    .grand-total { font-size: 13pt; font-weight: bold; border-top: 1px solid #0f172a; }
+    @page { size: A4; margin: 1.4cm 1.6cm 1.6cm 1.6cm; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #374151; }
+    .top-bar { background-color: {{ brand.primary_color }}; height: 6px; font-size: 1pt; }
+    .brand-name { font-size: 20pt; font-weight: bold; color: {{ brand.primary_color }}; }
+    .brand-lines { color: #6b7280; font-size: 8.5pt; line-height: 1.5; }
+    h1 { font-size: 24pt; color: {{ brand.primary_color }}; margin: 14px 0 12px 0; }
+    .label { font-weight: bold; color: #374151; font-size: 10pt; padding-bottom: 2px; }
+    .muted { color: #6b7280; }
+    .party-name { font-weight: bold; color: #4b5563; }
+    table.meta { width: 100%; }
+    table.meta td { vertical-align: top; padding: 0 0 4px 0; }
+    .rule { border-top: 1px solid #d1d5db; height: 1px; font-size: 1pt; margin: 8px 0; }
+    table.items { width: 100%; margin-top: 12px; }
+    table.items th {
+        color: {{ brand.primary_color }}; font-weight: bold; font-size: 9.5pt;
+        padding: 6px 4px; text-align: left; border-bottom: 1.5px solid {{ brand.primary_color }};
+    }
+    table.items td { padding: 5px 4px; font-size: 8.5pt; }
+    table.items .num { text-align: right; }
+    table.items .product { font-weight: bold; color: #4b5563; }
+    tr.stripe td { background-color: #f3f4f6; }
+    tr.changed td { background-color: #fff176; color: #5f5300; }
+    table.bottom { width: 100%; margin-top: 10px; }
+    table.bottom td { vertical-align: top; }
+    table.terms { width: 100%; border: 1px solid #374151; }
+    table.terms td { padding: 6px 8px; font-size: 8.5pt; line-height: 1.5; }
+    .terms-title { color: {{ brand.primary_color }}; font-weight: bold; text-decoration: underline; padding-bottom: 3px; }
+    table.totals { width: 100%; }
+    table.totals td { padding: 3px 0; }
+    table.totals .value { text-align: right; font-weight: bold; color: #111827; }
+    table.totals .key { color: {{ brand.primary_color }}; }
+    .grand { font-size: 20pt; font-weight: bold; color: {{ brand.primary_color }}; text-align: right; padding-top: 18px; }
+    .legend { font-size: 8pt; color: #6b7280; margin-top: 6px; }
+    .legend-swatch { background-color: #fff176; padding: 0 6px; }
 </style>
 </head>
 <body>
-    <h1>
-        {% if order.brand %}{{ order.brand.name }}{% else %}{{ brand.name|default:"—" }}{% endif %}
-    </h1>
-    <p class="doc-type">Purchase Order — {{ order.po_number }}</p>
+    <div class="top-bar">&nbsp;</div>
 
-    <table class="meta">
+    <table class="meta" style="margin-top: 14px;">
         <tr>
-            <td width="50%">
-                <div class="label">Manufacturer</div>
-                {{ order.manufacturer.name }}
-                {% if order.manufacturer.address %}<br>{{ order.manufacturer.address }}{% endif %}
-            </td>
-            <td width="50%">
-                <div class="label">Date</div>
-                {{ order.created_at|date:"Y-m-d" }}
-                <div class="label" style="margin-top:8px;">Status</div>
-                {{ order.get_status_display }}
+            <td>
+                {% if brand.logo %}
+                    <img src="{{ brand.logo.url }}" style="height: 48px;">
+                {% else %}
+                    <div class="brand-name">{{ brand.name|default:"" }}</div>
+                {% endif %}
+                <div class="brand-lines">
+                    {{ brand.legal_name|default:brand.name }}<br>
+                    {% if brand.address %}{{ brand.address|linebreaksbr }}{% endif %}
+                </div>
             </td>
         </tr>
     </table>
 
-    <table class="items">
+    <h1>{{ order.document_title }}</h1>
+
+    <table class="meta">
+        <tr>
+            <td width="50%">
+                <div class="label">Date</div>
+                <div class="muted">
+                    {% if order.is_quote %}{{ order.created_at|date:"m/d/Y" }}{% else %}{{ order.purchase_order_date|date:"m/d/Y" }}{% endif %}
+                </div>
+            </td>
+            <td width="50%">
+                <div class="label">{% if order.is_quote %}Reference number{% else %}P.O. number{% endif %}</div>
+                <div class="muted">{{ order.po_number }}</div>
+            </td>
+        </tr>
+    </table>
+
+    <div class="rule">&nbsp;</div>
+
+    <table class="meta">
+        <tr>
+            <td width="50%">
+                <div class="label">Vendor</div>
+                {% with party=order.vendor|default:order.manufacturer %}
+                    <div class="party-name">{{ party.name }}</div>
+                    {% if party.address %}<div>Address: {{ party.address|linebreaksbr }}</div>{% endif %}
+                    {% if party.email %}<div class="muted">Mail: {{ party.email }}</div>{% endif %}
+                    {% if party.phone %}<div class="muted">Phone: {{ party.phone }}</div>{% endif %}
+                {% endwith %}
+                {% if order.vendor %}
+                    <div style="margin-top: 4px;"><span class="label">Manufacturer:</span> {{ order.manufacturer.name }}</div>
+                {% endif %}
+            </td>
+            <td width="50%">
+                <div class="label">Ship to</div>
+                <div class="party-name">{{ brand.legal_name|default:brand.name }}</div>
+                {% if brand.address %}<div>Address: {{ brand.address|linebreaksbr }}</div>{% endif %}
+                {% if brand.email %}<div class="muted">Mail: {{ brand.email }}</div>{% endif %}
+                {% if brand.phone %}<div class="muted">Phone: {{ brand.phone }}</div>{% endif %}
+            </td>
+        </tr>
+    </table>
+
+    <div class="rule">&nbsp;</div>
+
+    <table class="items" repeat="1">
         <thead>
             <tr>
+                <th width="6%">Sr#</th>
                 <th>Product</th>
-                <th>Qty</th>
-                <th>Unit Price</th>
-                <th>Total</th>
+                <th width="8%" class="num">Qty</th>
+                {% for column in columns %}
+                    <th width="12%" class="num">{{ column.label }}</th>
+                {% endfor %}
+                <th width="14%" class="num">Total price</th>
             </tr>
         </thead>
         <tbody>
-            {% for item in order.items.all %}
-                <tr>
-                    <td>{{ item.product.name }} ({{ item.product.sku }})</td>
-                    <td>{{ item.quantity }}</td>
-                    <td>{{ item.unit_price }}</td>
-                    <td>{{ item.line_total }}</td>
+            {% for row in rows %}
+                <tr class="{% if highlight_changes and row.changed %}changed{% elif forloop.counter|divisibleby:2 %}stripe{% endif %}">
+                    <td>{{ forloop.counter }}</td>
+                    <td class="product">{{ row.product.name }}</td>
+                    <td class="num">{% if row.quantity is not None %}{{ row.quantity|floatformat:"-4" }}{% endif %}</td>
+                    {% for cell in row.cells %}
+                        <td class="num">
+                            {% if cell.item and cell.item.unit_price is not None %}{{ cell.item.unit_price|floatformat:"3g" }}{% endif %}
+                            {% if cell.item and cell.show_quantity %}<br><span class="muted">x {{ cell.item.quantity|floatformat:"-4" }}</span>{% endif %}
+                        </td>
+                    {% endfor %}
+                    <td class="num">{% if row.total is not None %}{{ row.total|floatformat:"2g" }}{% endif %}</td>
                 </tr>
             {% endfor %}
         </tbody>
     </table>
 
-    <table class="totals">
+    {% if highlight_changes and order.has_price_changes %}
+        <div class="legend"><span class="legend-swatch">&nbsp;&nbsp;&nbsp;</span> Price changed by the Manufacturer from what we requested.</div>
+    {% endif %}
+
+    <table class="bottom">
         <tr>
-            <td>Subtotal</td>
-            <td class="value">{{ order.subtotal }}</td>
-        </tr>
-        <tr>
-            <td>Tax ({{ order.tax_percentage }}%)</td>
-            <td class="value">{{ order.tax_amount }}</td>
-        </tr>
-        <tr>
-            <td>Shipping</td>
-            <td class="value">{{ order.shipping_amount }}</td>
-        </tr>
-        <tr class="grand-total">
-            <td>Grand Total</td>
-            <td class="value">{{ order.grand_total }}</td>
+            <td width="50%">
+                {% if order.terms %}
+                    <table class="terms">
+                        <tr><td>
+                            <span class="terms-title">Terms and conditions</span><br>
+                            {{ order.terms|linebreaksbr }}
+                        </td></tr>
+                    </table>
+                {% endif %}
+            </td>
+            <td width="8%"></td>
+            <td width="42%">
+                <table class="totals">
+                    <tr>
+                        <td class="key">Subtotal</td>
+                        <td class="value">{{ order.subtotal|floatformat:"2g" }}</td>
+                    </tr>
+                    {% if order.shipping_amount %}
+                        <tr>
+                            <td class="key">Shipping</td>
+                            <td class="value">{{ order.shipping_amount|floatformat:"2g" }}</td>
+                        </tr>
+                    {% endif %}
+                    {% if order.tax_percentage %}
+                        <tr>
+                            <td class="key">Tax ({{ order.tax_percentage|floatformat:"-2" }}%)</td>
+                            <td class="value">{{ order.tax_amount|floatformat:"2g" }}</td>
+                        </tr>
+                    {% endif %}
+                </table>
+                <div class="grand">{{ order.grand_total|floatformat:"2g" }}</div>
+            </td>
         </tr>
     </table>
-
-    {% if order.owner_note %}
-        <p><strong>Note:</strong> {{ order.owner_note }}</p>
-    {% endif %}
 </body>
 </html>

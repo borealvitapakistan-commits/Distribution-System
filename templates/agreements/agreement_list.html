@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block title %}Agreements{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Agreements</p>
+        <h1>Agreements</h1>
+        <p>
+            {% if is_owner_view %}
+                Each Distributor's discount off list price, and the dates it's valid.
+                A Distributor's orders get the discount of the signed agreement covering the order date.
+            {% else %}
+                Your pricing agreements with the Owner. Orders you place get the discount
+                of the signed agreement covering that day.
+            {% endif %}
+        </p>
+    </div>
+
+    {% if is_owner_view %}
+        <a href="{% url 'owner-agreement-create' %}" class="button button-primary">
+            New Agreement
+        </a>
+    {% endif %}
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Agreement</th>
+                    {% if is_owner_view %}<th>Distributor</th>{% endif %}
+                    <th>Discount</th>
+                    <th>Product overrides</th>
+                    <th>Valid</th>
+                    <th>Status</th>
+                    <th></th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for agreement in agreements %}
+                    <tr>
+                        <td><strong>{{ agreement.agreement_number }}</strong></td>
+                        {% if is_owner_view %}<td>{{ agreement.distributor_profile.name }}</td>{% endif %}
+                        <td>{{ agreement.discount_percentage|floatformat:"-2" }}%</td>
+                        <td>
+                            {% for rate in agreement.product_rates.all %}
+                                {{ rate.product.name }} {{ rate.discount_percentage|floatformat:"-2" }}%{% if not forloop.last %}, {% endif %}
+                            {% empty %}
+                                —
+                            {% endfor %}
+                        </td>
+                        <td>{{ agreement.start_date|date:"M d, Y" }} – {{ agreement.end_date|date:"M d, Y" }}</td>
+                        <td><span class="badge {{ agreement.state_badge }}">{{ agreement.state_label }}</span></td>
+                        <td>
+                            <a
+                                class="button button-secondary button-small"
+                                href="{% if is_owner_view %}{% url 'owner-agreement-detail' agreement.pk %}{% else %}{% url 'distributor-agreement-detail' agreement.pk %}{% endif %}"
+                            >
+                                {% if not is_owner_view and agreement.status == "SENT" %}Review &amp; sign{% else %}View{% endif %}
+                            </a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="empty-table">
+                            {% if is_owner_view %}
+                                No agreements yet. Create one to give a Distributor its own discount.
+                            {% else %}
+                                No agreements yet — the Owner will send one here.
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

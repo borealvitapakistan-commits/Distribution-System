@@ -18,6 +18,7 @@ from apps.accounts.mixins import (
 from .forms import (
     CategoryForm,
     IngredientForm,
+    ProductBottlePricesForm,
     ProductForm,
     ProductIngredientFormSet,
 )
@@ -30,6 +31,7 @@ from .services import (
     create_ingredient,
     create_product,
     export_products_csv,
+    set_product_bottle_prices,
     update_product,
 )
 
@@ -132,8 +134,39 @@ class ProductDetailView(OwnerRequiredMixin, DetailView):
             Product.objects
             .for_user(self.request.user)
             .select_related("category")
-            .prefetch_related("ingredients__ingredient")
+            .prefetch_related("ingredients__ingredient", "bottle_prices")
         )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["bottle_price_form"] = ProductBottlePricesForm(product=self.object)
+        return context
+
+
+class ProductBottlePricesView(OwnerRequiredMixin, View):
+    """Saves our expected Manufacturer price per bottle size — what a
+    Request to Quote line is pre-filled with."""
+
+    def post(self, request, pk):
+        product = Product.objects.for_user(request.user).filter(pk=pk).first()
+        if product is None:
+            raise Http404
+
+        form = ProductBottlePricesForm(request.POST, product=product)
+        if not form.is_valid():
+            messages.error(request, "Prices must be numbers of zero or more.")
+            return redirect("product-detail", pk=pk)
+
+        try:
+            set_product_bottle_prices(
+                actor=request.user, product=product, prices=form.prices()
+            )
+        except (PermissionDenied, ValidationError) as exc:
+            messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("product-detail", pk=pk)
+
+        messages.success(request, "Bottle prices saved.")
+        return redirect("product-detail", pk=pk)
 
 
 class ProductEditorMixin:

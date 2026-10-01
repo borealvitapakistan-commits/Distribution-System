@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     # Business applications
     "apps.owners.apps.OwnersConfig",
     "apps.distributors.apps.DistributorsConfig",
+    "apps.agreements.apps.AgreementsConfig",
     "apps.batches.apps.BatchesConfig",
     "apps.manufacturers.apps.ManufacturersConfig",
     "apps.products.apps.ProductsConfig",
@@ -93,6 +94,7 @@ TEMPLATES = [
                 "django.contrib.messages.context_processors.messages",
                 "apps.core.context_processors.brand",
                 "apps.core.context_processors.owner_notifications",
+                "apps.core.context_processors.distributor_notifications",
             ],
         },
     },
@@ -166,6 +168,10 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 # Media files
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# Payment proofs (PDFs) are previewed in an in-page frame, so allow
+# same-origin framing while still refusing other sites.
+X_FRAME_OPTIONS = "SAMEORIGIN"
 
 
 # Default primary key

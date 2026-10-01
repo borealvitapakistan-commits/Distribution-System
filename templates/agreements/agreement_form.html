@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+
+{% block title %}New Agreement{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Agreements</p>
+        <h1>Agreement Form</h1>
+        <p>
+            Set the Distributor's discount off list price and the dates it's valid.
+            Sending it signs it on your side; it applies once the Distributor signs too.
+        </p>
+    </div>
+
+    <a href="{% url 'owner-agreement-list' %}" class="button button-secondary">
+        Back
+    </a>
+</div>
+
+<section class="panel form-panel">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.non_field_errors or service_error %}
+            <div class="form-errors">
+                {{ form.non_field_errors }}
+                {{ service_error }}
+            </div>
+        {% endif %}
+
+        <div class="form-grid">
+            {% for field in form %}
+                <div class="form-group{% if field.name == 'terms' %} form-group-wide{% endif %}">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                    {% for error in field.errors %}
+                        <span class="field-error">{{ error }}</span>
+                    {% endfor %}
+                </div>
+            {% endfor %}
+        </div>
+
+        <div data-formset data-formset-prefix="{{ rate_formset.prefix }}">
+            <h3>Product overrides <small class="stat-detail">(optional)</small></h3>
+            <p class="stat-detail">
+                Products priced at a different discount than the default — e.g. 18% overall,
+                but Ashwagandha at 15%.
+            </p>
+
+            {{ rate_formset.management_form }}
+
+            {% for error in rate_formset.non_form_errors %}
+                <span class="field-error">{{ error }}</span>
+            {% endfor %}
+
+            <div data-formset-rows>
+                {% for rate_form in rate_formset %}
+                    <div class="form-grid nested-form">
+                        {% for field in rate_form %}
+                            <div class="form-group">
+                                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                {{ field }}
+                                {% for error in field.errors %}
+                                    <span class="field-error">{{ error }}</span>
+                                {% endfor %}
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
+
+            <template data-formset-empty-form>
+                <div class="form-grid nested-form">
+                    {% for field in rate_formset.empty_form %}
+                        <div class="form-group">
+                            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                        </div>
+                    {% endfor %}
+                </div>
+            </template>
+
+            <button type="button" class="button button-secondary button-small" data-formset-add>
+                + Add product override
+            </button>
+        </div>
+
+        <div class="agreement-signatures">
+            <div>
+                <span class="signature-line">{{ request.user.get_full_name|default:request.user.email }}</span>
+                <small>Signature of Owner — signed when you send</small>
+            </div>
+            <div>
+                <span class="signature-line signature-pending">Awaiting</span>
+                <small>Signature of Distributor</small>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">
+                Sign &amp; Send to Distributor
+            </button>
+        </div>
+    </form>
+</section>
+{% endblock %}

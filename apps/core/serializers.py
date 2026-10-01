@@ -15,6 +15,7 @@ class BrandSerializer(serializers.ModelSerializer):
             "fiscal_year_start_month",
             "default_country",
             "logo",
+            "primary_color",
             "address",
             "phone",
             "email",
