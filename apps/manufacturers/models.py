@@ -54,35 +54,6 @@ class Manufacturer(AuditedModel):
         return self.name
 
 
-class Vendor(AuditedModel):
-    """The middleman between the Owner and a Manufacturer: takes our
-    Request to Quote / Purchase Order to the Manufacturer, brings back
-    their prices, and delivers the goods from the Manufacturer to us."""
-
-    name = models.CharField(max_length=200, unique=True)
-    email = models.EmailField(blank=True)
-    phone = models.CharField(max_length=30, blank=True)
-    address = models.TextField(blank=True)
-    notes = models.TextField(blank=True)
-    active = models.BooleanField(default=True)
-
-    objects = OwnerManagedQuerySet.as_manager()
-
-    class Meta:
-        ordering = ["name"]
-
-    def clean(self):
-        super().clean()
-
-        self.name = self.name.strip()
-
-        if not self.name:
-            raise ValidationError({"name": "Vendor name is required."})
-
-    def __str__(self):
-        return self.name
-
-
 class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
     class Status(models.TextChoices):
         QUOTE = "QUOTE", "Request to Quote"
@@ -96,19 +67,6 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         Manufacturer,
         on_delete=models.PROTECT,
         related_name="orders",
-    )
-
-    vendor = models.ForeignKey(
-        Vendor,
-        on_delete=models.PROTECT,
-        related_name="orders",
-        null=True,
-        blank=True,
-        help_text=(
-            "Who we send the Request to Quote / Purchase Order to; they deal "
-            "with the Manufacturer and deliver the goods to us. Blank on "
-            "orders placed before vendors existed."
-        ),
     )
 
     brand = models.ForeignKey(
@@ -182,7 +140,16 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         help_text="The Manufacturer's own invoice document, as they gave it to us.",
     )
 
-    invoice_number = models.CharField(max_length=100, blank=True)
+    invoice_number = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Our own invoice number, generated on receipt: INV-<BRAND>-0001.",
+    )
+    supplier_invoice_ref = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="The invoice number printed on the Manufacturer's own invoice, if any.",
+    )
 
     invoice_approved_at = models.DateTimeField(null=True, blank=True)
     pays_advance = models.BooleanField(
@@ -342,10 +309,30 @@ class ManufacturerOrderItem(AuditedModel):
         return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
 
     @property
+    def requested_price_given(self):
+        """Whether we asked for a price on the Request to Quote. A 0 counts
+        as not given — nobody buys at zero, it means "please quote"."""
+        return self.requested_unit_price not in (None, Decimal("0"))
+
+    @property
+    def price_highlight(self):
+        """How the line is coloured once the Manufacturer's price is in:
+        "changed" (orange) — we asked for a price and theirs differs;
+        "new" (yellow) — we left the price empty and they filled it in;
+        "" (white) — their price matches ours, or nothing is quoted yet
+        (a 0 counts as not quoted)."""
+        if self.unit_price in (None, Decimal("0")):
+            return ""
+        if not self.requested_price_given:
+            return "new"
+        if self.unit_price != self.requested_unit_price:
+            return "changed"
+        return ""
+
+    @property
     def price_changed(self):
-        """True when the Manufacturer's price differs from what we
-        asked for — these lines are highlighted yellow."""
-        return self.unit_price != self.requested_unit_price
+        """True for any highlighted line, orange or yellow."""
+        return bool(self.price_highlight)
 
     def __str__(self):
         size = f" ({self.get_bottle_size_display()})" if self.bottle_size else ""

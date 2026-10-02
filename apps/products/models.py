@@ -393,3 +393,34 @@ class ProductBottlePrice(AuditedModel):
 
     def __str__(self):
         return f"{self.product.sku} - {self.get_bottle_size_display()} - {self.price}"
+
+
+class ProductRetailPrice(AuditedModel):
+    """What we sell one bottle of a product for at a given bottle size
+    (30, 60, 90 or 120 capsules). Shown on the Products table."""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="retail_prices",
+    )
+    bottle_size = models.PositiveSmallIntegerField(choices=BottleSize.choices)
+    price = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+
+    objects = OwnerOnlyQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["product__name", "bottle_size"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "bottle_size"],
+                name="unique_retail_price_per_product_size",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product.sku} - {self.get_bottle_size_display()} - {self.price}"

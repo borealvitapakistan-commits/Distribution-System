@@ -21,8 +21,10 @@ from .forms import (
     ProductBottlePricesForm,
     ProductForm,
     ProductIngredientFormSet,
+    ProductRetailPricesForm,
 )
 from .models import (
+    BottleSize,
     Product,
     ProductCategory,
 )
@@ -31,7 +33,9 @@ from .services import (
     create_ingredient,
     create_product,
     export_products_csv,
+    export_retail_price_sheet,
     set_product_bottle_prices,
+    set_product_retail_prices,
     update_product,
 )
 
@@ -109,7 +113,28 @@ class ProductListView(OwnerRequiredMixin, ListView):
             Product.objects
             .for_user(self.request.user)
             .select_related("category")
+            .prefetch_related("retail_prices")
         )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["bottle_sizes"] = BottleSize.values
+        for product in context["products"]:
+            prices = {row.bottle_size: row.price for row in product.retail_prices.all()}
+            product.size_prices = [prices.get(size) for size in BottleSize.values]
+        return context
+
+
+class RetailPriceSheetView(OwnerRequiredMixin, View):
+    """Downloads the retail price sheet (CSV, opens in Excel)."""
+
+    def get(self, request):
+        response = HttpResponse(
+            export_retail_price_sheet(Product.objects.for_user(request.user)),
+            content_type="text/csv",
+        )
+        response["Content-Disposition"] = 'attachment; filename="retail-price-sheet.csv"'
+        return response
 
 
 class DistributorProductListView(DistributorRequiredMixin, ListView):
@@ -134,13 +159,39 @@ class ProductDetailView(OwnerRequiredMixin, DetailView):
             Product.objects
             .for_user(self.request.user)
             .select_related("category")
-            .prefetch_related("ingredients__ingredient", "bottle_prices")
+            .prefetch_related("ingredients__ingredient", "bottle_prices", "retail_prices")
         )
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["bottle_price_form"] = ProductBottlePricesForm(product=self.object)
+        context["retail_price_form"] = ProductRetailPricesForm(product=self.object)
         return context
+
+
+class ProductRetailPricesView(OwnerRequiredMixin, View):
+    """Saves what we sell one bottle for at each bottle size."""
+
+    def post(self, request, pk):
+        product = Product.objects.for_user(request.user).filter(pk=pk).first()
+        if product is None:
+            raise Http404
+
+        form = ProductRetailPricesForm(request.POST, product=product)
+        if not form.is_valid():
+            messages.error(request, "Prices must be numbers of zero or more.")
+            return redirect("product-detail", pk=pk)
+
+        try:
+            set_product_retail_prices(
+                actor=request.user, product=product, prices=form.prices()
+            )
+        except (PermissionDenied, ValidationError) as exc:
+            messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("product-detail", pk=pk)
+
+        messages.success(request, "Retail prices saved.")
+        return redirect("product-detail", pk=pk)
 
 
 class ProductBottlePricesView(OwnerRequiredMixin, View):

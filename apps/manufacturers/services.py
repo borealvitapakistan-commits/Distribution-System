@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
+from django.utils.text import slugify
 
 from apps.accounts.services import require_owner
 from apps.audit.services import record_audit_event
@@ -15,7 +16,6 @@ from apps.batches.services import (
 )
 
 from .models import (
-    Vendor,
     Manufacturer,
     ManufacturerOrder,
     ManufacturerOrderItem,
@@ -83,57 +83,6 @@ def update_manufacturer(*, actor, manufacturer_id, **data):
     return manufacturer
 
 
-def _vendor_payload(vendor):
-    return {
-        "name": vendor.name,
-        "email": vendor.email,
-        "phone": vendor.phone,
-        "active": vendor.active,
-    }
-
-
-@transaction.atomic
-def create_vendor(*, actor, **data):
-    require_owner(actor)
-
-    vendor = Vendor(created_by=actor, updated_by=actor, **data)
-    vendor.full_clean()
-    vendor.save()
-
-    record_audit_event(
-        user=actor,
-        action="vendor.created",
-        instance=vendor,
-        after_data=_vendor_payload(vendor),
-    )
-    return vendor
-
-
-@transaction.atomic
-def update_vendor(*, actor, vendor_id, **data):
-    require_owner(actor)
-
-    vendor = Vendor.objects.select_for_update().filter(pk=vendor_id).first()
-    if vendor is None:
-        raise ValidationError("Vendor was not found.")
-
-    before = _vendor_payload(vendor)
-    for field, value in data.items():
-        setattr(vendor, field, value)
-    vendor.updated_by = actor
-    vendor.full_clean()
-    vendor.save()
-
-    record_audit_event(
-        user=actor,
-        action="vendor.updated",
-        instance=vendor,
-        before_data=before,
-        after_data=_vendor_payload(vendor),
-    )
-    return vendor
-
-
 def _as_decimal(value):
     try:
         return Decimal(value)
@@ -187,6 +136,9 @@ def _validate_order_items(items, *, require_price=True):
             unit_price = _as_decimal(unit_price)
             if unit_price < 0:
                 raise ValidationError("Unit price cannot be negative.")
+            if unit_price == 0 and not require_price:
+                # On a Request to Quote a 0 means "please quote".
+                unit_price = None
 
         rows.append(
             {
@@ -259,7 +211,6 @@ def create_manufacturer_order(
     actor,
     manufacturer,
     items,
-    vendor=None,
     brand=None,
     tax_percentage=0,
     shipping_amount=0,
@@ -273,7 +224,6 @@ def create_manufacturer_order(
 
     order = ManufacturerOrder(
         manufacturer=manufacturer,
-        vendor=vendor,
         brand=brand,
         po_number=_next_manufacturer_po_number(),
         status=ManufacturerOrder.Status.SENT,
@@ -306,21 +256,17 @@ def create_manufacturer_order(
 
 
 @transaction.atomic
-def create_request_to_quote(*, actor, vendor, manufacturer, items, brand=None, terms=""):
+def create_request_to_quote(*, actor, manufacturer, items, brand=None, terms=""):
     """Step one: the products, bottle sizes and quantities we want, at the
     prices we'd like (pre-filled from our saved prices, each optional).
-    Printed and handed to the Vendor, who takes it to the Manufacturer —
-    nothing is stocked or paid yet, so no batches are created until it
-    becomes a Purchase Order."""
+    Printed and sent to the Manufacturer (our vendor) — nothing is
+    stocked or paid yet, so no batches are created until it becomes a
+    Purchase Order."""
     require_owner(actor)
-
-    if vendor is None:
-        raise ValidationError("Choose the vendor this goes to.")
 
     rows = _validate_order_items(items, require_price=False)
 
     order = ManufacturerOrder(
-        vendor=vendor,
         manufacturer=manufacturer,
         brand=brand,
         po_number=_next_manufacturer_po_number(),
@@ -340,7 +286,6 @@ def create_request_to_quote(*, actor, vendor, manufacturer, items, brand=None, t
         instance=order,
         after_data={
             "po_number": order.po_number,
-            "vendor_id": str(vendor.pk),
             "manufacturer_id": str(manufacturer.pk),
             "brand_id": str(brand.pk) if brand else None,
             "items": _rows_payload(rows),
@@ -363,7 +308,7 @@ def _get_quote_for_update(order_id):
 
 @transaction.atomic
 def update_request_to_quote(
-    *, actor, order_id, vendor, manufacturer, items, brand=None, terms=""
+    *, actor, order_id, manufacturer, items, brand=None, terms=""
 ):
     """Rewrites a Request to Quote's lines — only until the
     Manufacturer's quote has been entered, since after that the
@@ -377,12 +322,8 @@ def update_request_to_quote(
             "The Manufacturer's quote is already entered — edit the quoted prices instead."
         )
 
-    if vendor is None:
-        raise ValidationError("Choose the vendor this goes to.")
-
     rows = _validate_order_items(items, require_price=False)
 
-    order.vendor = vendor
     order.manufacturer = manufacturer
     order.brand = brand
     order.terms = (terms or "").strip()
@@ -398,7 +339,6 @@ def update_request_to_quote(
         action="manufacturer.quote_request_updated",
         instance=order,
         after_data={
-            "vendor_id": str(vendor.pk),
             "manufacturer_id": str(manufacturer.pk),
             "brand_id": str(brand.pk) if brand else None,
             "items": _rows_payload(rows),
@@ -412,7 +352,7 @@ def update_request_to_quote(
 def record_manufacturer_quote(
     *, actor, order_id, item_updates, quote_file=None, remove_item_ids=(), save_price_item_ids=()
 ):
-    """The Manufacturer's real prices came back to us through the Vendor
+    """The Manufacturer's real prices came back to us from the Manufacturer
     (on paper, by email, a picture, ...). The Owner uploads that reply and
     types each line's quoted price; lines whose price changed from what
     we asked for are highlighted on the order. Lines the Manufacturer
@@ -500,7 +440,7 @@ def record_manufacturer_quote(
 @transaction.atomic
 def confirm_purchase_order(*, actor, order_id):
     """Step two: the quoted prices are agreed, so the Request to Quote
-    becomes the Purchase Order we hand the Vendor for the Manufacturer. From here the
+    becomes the Purchase Order we send the Manufacturer. From here the
     usual flow continues — advance payment, receiving, invoice."""
     require_owner(actor)
 
@@ -583,10 +523,11 @@ def record_manufacturer_invoice(
     actor,
     order_id,
     invoice_file=None,
-    invoice_number="",
+    supplier_invoice_ref="",
     item_prices=None,
     shipping_amount=None,
     tax_percentage=None,
+    to_location=None,
 ):
     """The Manufacturer's own invoice, entered and approved as one action:
     the Owner updates each line's actual price and quantity to match what
@@ -595,10 +536,12 @@ def record_manufacturer_invoice(
     than the original order), uploads the invoice document, and that
     upload is itself the approval — there's no separate reviewer.
 
-    The FIRST time an order's invoice is approved, each line lands as its
-    own unallocated batch — not in any warehouse or region yet, decided
-    separately via Inventory > Allocate. Re-editing an already-approved
-    invoice later does not create stock again."""
+    The FIRST time an order's invoice is approved it gets our own invoice
+    number (INV-<BRAND>-0001) and each line lands as its own batch in
+    to_location — the warehouse picked on the receive page — or, when
+    none is given, the unallocated pool to be placed later via
+    Inventory > Allocate. Re-editing an already-approved invoice later
+    does not create stock again."""
     from apps.owner_inventory.services import (
         get_or_create_unallocated_location,
         receive_stock,
@@ -630,7 +573,10 @@ def record_manufacturer_invoice(
         item.full_clean()
         item.save(update_fields=["unit_price", "quantity", "updated_at", "updated_by"])
 
-    order.invoice_number = (invoice_number or "").strip()
+    order.supplier_invoice_ref = (supplier_invoice_ref or "").strip()
+
+    if is_first_approval or not order.invoice_number:
+        order.invoice_number = next_invoice_number(order)
 
     if shipping_amount is not None:
         order.shipping_amount = _as_decimal(shipping_amount)
@@ -647,7 +593,7 @@ def record_manufacturer_invoice(
     order.full_clean()
     order.save(
         update_fields=[
-            "invoice_number", "invoice_file", "invoice_approved_at",
+            "invoice_number", "supplier_invoice_ref", "invoice_file", "invoice_approved_at",
             "invoice_approved_by", "shipping_amount", "tax_percentage",
             "updated_at", "updated_by",
         ]
@@ -665,7 +611,7 @@ def record_manufacturer_invoice(
     )
 
     if is_first_approval:
-        unallocated = get_or_create_unallocated_location(actor=actor)
+        destination = to_location or get_or_create_unallocated_location(actor=actor)
 
         for item in order.items.select_related("product", "batch"):
             update = (item_prices or {}).get(str(item.pk)) or {}
@@ -677,7 +623,7 @@ def record_manufacturer_invoice(
                 actor=actor,
                 product=item.product,
                 quantity=item.quantity,
-                to_location=unallocated,
+                to_location=destination,
                 reference=f"Manufacturer order {order.po_number} invoiced",
                 batch_number=item.batch.code,
                 expiry_date=item.batch.expiry_date,
@@ -838,6 +784,26 @@ def record_advance_decision(
     return None
 
 
+def invoice_prefix(order):
+    """INV-<BRAND>- — e.g. INV-BOREAL-VITA- for the Boreal Vita brand."""
+    from apps.core.models import Brand
+
+    brand = order.brand or Brand.objects.filter(active=True).first()
+    code = slugify(brand.name).upper() if brand else ""
+    return f"INV-{code}-" if code else "INV-"
+
+
+def next_invoice_number(order):
+    """The next free invoice number for the order's brand:
+    INV-BOREAL-VITA-0001, INV-BOREAL-VITA-0002, ..."""
+    prefix = invoice_prefix(order)
+    used = ManufacturerOrder.objects.filter(invoice_number__startswith=prefix).values_list(
+        "invoice_number", flat=True
+    )
+    numbers = [int(n[len(prefix):]) for n in used if n[len(prefix):].isdigit()]
+    return f"{prefix}{max(numbers, default=0) + 1:04d}"
+
+
 def receiving_steps(order):
     """What's still to do on an order's Order Received page: confirm the
     goods arrived, and/or approve the Manufacturer's invoice (which is
@@ -860,11 +826,12 @@ def receive_manufacturer_order(
     *,
     actor,
     order_id,
-    invoice_number="",
+    supplier_invoice_ref="",
     invoice_file=None,
     item_prices=None,
     shipping_amount=None,
     tax_percentage=None,
+    to_location=None,
     paid_remaining=False,
     amount=None,
     paid_at=None,
@@ -873,10 +840,13 @@ def receive_manufacturer_order(
 ):
     """Step three: the goods have arrived. In one go, marks the order
     received, approves the Manufacturer's invoice — the actual quantity,
-    price and expiry per line, which is what creates the stock — and, if
-    anything is still owed on the invoiced total and the Owner has paid
-    it, records that final payment with its proof. Whichever of these is
-    already done is skipped; if any part fails, none of it is saved."""
+    price and expiry per line, which is what creates the stock in
+    to_location — and records the final payment for whatever is still
+    owed on the invoiced total, with its proof.
+
+    Two gates: the advance question must have been answered first, and
+    the order can't be received until it's paid in full. Whichever step
+    is already done is skipped; if any part fails, none of it is saved."""
     require_owner(actor)
 
     order = _get_order_for_update(order_id)
@@ -884,6 +854,12 @@ def receive_manufacturer_order(
 
     if not needs_receipt and not needs_invoice:
         raise ValidationError("This order has already been received and invoiced.")
+
+    if needs_receipt and order.pays_advance is None:
+        raise ValidationError(
+            "Answer the advance payment (advance or no advance) before "
+            "recording the invoice and receiving."
+        )
 
     if needs_receipt:
         order = mark_manufacturer_order_received(actor=actor, order_id=order.pk)
@@ -893,10 +869,11 @@ def receive_manufacturer_order(
             actor=actor,
             order_id=order.pk,
             invoice_file=invoice_file,
-            invoice_number=invoice_number,
+            supplier_invoice_ref=supplier_invoice_ref,
             item_prices=item_prices,
             shipping_amount=shipping_amount,
             tax_percentage=tax_percentage,
+            to_location=to_location,
         )
 
     if order.pays_advance is None:
@@ -912,6 +889,12 @@ def receive_manufacturer_order(
             proof=proof,
             kind=ManufacturerOrderPayment.Kind.FINAL,
             note=note,
+        )
+
+    if order.remaining_amount > 0:
+        raise ValidationError(
+            f"{order.remaining_amount} is still owed on this order — pay the "
+            "full amount before marking it received."
         )
 
     order.stock_created = needs_invoice

@@ -5,11 +5,18 @@ from .models import (
     Product,
     ProductCategory,
     ProductIngredient,
+    ProductRetailPrice,
 )
 
 
 class ProductIngredientInline(admin.TabularInline):
     model = ProductIngredient
+    extra = 0
+
+
+class ProductRetailPriceInline(admin.TabularInline):
+    model = ProductRetailPrice
+    fields = ("bottle_size", "price")
     extra = 0
 
 
@@ -42,7 +49,7 @@ class ProductAdmin(admin.ModelAdmin):
         "name",
         "generic_name",
     )
-    inlines = [ProductIngredientInline]
+    inlines = [ProductRetailPriceInline, ProductIngredientInline]
 
 
 @admin.register(Ingredient)

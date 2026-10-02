@@ -14,7 +14,6 @@ from apps.products.services import create_product
 
 from .models import Manufacturer, ManufacturerOrder, ManufacturerOrderPayment
 from .services import (
-    create_vendor,
     create_manufacturer,
     create_manufacturer_order,
     mark_manufacturer_order_received,
@@ -30,6 +29,20 @@ MEDIA_ROOT = tempfile.mkdtemp()
 
 def proof_file(name="proof.png"):
     return SimpleUploadedFile(name, b"proof-bytes", content_type="image/png")
+
+
+def make_warehouse(owner, code="WH-1", name="Main Warehouse"):
+    from apps.owner_warehouse.models import Location
+    from apps.owner_warehouse.services import create_inventory, create_location
+
+    region = create_inventory(actor=owner, code=f"R-{code}", name=f"Region {code}")
+    return create_location(
+        actor=owner,
+        code=code,
+        name=name,
+        location_type=Location.LocationType.OWN,
+        inventory=region,
+    )
 
 
 def tearDownModule():
@@ -142,14 +155,16 @@ class ManufacturerOrderTests(TestCase):
         approved_order = record_manufacturer_invoice(
             actor=self.owner,
             order_id=order.pk,
-            invoice_number="INV-123",
+            supplier_invoice_ref="MFR-123",
             item_prices={
                 str(item.pk): {"quantity": Decimal("8"), "unit_price": Decimal("65.00")},
             },
         )
         order.refresh_from_db()
         item.refresh_from_db()
-        self.assertEqual(order.invoice_number, "INV-123")
+        # Our own number is generated from the brand; theirs is kept as a reference.
+        self.assertEqual(order.invoice_number, "INV-0001")  # no brand on this order
+        self.assertEqual(order.supplier_invoice_ref, "MFR-123")
         self.assertIsNotNone(order.invoice_approved_at)
         self.assertEqual(order.invoice_approved_by, self.owner)
         self.assertEqual(item.unit_price, Decimal("65.00"))
@@ -167,12 +182,14 @@ class ManufacturerOrderTests(TestCase):
         second_approval = record_manufacturer_invoice(
             actor=self.owner,
             order_id=order.pk,
-            invoice_number="INV-123-CORRECTED",
+            supplier_invoice_ref="MFR-123-CORRECTED",
             item_prices={
                 str(item.pk): {"quantity": Decimal("8"), "unit_price": Decimal("65.00")},
             },
         )
         self.assertFalse(second_approval.stock_created)
+        # Re-editing keeps the number already given.
+        self.assertEqual(second_approval.invoice_number, order.invoice_number)
         self.assertEqual(
             unallocated_batches(product=item.product).count(), 1
         )
@@ -302,20 +319,27 @@ class ManufacturerOrderTests(TestCase):
     def test_full_lifecycle_via_views(self):
         order = self.make_order()
         item = order.items.get()
+        warehouse = make_warehouse(self.owner)
+        record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
         self.client.force_login(self.owner)
 
-        # Receiving, the invoice and the payment answer are one page.
+        # Receiving, the invoice and the final payment are one page.
+        # 10 x 62.50 = 625 + 5% tax 31.25 + 20 shipping = 676.25, paid in full.
         response = self.client.post(
             reverse("manufacturer-order-received", kwargs={"pk": order.pk}),
             {
+                "warehouse": warehouse.pk,
                 f"item_qty_{item.pk}": "10",
                 f"item_price_{item.pk}": "62.50",
                 f"item_expiry_{item.pk}": "2027-01-01",
-                "answer": "no",
+                "amount": "676.25",
+                "paid_at": "2026-01-01",
+                "proof": proof_file(),
             },
         )
-        # Approving the invoice redirects straight to allocating the new stock.
-        self.assertRedirects(response, reverse("inventory-list"))
+        self.assertRedirects(
+            response, reverse("manufacturer-order-detail", kwargs={"pk": order.pk})
+        )
 
         order.refresh_from_db()
         self.assertEqual(order.status, ManufacturerOrder.Status.RECEIVED)
@@ -326,9 +350,10 @@ class ManufacturerOrderTests(TestCase):
         self.assertEqual(item.batch.status, "RECEIVED")
         self.assertEqual(str(item.batch.expiry_date), "2027-01-01")
 
-        from apps.owner_inventory.services import unallocated_batches
+        from apps.owner_inventory.services import available_batches_fefo
 
-        created_batch = unallocated_batches(product=item.product).first()
+        # The stock went straight into the warehouse picked on the page.
+        created_batch = available_batches_fefo(location=warehouse, product=item.product).first()
         self.assertEqual(created_batch.quantity_remaining, Decimal("10"))
         self.assertEqual(created_batch.batch_number, item.batch.code)
         self.assertEqual(created_batch.source_batch_id, item.batch.pk)
@@ -339,19 +364,10 @@ class ManufacturerOrderTests(TestCase):
             reverse("manufacturer-order-detail", kwargs={"pk": order.pk})
         )
         self.assertNotContains(detail_response, "Save &amp; Approve Invoice")
+        self.assertContains(detail_response, order.invoice_number)
 
-        response = self.client.post(
-            reverse("manufacturer-order-payment", kwargs={"pk": order.pk}),
-            {
-                "amount": "100.00",
-                "paid_at": "2026-01-01",
-                "proof": proof_file(),
-                "note": "Partial",
-            },
-            follow=True,
-        )
-        self.assertEqual(response.status_code, 200)
         order.refresh_from_db()
+        self.assertTrue(order.is_fully_paid)
         self.assertEqual(order.payments.count(), 1)
 
         response = self.client.post(
@@ -500,13 +516,12 @@ class ManufacturerPaymentFlowTests(TestCase):
         from apps.core.models import Brand
 
         brand = Brand.objects.create(name="Flow Brand")
-        vendor = create_vendor(actor=self.owner, name="Flow Vendor")
+        warehouse = make_warehouse(self.owner)
         self.client.force_login(self.owner)
 
         response = self.client.post(
             reverse("manufacturer-order-create"),
             {
-                "vendor": vendor.pk,
                 "manufacturer": self.manufacturer.pk,
                 "brand": brand.pk,
                 "items-TOTAL_FORMS": "1",
@@ -542,8 +557,17 @@ class ManufacturerPaymentFlowTests(TestCase):
         )
         self.assertRedirects(response, advance_url)
 
+        # Until the advance is answered, receiving is locked: the button
+        # is greyed out and the page sends you to the advance question.
+        detail = self.client.get(detail_url)
+        self.assertContains(detail, "Upload Payment Proof (Advance / No Advance)")
+        self.assertContains(detail, "is-disabled")
+        receive_url = reverse("manufacturer-order-received", kwargs={"pk": order.pk})
+        self.assertRedirects(self.client.get(receive_url), advance_url)
+
         page = self.client.get(advance_url)
         self.assertContains(page, "Are you paying in advance?")
+        self.assertContains(page, "No advance")
         self.assertContains(page, "Full amount (100%)")
 
         # "Yes" without the details is sent back with errors.
@@ -559,22 +583,27 @@ class ManufacturerPaymentFlowTests(TestCase):
             response, reverse("manufacturer-order-detail", kwargs={"pk": order.pk})
         )
 
-        receive_url = reverse("manufacturer-order-received", kwargs={"pk": order.pk})
+        detail = self.client.get(detail_url)
+        self.assertNotContains(detail, "is-disabled")
+        self.assertContains(detail, "Advance paid")
+
         page = self.client.get(receive_url)
-        self.assertContains(page, "Have you paid the remaining amount?")
-        self.assertContains(page, "Goods received")
-        # The Manufacturer's invoice is recorded here too.
-        self.assertContains(page, "Invoice number")
+        self.assertContains(page, "Final payment")
+        self.assertContains(page, "Invoice &amp; goods received")
+        # Our invoice number is generated from the brand.
+        self.assertContains(page, "INV-FLOW-BRAND-0001")
         self.assertContains(page, "Invoice document")
+        self.assertContains(page, "Receive into warehouse")
 
         item = order.items.get()
         invoice = {
+            "warehouse": warehouse.pk,
             f"item_qty_{item.pk}": "5",
             f"item_price_{item.pk}": "200",
         }
 
         # Medicines: a batch can't go into Inventory without its expiry.
-        response = self.client.post(receive_url, {**invoice, "answer": "no"})
+        response = self.client.post(receive_url, invoice)
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "This field is required.")
         order.refresh_from_db()
@@ -582,9 +611,14 @@ class ManufacturerPaymentFlowTests(TestCase):
 
         invoice[f"item_expiry_{item.pk}"] = "2028-06-30"
 
-        # Something is still owed, so the question must be answered.
+        # 600 is still owed — it can't be received until paid in full.
         response = self.client.post(receive_url, invoice)
-        self.assertContains(response, "Please answer")
+        self.assertContains(response, "the order must be paid in full")
+        response = self.client.post(
+            receive_url,
+            {**invoice, "amount": "100", "paid_at": "2026-02-01", "proof": proof_file()},
+        )
+        self.assertContains(response, "Pay the full remaining amount: 600.00.")
         order.refresh_from_db()
         self.assertEqual(order.status, ManufacturerOrder.Status.SENT)
 
@@ -592,19 +626,26 @@ class ManufacturerPaymentFlowTests(TestCase):
             receive_url,
             {
                 **invoice,
-                "answer": "yes",
+                "supplier_invoice_ref": "FB-778",
                 "amount": "600",
                 "paid_at": "2026-02-01",
                 "proof": proof_file(),
             },
         )
-        self.assertRedirects(response, reverse("inventory-list"))
+        self.assertRedirects(response, detail_url)
 
         order.refresh_from_db()
         self.assertEqual(order.status, ManufacturerOrder.Status.RECEIVED)
         self.assertIsNotNone(order.invoice_approved_at)
         self.assertEqual(order.advance_paid, Decimal("400.00"))
         self.assertEqual(order.final_paid, Decimal("600.00"))
+        self.assertEqual(order.invoice_number, "INV-FLOW-BRAND-0001")
+        self.assertEqual(order.supplier_invoice_ref, "FB-778")
+
+        from apps.owner_inventory.services import available_batches_fefo
+
+        stock = available_batches_fefo(location=warehouse, product=self.product).get()
+        self.assertEqual(stock.quantity_remaining, Decimal("5"))
 
         detail = self.client.get(reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
         self.assertContains(detail, "40.0% advance + 60.0% on receipt")
@@ -667,13 +708,18 @@ class ManufacturerPaymentFlowTests(TestCase):
         response = self.client.post(
             receive_url,
             {
+                "warehouse": make_warehouse(self.owner).pk,
                 f"item_qty_{item.pk}": "10",
                 f"item_price_{item.pk}": "100",
                 f"item_expiry_{item.pk}": "2028-06-30",
-                "answer": "no",
+                "amount": "1000",
+                "paid_at": "2026-02-01",
+                "proof": proof_file(),
             },
         )
-        self.assertRedirects(response, reverse("inventory-list"))
+        self.assertRedirects(
+            response, reverse("manufacturer-order-detail", kwargs={"pk": self.order.pk})
+        )
         self.assertIsNotNone(self._refresh().invoice_approved_at)
 
         # Nothing left to do — the page sends you back to the order.
@@ -681,6 +727,57 @@ class ManufacturerPaymentFlowTests(TestCase):
         self.assertRedirects(
             response, reverse("manufacturer-order-detail", kwargs={"pk": self.order.pk})
         )
+
+    def test_cannot_receive_before_the_advance_is_answered(self):
+        with self.assertRaisesMessage(ValidationError, "Answer the advance payment"):
+            receive_manufacturer_order(
+                actor=self.owner,
+                order_id=self.order.pk,
+                paid_remaining=True,
+                amount=Decimal("1000.00"),
+                paid_at="2026-02-01",
+                proof=proof_file(),
+            )
+        self.assertEqual(self._refresh().status, ManufacturerOrder.Status.SENT)
+
+    def test_cannot_receive_until_paid_in_full(self):
+        record_advance_decision(actor=self.owner, order_id=self.order.pk, pays_advance=False)
+
+        with self.assertRaisesMessage(ValidationError, "pay the full amount"):
+            receive_manufacturer_order(actor=self.owner, order_id=self.order.pk)
+
+        # All-or-nothing: nothing was received, invoiced or stocked.
+        order = self._refresh()
+        self.assertEqual(order.status, ManufacturerOrder.Status.SENT)
+        self.assertIsNone(order.invoice_approved_at)
+        self.assertEqual(order.invoice_number, "")
+
+    def test_invoice_numbers_count_up_per_brand(self):
+        from apps.core.models import Brand
+
+        from .services import next_invoice_number
+
+        brand = Brand.objects.create(name="Herbal Vita")
+        self.order.brand = brand
+        self.order.save(update_fields=["brand"])
+        record_advance_decision(actor=self.owner, order_id=self.order.pk, pays_advance=False)
+        receive_manufacturer_order(
+            actor=self.owner,
+            order_id=self.order.pk,
+            paid_remaining=True,
+            amount=Decimal("1000.00"),
+            paid_at="2026-02-01",
+            proof=proof_file(),
+        )
+        self.assertEqual(self._refresh().invoice_number, "INV-HERBAL-VITA-0001")
+
+        second = create_manufacturer_order(
+            actor=self.owner,
+            manufacturer=self.manufacturer,
+            brand=brand,
+            items=[{"product": self.product, "quantity": Decimal("1"), "unit_price": Decimal("1")}],
+        )
+        self.assertEqual(next_invoice_number(second), "INV-HERBAL-VITA-0002")
 
 
 @override_settings(MEDIA_ROOT=MEDIA_ROOT)
@@ -716,6 +813,7 @@ class BatchIdentityTests(TestCase):
             items=[{"product": self.product, "quantity": Decimal(quantity), "unit_price": Decimal("50.00")}],
         )
         item = order.items.get()
+        record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
         receive_manufacturer_order(
             actor=self.owner,
             order_id=order.pk,
@@ -724,6 +822,10 @@ class BatchIdentityTests(TestCase):
                 "unit_price": Decimal("50.00"),
                 "expiry_date": expiry,
             }},
+            paid_remaining=True,
+            amount=Decimal(quantity) * Decimal("50.00"),
+            paid_at="2026-02-01",
+            proof=proof_file(),
         )
         return item.batch
 
@@ -799,10 +901,6 @@ class RequestToQuoteFlowTests(TestCase):
         )
         self.brand = Brand.objects.create(name="Herbal Aid", primary_color="#1f7a4d")
         self.manufacturer = create_manufacturer(actor=self.owner, name="Glorious Labs")
-        self.vendor = create_vendor(
-            actor=self.owner, name="Middleman Traders", email="buy@middleman.test",
-            phone="0300-1234567", address="Shop 4, Main Market",
-        )
         self.ashwagandha = create_product(
             actor=self.owner, sku="RTQ-ASH", barcode="", name="Ashwagandha",
             base_retail_price=Decimal("100"), currency="pkr",
@@ -825,7 +923,6 @@ class RequestToQuoteFlowTests(TestCase):
 
         return create_request_to_quote(
             actor=self.owner,
-            vendor=self.vendor,
             manufacturer=self.manufacturer,
             brand=self.brand,
             terms="50% advance.",
@@ -851,13 +948,24 @@ class RequestToQuoteFlowTests(TestCase):
         self.assertFalse(any(item.price_changed for item in order.items.all()))
         self.assertFalse(order.items.filter(batch__isnull=False).exists())
 
+    def test_zero_price_on_a_request_means_please_quote(self):
+        from .services import create_request_to_quote
+
+        order = create_request_to_quote(
+            actor=self.owner,
+            manufacturer=self.manufacturer,
+            items=[{"product": self.ashwagandha, "bottle_size": 60, "quantity": "1", "unit_price": "0"}],
+        )
+        item = order.items.get()
+        self.assertIsNone(item.requested_unit_price)
+        self.assertFalse(item.requested_price_given)
+
     def test_same_product_and_size_twice_is_rejected(self):
         from .services import create_request_to_quote
 
         with self.assertRaises(ValidationError):
             create_request_to_quote(
                 actor=self.owner,
-                vendor=self.vendor,
                 manufacturer=self.manufacturer,
                 items=[
                     {"product": self.ashwagandha, "bottle_size": 60, "quantity": "1"},
@@ -900,6 +1008,11 @@ class RequestToQuoteFlowTests(TestCase):
         self.assertTrue(lines[(self.ashwagandha.pk, 60)].price_changed)
         self.assertTrue(lines[(self.ashwagandha.pk, 120)].price_changed)
         self.assertFalse(lines[(self.vitamin_d.pk, 60)].price_changed)
+        # Asked 10, quoted 20 -> orange; left empty, quoted 30 -> yellow;
+        # asked 10, quoted 10 -> white.
+        self.assertEqual(lines[(self.ashwagandha.pk, 60)].price_highlight, "changed")
+        self.assertEqual(lines[(self.ashwagandha.pk, 120)].price_highlight, "new")
+        self.assertEqual(lines[(self.vitamin_d.pk, 60)].price_highlight, "")
         self.assertIsNotNone(order.quoted_at)
 
         saved = {
@@ -983,6 +1096,7 @@ class RequestToQuoteFlowTests(TestCase):
 
         detail = self.client.get(reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
         self.assertContains(detail, "mo-row-changed")
+        self.assertContains(detail, "mo-row-new")
         self.assertContains(detail, "Send Purchase Order")
 
         list_page = self.client.get(reverse("manufacturer-order-list") + "?status=QUOTE&q=Glorious")
@@ -1010,53 +1124,24 @@ class RequestToQuoteFlowTests(TestCase):
         self.brand.primary_color = "#000000"
         self.assertEqual(self.brand.tinted_color(1), "#ffffff")
 
-    def test_vendor_is_required_and_shown(self):
+    def test_manufacturer_is_the_vendor(self):
         from .services import create_request_to_quote
 
-        with self.assertRaises(ValidationError):
-            create_request_to_quote(
-                actor=self.owner,
-                vendor=None,
-                manufacturer=self.manufacturer,
-                items=[{"product": self.ashwagandha, "bottle_size": 60, "quantity": "1"}],
-            )
-
-        order = self.make_quote()
-        self.assertEqual(order.vendor, self.vendor)
+        order = create_request_to_quote(
+            actor=self.owner,
+            manufacturer=self.manufacturer,
+            items=[{"product": self.ashwagandha, "bottle_size": 60, "quantity": "1"}],
+        )
         self.client.force_login(self.owner)
+
+        form_page = self.client.get(reverse("manufacturer-order-create"))
+        self.assertNotIn("vendor", form_page.context["form"].fields)
 
         detail = self.client.get(reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
-        self.assertContains(detail, "Middleman Traders")
-        self.assertContains(detail, "Glorious Labs")
+        self.assertContains(detail, "Vendor: Glorious Labs")
 
-        list_page = self.client.get(reverse("manufacturer-order-list") + "?q=Middleman")
+        list_page = self.client.get(reverse("manufacturer-order-list") + "?q=Glorious")
         self.assertContains(list_page, order.po_number)
-
-        vendor_page = self.client.get(reverse("vendor-detail", kwargs={"pk": self.vendor.pk}))
-        self.assertContains(vendor_page, order.po_number)
-
-    def test_vendor_pages(self):
-        from .models import Vendor
-
-        self.client.force_login(self.owner)
-        self.assertEqual(self.client.get(reverse("vendor-list")).status_code, 200)
-        self.assertEqual(self.client.get(reverse("vendor-create")).status_code, 200)
-
-        response = self.client.post(
-            reverse("vendor-create"),
-            {"name": "New Vendor", "email": "v@vendor.test", "phone": "123",
-             "address": "Lahore", "notes": "", "active": "on"},
-        )
-        vendor = Vendor.objects.get(name="New Vendor")
-        self.assertRedirects(response, reverse("vendor-detail", kwargs={"pk": vendor.pk}))
-
-        response = self.client.post(
-            reverse("vendor-edit", kwargs={"pk": vendor.pk}),
-            {"name": "Renamed Vendor", "email": "v@vendor.test", "phone": "123",
-             "address": "Lahore", "notes": "", "active": "on"},
-        )
-        vendor.refresh_from_db()
-        self.assertEqual(vendor.name, "Renamed Vendor")
 
     def test_document_groups_bottle_sizes_into_price_columns(self):
         from .views import document_table

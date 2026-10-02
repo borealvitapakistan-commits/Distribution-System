@@ -60,16 +60,10 @@
 
         <div class="form-grid">
             <div class="doc-field">
-                <label for="{{ form.vendor.id_for_label }}">Vendor (select to auto-fill)</label>
-                {{ form.vendor }}
-                {% for error in form.vendor.errors %}<div class="doc-errors">{{ error }}</div>{% endfor %}
-                <div class="doc-hint"><a href="{% url 'vendor-create' %}" target="_blank">+ Add a vendor</a></div>
-            </div>
-
-            <div class="doc-field">
-                <label for="{{ form.manufacturer.id_for_label }}">Manufacturer (the vendor takes this to)</label>
+                <label for="{{ form.manufacturer.id_for_label }}">Vendor (select a manufacturer to auto-fill)</label>
                 {{ form.manufacturer }}
                 {% for error in form.manufacturer.errors %}<div class="doc-errors">{{ error }}</div>{% endfor %}
+                <div class="doc-hint"><a href="{% url 'manufacturer-create' %}" target="_blank">+ Add a manufacturer</a></div>
             </div>
         </div>
 
@@ -77,8 +71,8 @@
             <div>
                 <span class="doc-label">Vendor</span>
                 <div data-vendor-block>
-                    <div class="doc-party-name doc-placeholder">—select vendor above—</div>
-                    <div class="doc-party-line doc-placeholder">Vendor address…</div>
+                    <div class="doc-party-name doc-placeholder">—select manufacturer above—</div>
+                    <div class="doc-party-line doc-placeholder">Manufacturer address…</div>
                 </div>
             </div>
             <div>
@@ -145,7 +139,7 @@
     var rowsContainer = document.getElementById("moRows");
     var emptyRowTemplate = document.getElementById("moEmptyRow");
     var totalFormsInput = form.querySelector("input[name$='-TOTAL_FORMS']");
-    var vendorSelect = document.getElementById("{{ form.vendor.id_for_label }}");
+    var vendorSelect = document.getElementById("{{ form.manufacturer.id_for_label }}");
     var brandSelect = document.getElementById("{{ form.brand.id_for_label }}");
 
     function el(tag, className, text) {
@@ -171,9 +165,9 @@
     }
 
     function applyVendor() {
-        var vendor = vendorSelect && sheetData.vendors[vendorSelect.value];
+        var vendor = vendorSelect && sheetData.manufacturers[vendorSelect.value];
         fillParty(form.querySelector("[data-vendor-block]"), vendor,
-            ["—select vendor above—", "Vendor address…"]);
+            ["—select manufacturer above—", "Manufacturer address…"]);
     }
 
     // The brand decides the sheet's colour, logo and who it ships to.

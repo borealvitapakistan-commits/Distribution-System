@@ -12,7 +12,8 @@
         <h1>{{ order.po_number }} — {{ order.manufacturer.name }}</h1>
         <p>
             {% if needs_receipt and needs_invoice %}
-                Confirm what arrived and settle whatever is left to pay.
+                Enter the invoice, pick the warehouse and pay the full remaining amount —
+                the order can't be marked received until it's paid in full.
             {% elif needs_invoice %}
                 The goods are already received — confirm what arrived to add it to Inventory, and settle whatever is left to pay.
             {% else %}
@@ -52,13 +53,20 @@
         <section class="panel">
             <div class="panel-header">
                 <div>
-                    <h2>Goods received</h2>
+                    <h2>Invoice &amp; goods received</h2>
                     <p>
                         Adjust each line's quantity and price to what actually arrived,
-                        and add the expiry date. Saving this puts the stock into Inventory.
+                        and add the expiry date. Saving this puts the stock into the warehouse you pick.
                     </p>
                 </div>
             </div>
+
+            <dl class="details-list">
+                <div>
+                    <dt>Invoice number</dt>
+                    <dd><strong>{{ next_invoice_number }}</strong> <small class="table-secondary">— generated automatically</small></dd>
+                </div>
+            </dl>
 
             {% if invoice_form.non_field_errors %}
                 <div class="form-errors">{{ invoice_form.non_field_errors }}</div>
@@ -66,7 +74,7 @@
 
             <div class="form-grid panel-body">
                 {% for field in invoice_form %}
-                    {% if field.name == "invoice_number" or field.name == "invoice_file" or field.name == "shipping_amount" or field.name == "tax_percentage" %}
+                    {% if field.name == "warehouse" or field.name == "supplier_invoice_ref" or field.name == "invoice_file" or field.name == "shipping_amount" or field.name == "tax_percentage" %}
                         <div class="form-group">
                             <label for="{{ field.id_for_label }}">{{ field.label }}</label>
                             {{ field }}
@@ -147,9 +155,28 @@
         </div>
 
         <div data-paid-owed {% if order.remaining_amount <= 0 %}hidden{% endif %}>
-            {% with total=order.grand_total none_message="Not paid yet — you can record the remaining payment from the order page later." %}
-                {% include "core/_paid_question.html" %}
-            {% endwith %}
+            <h2>Final payment</h2>
+            <p class="stat-detail">
+                Pay the full remaining amount and upload the proof — the order can't be
+                marked received until it's paid in full.
+            </p>
+
+            {% if form.non_field_errors %}
+                <div class="form-errors">{{ form.non_field_errors }}</div>
+            {% endif %}
+
+            <div class="form-grid">
+                {% for field in form %}
+                    <div class="form-group">
+                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                        {% for error in field.errors %}
+                            <span class="field-error">{{ error }}</span>
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+            </div>
         </div>
 
         <div class="form-actions">
@@ -183,21 +210,16 @@
         input && input.value !== "" ? (parseFloat(input.value) || 0) : fallback;
     const alreadyPaid = parseFloat("{{ order.total_paid|stringformat:'s' }}") || 0;
 
-    const box = document.querySelector("[data-paid-question]");
-    const fillRemaining = document.querySelector("[data-fill-amount]");
     const owed = document.querySelector("[data-paid-owed]");
     const full = document.querySelector("[data-paid-full]");
     const totalCell = document.querySelector("[data-live-total]");
     const remainingCell = document.querySelector("[data-live-remaining]");
     const amount = document.getElementById("{{ form.amount.id_for_label }}");
 
-    // Keep the payment amount in step with the invoice until the Owner
-    // types their own figure.
-    let amountEdited = Boolean(amount && amount.value && amount.value !== "{{ order.remaining_amount|stringformat:'s' }}");
+    // The order must be paid in full, so the amount always follows the
+    // remaining amount on the invoice.
     if (amount) {
-        amount.addEventListener("input", function () {
-            amountEdited = true;
-        });
+        amount.readOnly = true;
     }
 
     const money = (value) => value.toLocaleString("en-US", {
@@ -228,15 +250,8 @@
         owed.hidden = remaining <= 0;
         full.hidden = remaining > 0;
 
-        if (box) {
-            box.dataset.total = total;
-            if (fillRemaining) {
-                fillRemaining.dataset.fillAmount = remaining.toFixed(2);
-            }
-            if (amount && !amountEdited) {
-                amount.value = remaining.toFixed(2);
-            }
-            box.dispatchEvent(new Event("paid:refresh"));
+        if (amount) {
+            amount.value = remaining > 0 ? remaining.toFixed(2) : "";
         }
     }
 

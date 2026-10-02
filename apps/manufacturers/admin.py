@@ -1,20 +1,11 @@
 from django.contrib import admin
 
 from .models import (
-    Vendor,
     Manufacturer,
     ManufacturerOrder,
     ManufacturerOrderItem,
     ManufacturerOrderPayment,
 )
-
-
-@admin.register(Vendor)
-class VendorAdmin(admin.ModelAdmin):
-    list_display = ("name", "phone", "email", "active")
-    list_filter = ("active",)
-    search_fields = ("name", "email", "phone")
-    ordering = ("name",)
 
 
 @admin.register(Manufacturer)

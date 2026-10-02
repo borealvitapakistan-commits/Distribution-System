@@ -16,8 +16,7 @@
         </div>
         <p>
             Started {{ order.created_at|date:"M d, Y" }}
-            {% if order.vendor %}· Vendor: {{ order.vendor.name }}{% endif %}
-            · Manufacturer: {{ order.manufacturer.name }}
+            · Vendor: {{ order.manufacturer.name }}
             {% if order.brand %}
                 · <span class="color-chip" style="background: {{ order.brand.primary_color }};"></span>{{ order.brand.name }}
             {% endif %}
@@ -27,8 +26,8 @@
     <details class="mo-actions">
         <summary class="button button-secondary">Actions ▾</summary>
         <div class="mo-actions-menu">
-            <a href="{% url 'manufacturer-order-pdf' order.pk %}" target="_blank">View {{ order.document_title }} (vendor copy)</a>
-            <a href="{% url 'manufacturer-order-pdf' order.pk %}?download=1">Download {{ order.document_title }} (vendor copy)</a>
+            <a href="{% url 'manufacturer-order-pdf' order.pk %}" target="_blank">View {{ order.document_title }} (manufacturer copy)</a>
+            <a href="{% url 'manufacturer-order-pdf' order.pk %}?download=1">Download {{ order.document_title }} (manufacturer copy)</a>
             <a href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team" target="_blank">View team copy (changes highlighted)</a>
             <a href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team&download=1">Download team copy</a>
             {% if can_edit_quote %}
@@ -38,9 +37,6 @@
                 <a href="{% url 'manufacturer-order-quote' order.pk %}">
                     {% if order.quoted_at %}Edit quoted prices{% else %}Enter quoted prices{% endif %}
                 </a>
-            {% endif %}
-            {% if order.vendor %}
-                <a href="{% url 'vendor-detail' order.vendor.pk %}">Vendor details</a>
             {% endif %}
             <a href="{% url 'manufacturer-detail' order.manufacturer.pk %}">Manufacturer details</a>
         </div>
@@ -73,8 +69,7 @@
         <div class="panel-body mo-next">
             {% if order.is_quote and not order.quoted_at %}
                 <p>
-                    <strong>Send the Request to Quote.</strong> Download it and give it to
-                    {% if order.vendor %}{{ order.vendor.name }}{% else %}the vendor{% endif %}, who takes it to
+                    <strong>Send the Request to Quote.</strong> Download it and send it to
                     {{ order.manufacturer.name }}. When the real prices come back, enter them
                     here along with their document.
                 </p>
@@ -85,13 +80,13 @@
             {% elif order.is_quote %}
                 <p>
                     <strong>Review the quote.</strong>
-                    {% if changed_count %}
-                        {{ changed_count }} price{{ changed_count|pluralize }} changed from your request
-                        (highlighted yellow below).
+                    {% if changed_count or new_price_count %}
+                        {% if changed_count %}{{ changed_count }} price{{ changed_count|pluralize }} changed from your request (orange below).{% endif %}
+                        {% if new_price_count %}{{ new_price_count }} price{{ new_price_count|pluralize }} filled in by the manufacturer where you left it empty (yellow below).{% endif %}
                     {% else %}
                         The Manufacturer accepted every price you asked for.
                     {% endif %}
-                    When it's agreed, turn it into the Purchase Order and give that to the vendor.
+                    When it's agreed, turn it into the Purchase Order and send it to the manufacturer.
                 </p>
                 <div class="mo-next-actions">
                     <a class="button button-secondary" href="{% url 'manufacturer-order-quote' order.pk %}">Edit Quoted Prices</a>
@@ -102,10 +97,14 @@
                 </div>
             {% elif order.status == "SENT" or not order.invoice_approved_at and order.status != "REFUNDED" %}
                 <p>
-                    {% if order.status == "SENT" %}
-                        <strong>Purchase Order sent.</strong> When the vendor delivers the goods
-                        and the invoice, record the invoice — quantities, prices, shipping and
-                        expiry. That's what puts the stock into Inventory.
+                    {% if order.status == "SENT" and order.pays_advance is None %}
+                        <strong>Purchase Order sent.</strong> Next, upload the payment proof —
+                        say whether you paid an advance or not. Recording the invoice and
+                        receiving unlocks after that.
+                    {% elif order.status == "SENT" %}
+                        <strong>Advance answered.</strong> When the goods and the invoice arrive,
+                        record the invoice — quantities, prices, tax and expiry — pay the full
+                        remaining amount and pick the warehouse. That puts the stock into the warehouse.
                     {% else %}
                         <strong>Invoice still to record.</strong> These goods were received
                         but never added to Inventory.
@@ -113,12 +112,17 @@
                 </p>
                 <div class="mo-next-actions">
                     <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?download=1">Download Purchase Order</a>
-                    {% if order.status == "SENT" and order.pays_advance is None %}
-                        <a class="button button-secondary" href="{% url 'manufacturer-order-advance' order.pk %}">Answer Advance Payment</a>
+                    {% if order.status == "SENT" %}
+                        {% if order.pays_advance is None %}
+                            <a class="button button-primary" href="{% url 'manufacturer-order-advance' order.pk %}">Upload Payment Proof (Advance / No Advance)</a>
+                            <span class="button button-primary is-disabled" aria-disabled="true" title="Upload the payment proof (advance or no advance) first">Record Invoice &amp; Receive</span>
+                        {% else %}
+                            <span class="badge badge-open">{% if order.pays_advance %}Advance paid{% else %}No advance{% endif %} ✓</span>
+                            <a class="button button-primary" href="{% url 'manufacturer-order-received' order.pk %}">Record Invoice &amp; Receive</a>
+                        {% endif %}
+                    {% else %}
+                        <a class="button button-primary" href="{% url 'manufacturer-order-received' order.pk %}">Add Stock to Inventory</a>
                     {% endif %}
-                    <a class="button button-primary" href="{% url 'manufacturer-order-received' order.pk %}">
-                        {% if order.status == "SENT" %}Record Invoice &amp; Receive{% else %}Add Stock to Inventory{% endif %}
-                    </a>
                 </div>
             {% else %}
                 <p><strong>Invoice recorded.</strong> This order has been through every step.</p>
@@ -141,7 +145,10 @@
                     {% endif %}
                 </li>
                 <li>
-                    <span>Invoice{% if order.invoice_number %} {{ order.invoice_number }}{% endif %}</span>
+                    <span>
+                        Invoice{% if order.invoice_number %} {{ order.invoice_number }}{% endif %}
+                        {% if order.supplier_invoice_ref %}<small class="table-secondary">(manufacturer's no. {{ order.supplier_invoice_ref }})</small>{% endif %}
+                    </span>
                     {% if order.invoice_file %}
                         <a href="{{ order.invoice_file.url }}" target="_blank" rel="noopener" data-proof-viewer>View</a>
                     {% elif order.invoice_approved_at %}
@@ -167,18 +174,9 @@
             <div><dt>PO sent</dt><dd>{{ order.purchase_order_date|date:"M d, Y"|default:"Not yet" }}</dd></div>
             <div><dt>Received</dt><dd>{{ order.received_at|date:"M d, Y"|default:"Not yet" }}</dd></div>
             <div><dt>Invoice approved</dt><dd>{{ order.invoice_approved_at|date:"M d, Y"|default:"Not yet" }}</dd></div>
+            <div><dt>Invoice no.</dt><dd>{{ order.invoice_number|default:"Not yet" }}</dd></div>
             <div>
                 <dt>Vendor</dt>
-                <dd>
-                    {% if order.vendor %}
-                        <a href="{% url 'vendor-detail' order.vendor.pk %}">{{ order.vendor.name }}</a>
-                    {% else %}
-                        —
-                    {% endif %}
-                </dd>
-            </div>
-            <div>
-                <dt>Manufacturer</dt>
                 <dd><a href="{% url 'manufacturer-detail' order.manufacturer.pk %}">{{ order.manufacturer.name }}</a></dd>
             </div>
             <div><dt>Total amount</dt><dd><strong>{{ order.grand_total|money }}</strong></dd></div>
@@ -205,13 +203,12 @@
     <div class="doc-parties">
         <div>
             <span class="doc-label">Vendor</span>
-            {% with party=order.vendor|default:order.manufacturer %}
+            {% with party=order.manufacturer %}
                 <div class="doc-party-name">{{ party.name }}</div>
                 {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
                 {% if party.email %}<div class="doc-party-line">Mail: {{ party.email }}</div>{% endif %}
                 {% if party.phone %}<div class="doc-party-line">Phone: {{ party.phone }}</div>{% endif %}
             {% endwith %}
-            {% if order.vendor %}<div class="doc-party-line">Manufacturer: {{ order.manufacturer.name }}</div>{% endif %}
         </div>
         <div>
             <span class="doc-label">Ship to</span>
@@ -221,9 +218,10 @@
         </div>
     </div>
 
-    {% if changed_count %}
+    {% if changed_count or new_price_count %}
         <p class="doc-hint" style="margin-top: 1rem;">
-            <mark class="mo-changed-mark">Yellow</mark> rows: the price that came back differs from what we requested.
+            <mark class="mo-changed-mark mo-mark-changed">Orange</mark> rows: the price that came back differs from what we requested.
+            <mark class="mo-changed-mark">Yellow</mark> rows: we left the price empty and the manufacturer filled it in.
         </p>
     {% endif %}
 
@@ -238,7 +236,7 @@
         </div>
 
         {% for item in items %}
-            <div class="doc-row doc-line {% if item.price_changed %}mo-row-changed{% endif %}">
+            <div class="doc-row doc-line {% if item.price_highlight %}mo-row-{{ item.price_highlight }}{% endif %}">
                 <span class="doc-sr"></span>
 
                 <div class="doc-description">
@@ -266,7 +264,7 @@
                     {% if item.unit_price is not None %}{{ item.unit_price }}{% else %}<span class="doc-placeholder">to quote</span>{% endif %}
                     {% if item.price_changed %}
                         <span class="doc-requested">
-                            Requested: {% if item.requested_unit_price is not None %}{{ item.requested_unit_price }}{% else %}to quote{% endif %}
+                            Requested: {% if item.requested_price_given %}{{ item.requested_unit_price }}{% else %}to quote{% endif %}
                         </span>
                     {% endif %}
                 </div>

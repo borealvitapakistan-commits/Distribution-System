@@ -1852,6 +1852,10 @@ input[type="checkbox"] {
 }
 
 .mo-items tr.mo-row-changed td {
+    background: #ffedd5;
+}
+
+.mo-items tr.mo-row-new td {
     background: #fef9c3;
 }
 
@@ -1859,6 +1863,10 @@ input[type="checkbox"] {
     padding: 0 0.3125rem;
     border-radius: 0.25rem;
     background: #fef08a;
+}
+
+.mo-changed-mark.mo-mark-changed {
+    background: #fdba74;
 }
 
 .mo-items tfoot td {
@@ -2011,6 +2019,17 @@ input[type="checkbox"] {
 .button[aria-disabled="true"] {
     pointer-events: none;
     opacity: 0.45;
+}
+
+/* A greyed-out step that isn't unlocked yet; keeps the tooltip saying why. */
+.button.is-disabled {
+    pointer-events: auto;
+    cursor: not-allowed;
+    opacity: 1;
+    background: #e2e8f0;
+    border-color: #e2e8f0;
+    color: #94a3b8;
+    box-shadow: none;
 }
 
 .doc-sheet {
@@ -2288,7 +2307,13 @@ input[type="checkbox"] {
     display: none;
 }
 
+/* Orange: the manufacturer changed a price we asked for. */
 .doc-line.mo-row-changed {
+    background: #ffedd5;
+}
+
+/* Yellow: we left the price empty and the manufacturer filled it in. */
+.doc-line.mo-row-new {
     background: #fef9c3;
 }
 

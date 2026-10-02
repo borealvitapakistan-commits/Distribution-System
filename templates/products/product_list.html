@@ -9,10 +9,16 @@
     <div>
         <p class="eyebrow">Products</p>
         <h1>Products</h1>
-        <p>Manage SKUs, formulations, reorder defaults and activation.</p>
+        <p>Manage SKUs, formulations, bottle prices and activation. Retail prices are per bottle size.</p>
     </div>
 
     <div>
+        <a
+            class="button button-secondary"
+            href="{% url 'product-retail-price-sheet' %}"
+        >
+            Download Price Sheet
+        </a>
         <a
             class="button button-secondary"
             href="{% url 'product-csv-export' %}"
@@ -37,7 +43,9 @@
                     <th>Product</th>
                     <th>Category</th>
                     <th>UOM</th>
-                    <th>Retail price</th>
+                    {% for size in bottle_sizes %}
+                        <th>{{ size }} caps</th>
+                    {% endfor %}
                     <th>Status</th>
                     <th></th>
                 </tr>
@@ -53,10 +61,15 @@
                         <td>{{ product.name }}</td>
                         <td>{{ product.category.name|default:"—" }}</td>
                         <td>{{ product.get_unit_of_measure_display }}</td>
-                        <td>
-                            {{ product.base_retail_price }}
-                            {{ product.currency }}
-                        </td>
+                        {% for price in product.size_prices %}
+                            <td>
+                                {% if price is not None %}
+                                    {{ price }} {{ product.currency }}
+                                {% else %}
+                                    —
+                                {% endif %}
+                            </td>
+                        {% endfor %}
 
                         <td>
                             {% if product.active %}
@@ -81,7 +94,7 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="7" class="empty-table">
+                        <td colspan="10" class="empty-table">
                             No products found.
                         </td>
                     </tr>

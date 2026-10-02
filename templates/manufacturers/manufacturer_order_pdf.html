@@ -24,7 +24,8 @@
     table.items .num { text-align: right; }
     table.items .product { font-weight: bold; color: #4b5563; }
     tr.stripe td { background-color: #f3f4f6; }
-    tr.changed td { background-color: #fff176; color: #5f5300; }
+    tr.changed td { background-color: #fdba74; color: #7c2d12; }
+    tr.new td { background-color: #fff176; color: #5f5300; }
     table.bottom { width: 100%; margin-top: 10px; }
     table.bottom td { vertical-align: top; }
     table.terms { width: 100%; border: 1px solid #374151; }
@@ -81,15 +82,12 @@
         <tr>
             <td width="50%">
                 <div class="label">Vendor</div>
-                {% with party=order.vendor|default:order.manufacturer %}
+                {% with party=order.manufacturer %}
                     <div class="party-name">{{ party.name }}</div>
                     {% if party.address %}<div>Address: {{ party.address|linebreaksbr }}</div>{% endif %}
                     {% if party.email %}<div class="muted">Mail: {{ party.email }}</div>{% endif %}
                     {% if party.phone %}<div class="muted">Phone: {{ party.phone }}</div>{% endif %}
                 {% endwith %}
-                {% if order.vendor %}
-                    <div style="margin-top: 4px;"><span class="label">Manufacturer:</span> {{ order.manufacturer.name }}</div>
-                {% endif %}
             </td>
             <td width="50%">
                 <div class="label">Ship to</div>
@@ -117,7 +115,7 @@
         </thead>
         <tbody>
             {% for row in rows %}
-                <tr class="{% if highlight_changes and row.changed %}changed{% elif forloop.counter|divisibleby:2 %}stripe{% endif %}">
+                <tr class="{% if highlight_changes and row.highlight %}{{ row.highlight }}{% elif forloop.counter|divisibleby:2 %}stripe{% endif %}">
                     <td>{{ forloop.counter }}</td>
                     <td class="product">{{ row.product.name }}</td>
                     <td class="num">{% if row.quantity is not None %}{{ row.quantity|floatformat:"-4" }}{% endif %}</td>
@@ -134,7 +132,8 @@
     </table>
 
     {% if highlight_changes and order.has_price_changes %}
-        <div class="legend"><span class="legend-swatch">&nbsp;&nbsp;&nbsp;</span> Price changed by the Manufacturer from what we requested.</div>
+        <div class="legend"><span class="legend-swatch" style="background-color: #fdba74;">&nbsp;&nbsp;&nbsp;</span> Price changed by the Manufacturer from what we requested.
+            &nbsp; <span class="legend-swatch">&nbsp;&nbsp;&nbsp;</span> Price filled in by the Manufacturer where we left it empty.</div>
     {% endif %}
 
     <table class="bottom">

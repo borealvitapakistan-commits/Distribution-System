@@ -15,6 +15,7 @@ from .models import (
     ProductBottlePrice,
     ProductCategory,
     ProductIngredient,
+    ProductRetailPrice,
 )
 
 
@@ -469,3 +470,144 @@ def bottle_price_map(products=None):
         )
 
     return prices
+
+
+@transaction.atomic
+def save_retail_price(*, actor, product, bottle_size, price):
+    """Creates or replaces what we sell one bottle of a product for at
+    one bottle size. price=None removes the retail price."""
+    require_owner(actor)
+
+    if bottle_size not in BottleSize.values:
+        raise ValidationError("Not a valid bottle size.")
+
+    saved = ProductRetailPrice.objects.filter(
+        product=product, bottle_size=bottle_size
+    ).first()
+    before = None if saved is None else str(saved.price)
+
+    if price in (None, ""):
+        if saved is not None:
+            saved.delete()
+            record_audit_event(
+                user=actor,
+                action="products.retail_price_removed",
+                instance=product,
+                before_data={"bottle_size": bottle_size, "price": before},
+            )
+        return None
+
+    try:
+        price = Decimal(str(price))
+    except (InvalidOperation, TypeError):
+        raise ValidationError("Price must be a number.")
+
+    if price < 0:
+        raise ValidationError("Price cannot be negative.")
+
+    if saved is not None and saved.price == price:
+        return saved
+
+    if saved is None:
+        saved = ProductRetailPrice(
+            product=product,
+            bottle_size=bottle_size,
+            created_by=actor,
+        )
+
+    saved.price = price
+    saved.updated_by = actor
+    saved.full_clean()
+    saved.save()
+
+    record_audit_event(
+        user=actor,
+        action="products.retail_price_saved",
+        instance=saved,
+        before_data={"price": before},
+        after_data={
+            "product_id": str(product.pk),
+            "bottle_size": bottle_size,
+            "price": str(price),
+        },
+    )
+
+    return saved
+
+
+@transaction.atomic
+def set_product_retail_prices(*, actor, product, prices):
+    """prices: {bottle_size: Decimal | None} — None clears that size."""
+    require_owner(actor)
+
+    for bottle_size, price in prices.items():
+        save_retail_price(
+            actor=actor,
+            product=product,
+            bottle_size=int(bottle_size),
+            price=price,
+        )
+
+
+RETAIL_PRICE_SHEET_HEADER = ["SKU", "Product"] + [
+    f"{size} capsules" for size in BottleSize.values
+]
+
+
+def export_retail_price_sheet(queryset):
+    """One row per product, one price column per bottle size — open it
+    in Excel, edit the prices, then load it back with
+    `manage.py import_retail_prices`."""
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(RETAIL_PRICE_SHEET_HEADER)
+
+    for product in queryset.prefetch_related("retail_prices"):
+        prices = {row.bottle_size: row.price for row in product.retail_prices.all()}
+        writer.writerow(
+            [product.sku, product.name]
+            + [prices.get(size, "") for size in BottleSize.values]
+        )
+
+    return buffer.getvalue()
+
+
+@transaction.atomic
+def import_retail_price_sheet(*, actor, file):
+    """Reads a sheet in the export_retail_price_sheet layout. A blank
+    cell clears that size's price. Returns the number of products
+    updated; raises ValidationError naming the bad row otherwise."""
+    require_owner(actor)
+
+    reader = csv.DictReader(file)
+    missing = set(RETAIL_PRICE_SHEET_HEADER) - set(reader.fieldnames or [])
+    missing.discard("Product")
+    if missing:
+        raise ValidationError(
+            f"Price sheet is missing column(s): {', '.join(sorted(missing))}."
+        )
+
+    updated = 0
+    for line, row in enumerate(reader, start=2):
+        sku = (row.get("SKU") or "").strip().upper()
+        if not sku:
+            continue
+
+        product = Product.objects.filter(sku=sku).first()
+        if product is None:
+            raise ValidationError(f"Row {line}: no product with SKU {sku}.")
+
+        prices = {}
+        for size in BottleSize.values:
+            cell = (row.get(f"{size} capsules") or "").strip().replace(",", "")
+            try:
+                prices[size] = Decimal(cell) if cell else None
+            except InvalidOperation:
+                raise ValidationError(
+                    f"Row {line}: {size} capsules price '{cell}' is not a number."
+                )
+
+        set_product_retail_prices(actor=actor, product=product, prices=prices)
+        updated += 1
+
+    return updated

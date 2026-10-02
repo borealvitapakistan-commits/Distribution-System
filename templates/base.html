@@ -94,14 +94,6 @@
                     </a>
 
                     <a
-                        href="{% url 'vendor-list' %}"
-                        class="{% if request.resolver_match.url_name == 'vendor-list' or request.resolver_match.url_name == 'vendor-create' or request.resolver_match.url_name == 'vendor-detail' or request.resolver_match.url_name == 'vendor-edit' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">⇄</span>
-                        Vendors
-                    </a>
-
-                    <a
                         href="{% url 'owner-agreement-list' %}"
                         class="{% if request.resolver_match.url_name == 'owner-agreement-list' or request.resolver_match.url_name == 'owner-agreement-create' or request.resolver_match.url_name == 'owner-agreement-detail' %}active{% endif %}"
                     >

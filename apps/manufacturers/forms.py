@@ -5,10 +5,10 @@ from django.forms import inlineformset_factory
 
 from apps.core.forms import PaidQuestionForm
 from apps.core.models import Brand
+from apps.owner_warehouse.models import Location
 from apps.products.models import BottleSize, Product
 
 from .models import (
-    Vendor,
     Manufacturer,
     ManufacturerOrder,
     ManufacturerOrderItem,
@@ -32,24 +32,11 @@ class ManufacturerForm(forms.ModelForm):
         }
 
 
-class VendorForm(forms.ModelForm):
-    class Meta:
-        model = Vendor
-        fields = ["name", "email", "phone", "address", "notes", "active"]
-        widgets = {
-            "address": forms.Textarea(attrs={"rows": 3}),
-            "notes": forms.Textarea(attrs={"rows": 3}),
-        }
-
-
 class ManufacturerOrderForm(forms.Form):
-    vendor = forms.ModelChoiceField(
-        queryset=Vendor.objects.filter(active=True),
-        help_text="Who you hand this to — they take it to the Manufacturer and deliver the goods.",
-    )
     manufacturer = forms.ModelChoiceField(
         queryset=Manufacturer.objects.filter(active=True),
-        help_text="Who actually makes the products.",
+        label="Vendor",
+        help_text="The Manufacturer this goes to — the manufacturer is the vendor.",
     )
     brand = forms.ModelChoiceField(
         queryset=Brand.objects.filter(active=True),
@@ -123,7 +110,7 @@ class ManufacturerQuoteForm(forms.Form):
     quote_file = forms.FileField(
         required=False,
         label="Quote document (real prices)",
-        help_text="The document or picture with the Manufacturer's real prices, as the vendor brought it back.",
+        help_text="The document or picture with the Manufacturer's real prices, as the manufacturer sent it.",
     )
 
     def __init__(self, *args, order=None, saved_prices=None, **kwargs):
@@ -217,15 +204,27 @@ class ManufacturerQuoteForm(forms.Form):
 
 
 class ManufacturerOrderInvoiceForm(forms.Form):
-    """The Manufacturer's invoice: its number and document, shipping and
-    tax, plus one quantity/price/expiry row per line item — what
-    actually arrived."""
+    """The Manufacturer's invoice: their reference and document, shipping
+    and tax, the warehouse the goods go into, plus one
+    quantity/price/expiry row per line item — what actually arrived. Our
+    own invoice number is generated, not typed."""
 
     ITEM_PRICE_PREFIX = "item_price_"
     ITEM_QTY_PREFIX = "item_qty_"
     ITEM_EXPIRY_PREFIX = "item_expiry_"
 
-    invoice_number = forms.CharField(max_length=100, required=False)
+    warehouse = forms.ModelChoiceField(
+        queryset=Location.objects.none(),
+        label="Receive into warehouse",
+        empty_label="Select warehouse…",
+        help_text="The stock goes straight into this warehouse.",
+    )
+    supplier_invoice_ref = forms.CharField(
+        max_length=100,
+        required=False,
+        label="Manufacturer's invoice no.",
+        help_text="Optional — the number printed on their invoice.",
+    )
     invoice_file = forms.FileField(
         required=False,
         label="Invoice document",
@@ -244,10 +243,21 @@ class ManufacturerOrderInvoiceForm(forms.Form):
         min_value=Decimal("0"),
         required=False,
         label="Tax %",
+        help_text="The tax charged on the invoice.",
     )
 
     def __init__(self, *args, order=None, **kwargs):
         super().__init__(*args, **kwargs)
+
+        self.fields["warehouse"].queryset = (
+            Location.objects.filter(location_type=Location.LocationType.OWN, active=True)
+            .select_related("inventory")
+            .order_by("inventory__name", "name")
+        )
+        self.fields["warehouse"].label_from_instance = lambda location: (
+            f"{location.inventory.name} — {location.name}"
+            if location.inventory_id else location.name
+        )
 
         if order is not None:
             self.fields["shipping_amount"].initial = order.shipping_amount
@@ -369,14 +379,45 @@ class ManufacturerOrderPaymentForm(forms.ModelForm):
 class ManufacturerAdvancePaymentForm(PaidQuestionForm):
     QUESTION = "Are you paying in advance?"
 
-
-class ManufacturerOrderReceiveForm(PaidQuestionForm):
-    """Only needs an answer when something is still owed on the invoiced
-    total — the view decides that, since it depends on the invoice."""
-
-    QUESTION = "Have you paid the remaining amount?"
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["answer"].required = False
-        self.fields["answer"].empty_value = None
+        self.fields["answer"].choices = [("yes", "Advance"), ("no", "No advance")]
+
+
+class ManufacturerOrderReceiveForm(forms.Form):
+    """The final payment for whatever is still owed on the invoiced
+    total. An order can't be received until it's paid in full, so these
+    are required whenever anything is owed — the view decides that,
+    since it depends on the invoice."""
+
+    amount = forms.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        min_value=Decimal("0.01"),
+        required=False,
+        label="Amount paid",
+    )
+    paid_at = forms.DateField(
+        label="Date paid",
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    proof = forms.FileField(
+        label="Payment proof",
+        required=False,
+        help_text="Bank slip, screenshot, etc.",
+    )
+    note = forms.CharField(max_length=255, required=False)
+
+    def require_full_payment(self, remaining):
+        """Adds errors unless the full `remaining` amount is paid, with
+        its date and proof."""
+        for name in ("amount", "paid_at", "proof"):
+            if not self.cleaned_data.get(name):
+                self.add_error(name, "Required — the order must be paid in full.")
+
+        amount = self.cleaned_data.get("amount")
+        if amount and amount != remaining:
+            self.add_error(
+                "amount", f"Pay the full remaining amount: {remaining}."
+            )

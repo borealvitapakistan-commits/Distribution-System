@@ -22,8 +22,10 @@
 
     <div class="doc-toolbar">
         <span class="stat-detail">
-            Type the real prices that came back from the vendor. Rows whose price changed
-            from the Request to Quote turn <mark class="mo-changed-mark">yellow</mark> —
+            Type the real prices that came back from the manufacturer. A price that differs from
+            what you requested turns the row <mark class="mo-changed-mark mo-mark-changed">orange</mark>;
+            a price added where you left it empty turns it <mark class="mo-changed-mark">yellow</mark>;
+            a matching price stays white —
             <strong><span id="quoteChangedCount">0</span></strong> changed so far.
         </span>
         <div class="doc-toolbar-actions">
@@ -66,13 +68,12 @@
         <div class="doc-parties">
             <div>
                 <span class="doc-label">Vendor</span>
-                {% with party=order.vendor|default:order.manufacturer %}
+                {% with party=order.manufacturer %}
                     <div class="doc-party-name">{{ party.name }}</div>
                     {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
                     {% if party.email %}<div class="doc-party-line">Mail: {{ party.email }}</div>{% endif %}
                     {% if party.phone %}<div class="doc-party-line">Phone: {{ party.phone }}</div>{% endif %}
                 {% endwith %}
-                {% if order.vendor %}<div class="doc-party-line">Manufacturer: {{ order.manufacturer.name }}</div>{% endif %}
             </div>
             <div>
                 <span class="doc-label">Ship to</span>
@@ -95,7 +96,7 @@
             {% for row in form.item_rows %}
                 <div
                     class="doc-row doc-line quote-row"
-                    data-requested="{{ row.item.requested_unit_price|default_if_none:'' }}"
+                    data-requested="{% if row.item.requested_price_given %}{{ row.item.requested_unit_price }}{% endif %}"
                     data-saved="{{ row.saved_price|default_if_none:'' }}"
                     data-save-id="{{ row.save.id_for_label }}"
                     data-has-size="{% if row.item.bottle_size %}1{% endif %}"
@@ -119,7 +120,7 @@
                         <span class="doc-cell-label">Unit price</span>
                         {{ row.price }}
                         <span class="doc-requested">
-                            Requested: {% if row.item.requested_unit_price is not None %}{{ row.item.requested_unit_price }}{% else %}to quote{% endif %}
+                            Requested: {% if row.item.requested_price_given %}{{ row.item.requested_unit_price }}{% else %}to quote{% endif %}
                         </span>
                         {% for error in row.price.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
                     </div>
@@ -230,9 +231,14 @@
 
         rows().forEach(function (row) {
             var state = rowState(row);
-            var isChanged = !state.dropped && state.price !== null && differs(state.price, state.requested);
+            // Orange: we asked for a price and theirs differs. Yellow: we
+            // left it empty and they filled it in. White: it matches.
+            var quoted = !state.dropped && state.price !== null && state.price !== 0;
+            var isNew = quoted && state.requested === null;
+            var isChanged = quoted && !isNew && differs(state.price, state.requested);
 
             row.classList.toggle("mo-row-changed", isChanged);
+            row.classList.toggle("mo-row-new", isNew);
             row.classList.toggle("is-dropped", state.dropped);
             if (isChanged) { changed += 1; }
 

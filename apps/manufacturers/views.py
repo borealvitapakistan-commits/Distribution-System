@@ -25,18 +25,16 @@ from .forms import (
     ManufacturerOrderPaymentForm,
     ManufacturerOrderReceiveForm,
     ManufacturerQuoteForm,
-    VendorForm,
 )
-from .models import Manufacturer, ManufacturerOrder, Vendor
+from .models import Manufacturer, ManufacturerOrder
 from .services import (
     confirm_purchase_order,
     create_manufacturer,
     create_request_to_quote,
-    create_vendor,
     record_manufacturer_quote,
     update_request_to_quote,
-    update_vendor,
     receive_manufacturer_order,
+    next_invoice_number,
     receiving_steps,
     record_advance_decision,
     record_manufacturer_payment,
@@ -143,73 +141,6 @@ class ManufacturerUpdateView(OwnerRequiredMixin, View):
         return redirect("manufacturer-detail", pk=manufacturer.pk)
 
 
-class VendorListView(OwnerRequiredMixin, ListView):
-    template_name = "manufacturers/vendor_list.html"
-    context_object_name = "vendors"
-
-    def get_queryset(self):
-        return Vendor.objects.for_user(self.request.user)
-
-
-class VendorDetailView(OwnerRequiredMixin, DetailView):
-    template_name = "manufacturers/vendor_detail.html"
-    context_object_name = "vendor"
-
-    def get_queryset(self):
-        return Vendor.objects.for_user(self.request.user)
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        context["orders"] = (
-            self.object.orders.select_related("manufacturer", "brand")
-            .prefetch_related("items")[:20]
-        )
-        return context
-
-
-class VendorFormView(OwnerRequiredMixin, View):
-    """Adds a vendor, or edits one when there's a pk."""
-
-    template_name = "manufacturers/vendor_form.html"
-
-    def get_object(self, pk):
-        if pk is None:
-            return None
-        vendor = Vendor.objects.for_user(self.request.user).filter(pk=pk).first()
-        if vendor is None:
-            raise Http404
-        return vendor
-
-    def get(self, request, pk=None):
-        vendor = self.get_object(pk)
-        return render(
-            request,
-            self.template_name,
-            {"form": VendorForm(instance=vendor), "object": vendor},
-        )
-
-    def post(self, request, pk=None):
-        vendor = self.get_object(pk)
-        form = VendorForm(request.POST, instance=vendor)
-
-        if not form.is_valid():
-            return render(request, self.template_name, {"form": form, "object": vendor})
-
-        try:
-            if vendor is None:
-                vendor = create_vendor(actor=request.user, **form.cleaned_data)
-            else:
-                vendor = update_vendor(
-                    actor=request.user, vendor_id=vendor.pk, **form.cleaned_data
-                )
-        except (PermissionDenied, ValidationError) as exc:
-            form.add_error(None, exc)
-            return render(request, self.template_name, {"form": form, "object": vendor})
-
-        messages.success(request, "Vendor saved.")
-        return redirect("vendor-detail", pk=vendor.pk)
-
-
 def manufacturer_order_item_rows(formset):
     rows = []
 
@@ -255,7 +186,7 @@ class ManufacturerOrderListView(OwnerRequiredMixin, ListView):
         queryset = (
             ManufacturerOrder.objects
             .for_user(self.request.user)
-            .select_related("vendor", "manufacturer", "brand")
+            .select_related("manufacturer", "brand")
             .prefetch_related("items")
         )
 
@@ -263,7 +194,6 @@ class ManufacturerOrderListView(OwnerRequiredMixin, ListView):
         if query:
             queryset = queryset.filter(
                 Q(po_number__icontains=query)
-                | Q(vendor__name__icontains=query)
                 | Q(manufacturer__name__icontains=query)
                 | Q(brand__name__icontains=query)
                 | Q(items__product__name__icontains=query)
@@ -315,16 +245,17 @@ def _brand_sheet_data(brand):
 
 def document_sheet_data():
     """Everything the on-screen document needs to fill itself in as the
-    Owner picks a vendor or brand: {"vendors": {id: {...}}, "brands": {id: {...}}}."""
+    Owner picks a manufacturer (the vendor on the document) or brand:
+    {"manufacturers": {id: {...}}, "brands": {id: {...}}}."""
     return {
-        "vendors": {
-            str(vendor.pk): {
-                "name": vendor.name,
-                "address": vendor.address,
-                "email": vendor.email,
-                "phone": vendor.phone,
+        "manufacturers": {
+            str(manufacturer.pk): {
+                "name": manufacturer.name,
+                "address": manufacturer.address,
+                "email": manufacturer.email,
+                "phone": manufacturer.phone,
             }
-            for vendor in Vendor.objects.filter(active=True)
+            for manufacturer in Manufacturer.objects.filter(active=True)
         },
         "brands": {
             str(brand.pk): _brand_sheet_data(brand)
@@ -408,7 +339,6 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
         try:
             order = create_request_to_quote(
                 actor=request.user,
-                vendor=form.cleaned_data["vendor"],
                 manufacturer=form.cleaned_data["manufacturer"],
                 brand=form.cleaned_data["brand"],
                 terms=form.cleaned_data["terms"],
@@ -419,8 +349,8 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
 
         messages.success(
             request,
-            f"Request to Quote {order.po_number} created. Download it and give it "
-            "to the vendor, then enter the prices when they come back.",
+            f"Request to Quote {order.po_number} created. Download it and send it "
+            "to the manufacturer, then enter the prices when they come back.",
         )
         return redirect("manufacturer-order-detail", pk=order.pk)
 
@@ -467,7 +397,6 @@ class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, Vie
             request,
             ManufacturerOrderForm(
                 initial={
-                    "vendor": order.vendor,
                     "manufacturer": order.manufacturer,
                     "brand": order.brand,
                     "terms": order.terms,
@@ -492,7 +421,6 @@ class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, Vie
             update_request_to_quote(
                 actor=request.user,
                 order_id=order.pk,
-                vendor=form.cleaned_data["vendor"],
                 manufacturer=form.cleaned_data["manufacturer"],
                 brand=form.cleaned_data["brand"],
                 terms=form.cleaned_data["terms"],
@@ -583,8 +511,8 @@ class ConfirmPurchaseOrderView(OwnerRequiredMixin, View):
 
         messages.success(
             request,
-            f"Purchase Order {order.po_number} is ready — download it and give it "
-            "to the vendor.",
+            f"Purchase Order {order.po_number} is ready — download it and send it "
+            "to the manufacturer. Now tell us about the advance payment.",
         )
         return redirect("manufacturer-order-advance", pk=order.pk)
 
@@ -602,9 +530,9 @@ def order_steps(order):
         states = ["done", "done", "done"]
 
     quote_note = (
-        "Quote received" if order.quoted_at else "Waiting for the prices from the vendor"
+        "Quote received" if order.quoted_at else "Waiting for the prices from the manufacturer"
     )
-    po_note = "With the vendor"
+    po_note = "With the manufacturer"
     if order.status == ManufacturerOrder.Status.RECEIVED or order.received_at:
         po_note = "Goods received"
 
@@ -641,7 +569,7 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
         return (
             ManufacturerOrder.objects
             .for_user(self.request.user)
-            .select_related("vendor", "manufacturer", "brand")
+            .select_related("manufacturer", "brand")
             .prefetch_related(
                 "items__product",
                 "items__batch",
@@ -656,7 +584,12 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
         context["payment_form"] = ManufacturerOrderPaymentForm()
         context["steps"] = order_steps(self.object)
         context["items"] = list(self.object.items.all())
-        context["changed_count"] = sum(1 for item in context["items"] if item.price_changed)
+        context["changed_count"] = sum(
+            1 for item in context["items"] if item.price_highlight == "changed"
+        )
+        context["new_price_count"] = sum(
+            1 for item in context["items"] if item.price_highlight == "new"
+        )
         context["can_edit_quote"] = self.object.is_quote and self.object.quoted_at is None
         context["brand"] = _order_brand(self.object)
         return context
@@ -666,7 +599,7 @@ def _get_owner_order(request, pk):
     order = (
         ManufacturerOrder.objects
         .for_user(request.user)
-        .select_related("vendor", "manufacturer", "brand")
+        .select_related("manufacturer", "brand")
         .filter(pk=pk)
         .first()
     )
@@ -775,16 +708,21 @@ class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
                 "invoice_form": invoice_form,
                 "needs_receipt": needs_receipt,
                 "needs_invoice": needs_invoice,
-                "fill_amounts": [
-                    {"label": "Remaining amount", "value": order.remaining_amount}
-                ],
+                "next_invoice_number": next_invoice_number(order),
             },
         )
 
     def _nothing_to_do(self, request, order):
-        if not any(receiving_steps(order)):
+        needs_receipt, needs_invoice = receiving_steps(order)
+        if not needs_receipt and not needs_invoice:
             messages.info(request, "This order has already been received and invoiced.")
             return redirect("manufacturer-order-detail", pk=order.pk)
+        if needs_receipt and order.pays_advance is None:
+            messages.error(
+                request,
+                "Upload the payment proof first — say whether you paid an advance or not.",
+            )
+            return redirect("manufacturer-order-advance", pk=order.pk)
         return None
 
     def get(self, request, pk):
@@ -794,7 +732,9 @@ class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
         return self._nothing_to_do(request, order) or self._render(
             request,
             order,
-            ManufacturerOrderReceiveForm(initial={"amount": order.remaining_amount}),
+            ManufacturerOrderReceiveForm(
+                initial={"amount": order.remaining_amount, "paid_at": timezone.localdate()}
+            ),
             ManufacturerOrderInvoiceForm(order=order) if needs_invoice else None,
         )
 
@@ -822,8 +762,9 @@ class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
                 if invoice_form is not None
                 else order.grand_total
             )
-            if total > order.total_paid and form.cleaned_data["answer"] is None:
-                form.add_error("answer", "Please answer — is the remaining amount paid?")
+            remaining = max(total - order.total_paid, Decimal("0.00"))
+            if remaining > 0:
+                form.require_full_payment(remaining)
 
         if form.errors or (invoice_form is not None and invoice_form.errors):
             return self._render(request, order, form, invoice_form)
@@ -833,7 +774,10 @@ class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
                 actor=request.user,
                 order_id=order.pk,
                 item_prices=invoice_form.get_item_prices() if invoice_form else None,
-                invoice_number=invoice_form.cleaned_data["invoice_number"] if invoice_form else "",
+                supplier_invoice_ref=(
+                    invoice_form.cleaned_data["supplier_invoice_ref"] if invoice_form else ""
+                ),
+                to_location=invoice_form.cleaned_data["warehouse"] if invoice_form else None,
                 invoice_file=invoice_form.cleaned_data["invoice_file"] if invoice_form else None,
                 shipping_amount=(
                     invoice_form.charges(order)[1] if invoice_form else None
@@ -841,7 +785,7 @@ class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
                 tax_percentage=(
                     invoice_form.charges(order)[0] if invoice_form else None
                 ),
-                paid_remaining=bool(form.cleaned_data["answer"]),
+                paid_remaining=bool(form.cleaned_data["amount"]),
                 amount=form.cleaned_data["amount"],
                 paid_at=form.cleaned_data["paid_at"],
                 proof=form.cleaned_data["proof"],
@@ -852,12 +796,13 @@ class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
             return self._render(request, order, form, invoice_form)
 
         if order.stock_created:
+            warehouse = invoice_form.cleaned_data["warehouse"]
             messages.success(
                 request,
-                f"{order.po_number} received and invoice approved. This stock "
-                "now needs to be allocated to a region and warehouse below.",
+                f"{order.po_number} received, paid in full and invoiced as "
+                f"{order.invoice_number}. The stock is now in {warehouse.name}.",
             )
-            return redirect("inventory-list")
+            return redirect("manufacturer-order-detail", pk=order.pk)
 
         messages.success(request, f"{order.po_number} marked received.")
         return redirect("manufacturer-order-detail", pk=order.pk)
@@ -949,7 +894,11 @@ def document_table(items):
                     sum((line.line_total for line in priced), Decimal("0.00"))
                     if priced else None
                 ),
-                "changed": any(line.price_changed for line in lines),
+                "highlight": (
+                    "changed" if any(line.price_highlight == "changed" for line in lines)
+                    else "new" if any(line.price_highlight == "new" for line in lines)
+                    else ""
+                ),
             }
         )
 
@@ -965,7 +914,7 @@ class ManufacturerOrderPDFView(OwnerRequiredMixin, View):
         order = (
             ManufacturerOrder.objects
             .for_user(request.user)
-            .select_related("vendor", "manufacturer", "brand")
+            .select_related("manufacturer", "brand")
             .prefetch_related("items__product")
             .filter(pk=pk)
             .first()

@@ -10,7 +10,9 @@ from .views import (
     ProductCSVExportView,
     ProductDetailView,
     ProductListView,
+    ProductRetailPricesView,
     ProductUpdateView,
+    RetailPriceSheetView,
 )
 
 
@@ -59,6 +61,16 @@ urlpatterns = [
         "owner/products/<uuid:pk>/bottle-prices/",
         ProductBottlePricesView.as_view(),
         name="product-bottle-prices",
+    ),
+    path(
+        "owner/products/<uuid:pk>/retail-prices/",
+        ProductRetailPricesView.as_view(),
+        name="product-retail-prices",
+    ),
+    path(
+        "owner/products/retail-price-sheet.csv",
+        RetailPriceSheetView.as_view(),
+        name="product-retail-price-sheet",
     ),
     path(
         "owner/products/<uuid:pk>/edit/",

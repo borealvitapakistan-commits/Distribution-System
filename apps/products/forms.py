@@ -155,3 +155,32 @@ class ProductBottlePricesForm(forms.Form):
             size: self.cleaned_data.get(f"price_{size}")
             for size in BottleSize.values
         }
+
+
+class ProductRetailPricesForm(forms.Form):
+    """What we sell one bottle for at each size. Leave a size blank if
+    the product isn't sold in that bottle."""
+
+    def __init__(self, *args, product=None, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        saved = {}
+        if product is not None:
+            saved = {row.bottle_size: row.price for row in product.retail_prices.all()}
+
+        for size, label in BottleSize.choices:
+            self.fields[f"retail_{size}"] = forms.DecimalField(
+                max_digits=18,
+                decimal_places=2,
+                min_value=Decimal("0"),
+                required=False,
+                label=label,
+                initial=saved.get(size),
+                widget=forms.NumberInput(attrs={"step": "0.01", "placeholder": "Not sold"}),
+            )
+
+    def prices(self):
+        return {
+            size: self.cleaned_data.get(f"retail_{size}")
+            for size in BottleSize.values
+        }

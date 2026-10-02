@@ -8,14 +8,18 @@
 {% block content %}
 <div class="page-header">
     <div>
-        <p class="eyebrow">Step 2 of 3 · Advance payment</p>
+        <p class="eyebrow">Step 2 of 3 · Upload payment proof</p>
         <h1>{{ order.po_number }} — {{ order.manufacturer.name }}</h1>
-        <p>Order placed. Tell us whether you're paying anything up front.</p>
+        <p>
+            Purchase Order placed. Did you pay an advance? Choose <strong>Advance</strong>
+            and upload the proof, or <strong>No advance</strong>. Recording the invoice and
+            receiving the goods unlocks once this is answered.
+        </p>
     </div>
 
     <div>
         <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">
-            Skip for now
+            Back to order
         </a>
     </div>
 </div>
@@ -36,7 +40,7 @@
     <form method="post" enctype="multipart/form-data" class="form-layout">
         {% csrf_token %}
 
-        {% with total=order.grand_total none_message="No advance payment — the full amount will be paid when the order arrives." %}
+        {% with total=order.grand_total none_message="No advance — the full amount must be paid when the order arrives, before it can be marked received." %}
             {% include "core/_paid_question.html" %}
         {% endwith %}
 
