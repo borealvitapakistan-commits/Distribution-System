@@ -5,103 +5,234 @@
 {% endblock %}
 
 {% block content %}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'product-list' %}">Products</a>
+    <span aria-hidden="true">›</span>
+    <span aria-current="page">{{ product.name }}</span>
+</nav>
+
 <div class="page-header">
     <div>
-        <p class="eyebrow">Product Detail</p>
         <h1>{{ product.name }}</h1>
         <p>
-            {{ product.sku }} ·
-            {{ product.get_unit_of_measure_display }}
+            {{ product.sku }}
+            {% if product.category %}· {{ product.category.name }}{% endif %}
         </p>
     </div>
 
     <div>
-        <a
-            class="button button-secondary"
-            href="{% url 'product-list' %}"
-        >
-            Back
-        </a>
-
-        <a
-            class="button button-primary"
-            href="{% url 'product-edit' product.pk %}"
-        >
-            Edit
-        </a>
+        <a class="button button-secondary" href="{% url 'product-list' %}">Back</a>
+        <a class="button button-primary" href="{% url 'product-edit' product.pk %}">Edit Product</a>
     </div>
 </div>
 
-<div class="content-grid">
-    <section class="panel">
-        <h2>Product information</h2>
+<div class="product-main">
+    <section class="panel product-media-card">
+        <div class="product-gallery{% if photos|length > 1 %} has-thumbs{% endif %}" data-gallery>
+            {% if photos|length > 1 %}
+                <div class="gallery-thumbs">
+                    {% for photo in photos %}
+                        <button
+                            type="button"
+                            class="gallery-thumb{% if forloop.first %} is-active{% endif %}"
+                            data-gallery-src="{{ photo.url }}"
+                            aria-label="Show photo {{ forloop.counter }}"
+                        >
+                            <img src="{{ photo.url }}" alt="">
+                        </button>
+                    {% endfor %}
+                </div>
+            {% endif %}
 
-        <dl class="details-list">
+            <div class="gallery-main">
+                {% if photos %}
+                    <img src="{{ photos.0.url }}" alt="{{ product.name }}" data-gallery-main>
+                {% else %}
+                    <div class="gallery-empty tone-{{ product.tone }}">
+                        {% include "products/_category_icon.html" with icon=product.icon %}
+                        <span>No photos yet</span>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <dl class="product-facts">
             <div>
                 <dt>SKU</dt>
-                <dd>{{ product.sku }}</dd>
+                <dd><strong>{{ product.sku }}</strong></dd>
             </div>
-
-            <div>
-                <dt>Barcode</dt>
-                <dd>{{ product.barcode|default:"—" }}</dd>
-            </div>
-
             <div>
                 <dt>Category</dt>
-                <dd>{{ product.category.name|default:"—" }}</dd>
-            </div>
-
-            <div>
-                <dt>Retail price</dt>
                 <dd>
-                    {{ product.base_retail_price }}
-                    {{ product.currency }}
+                    {% if product.category %}
+                        <span class="category-pill tone-{{ product.tone }}">
+                            {% include "products/_category_icon.html" with icon=product.icon %}
+                            {{ product.category.name }}
+                        </span>
+                    {% else %}
+                        —
+                    {% endif %}
                 </dd>
             </div>
-
             <div>
-                <dt>Reorder point</dt>
-                <dd>{{ product.default_reorder_point }}</dd>
+                <dt>Form</dt>
+                <dd>{{ product.form|default:"—" }}</dd>
             </div>
-
             <div>
-                <dt>Reorder quantity</dt>
-                <dd>{{ product.default_reorder_quantity }}</dd>
+                <dt>Unit</dt>
+                <dd>{{ product.unit_label }}</dd>
+            </div>
+            <div>
+                <dt>Status</dt>
+                <dd>
+                    {% if product.active %}
+                        <span class="badge badge-open">Active</span>
+                    {% else %}
+                        <span class="badge badge-pending">Inactive</span>
+                    {% endif %}
+                </dd>
             </div>
         </dl>
     </section>
 
-    <section class="panel">
-        <h2>Ingredients</h2>
-
-        {% for row in product.ingredients.all %}
-            <p>
-                <strong>{{ row.ingredient.name }}</strong>
-
-                {% if row.strength %}
-                    · {{ row.strength }} {{ row.unit }}
-                {% endif %}
-
-                {% if row.is_medicinal %}
-                    <span class="badge badge-open">
-                        Medicinal
-                    </span>
-                {% endif %}
-            </p>
-        {% empty %}
-            <div class="empty-state">
-                No ingredients configured.
+    <section class="panel package-card">
+        <div class="package-card-header">
+            <div>
+                <h2>Available Package Sizes &amp; Prices</h2>
+                <p>This product is available in multiple package sizes from different manufacturers.</p>
             </div>
-        {% endfor %}
+            <a class="button button-primary button-small" href="{% url 'product-package-create' product.pk %}">
+                + Add Package Size
+            </a>
+        </div>
+
+        <div class="table-wrapper">
+            <table class="package-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Manufacturer</th>
+                        <th>Amount</th>
+                        <th>Unit</th>
+                        <th>Price (PKR)</th>
+                        <th class="table-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for package in packages %}
+                        <tr{% if package.starts_group %} class="group-start"{% endif %}>
+                            <td>{{ package.number }}</td>
+                            <td>
+                                <span class="manufacturer-cell">
+                                    {% if package.manufacturer.logo %}
+                                        <img class="manufacturer-logo" src="{{ package.manufacturer.logo.url }}" alt="">
+                                    {% else %}
+                                        <span class="manufacturer-logo manufacturer-initials" aria-hidden="true">{{ package.manufacturer.name|slice:":2"|upper }}</span>
+                                    {% endif %}
+                                    {{ package.manufacturer.name }}
+                                </span>
+                            </td>
+                            <td>{{ package.amount|floatformat:"-2" }}</td>
+                            <td>{{ product.unit_plural }}</td>
+                            <td><strong>{{ package.price|floatformat:"2g" }}</strong></td>
+                            <td class="table-actions">
+                                <a class="soft-button soft-blue" href="{% url 'product-package-edit' product.pk package.pk %}">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+                                    Edit
+                                </a>
+                                <form
+                                    method="post"
+                                    action="{% url 'product-package-delete' product.pk package.pk %}"
+                                    class="inline-form confirm-form"
+                                    data-confirm="Remove the {{ package.amount|floatformat:'-2' }} {{ product.unit_plural }} package from {{ package.manufacturer.name }}?"
+                                >
+                                    {% csrf_token %}
+                                    <button type="submit" class="soft-button soft-red">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+                                        Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="6" class="empty-table">
+                                No package sizes yet. Add one for each size and manufacturer.
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+</div>
+
+<div class="product-info-grid">
+    <section class="panel info-card">
+        <h2>Description</h2>
+        {% if description %}
+            <div class="product-description">{{ description|safe }}</div>
+        {% else %}
+            <p class="info-empty">No description yet.</p>
+        {% endif %}
     </section>
 
-    <section class="panel">
-        <h2>Retail price per bottle</h2>
-        <p class="stat-detail">
-            What we sell one bottle for at each size. These are the prices on the
-            Products table — leave a size blank if this product isn't sold in that bottle.
-        </p>
+    <section class="panel info-card">
+        <h2>Key Benefits</h2>
+        {% if benefits %}
+            <ul class="benefit-list">
+                {% for benefit in benefits %}
+                    <li>
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="11"/><path d="M7 12.5l3.2 3.2L17 9" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        {{ benefit }}
+                    </li>
+                {% endfor %}
+            </ul>
+        {% else %}
+            <p class="info-empty">No key benefits yet.</p>
+        {% endif %}
+    </section>
+
+    <section class="panel info-card">
+        <h2>Ingredients</h2>
+        {% with actives=product.ingredients.all %}
+            {% if actives or product.other_ingredients or product.allergen_info %}
+                <dl class="ingredient-list">
+                    {% if actives %}
+                        <div>
+                            <dt>Active Ingredient{{ actives|length|pluralize }}</dt>
+                            <dd>
+                                {% for row in actives %}
+                                    <strong>{{ row.ingredient.name }}</strong>
+                                    {% if row.strength %}<span>{{ row.strength }} {{ row.unit }}{% if row.equivalent_to %} ({{ row.equivalent_to }}){% endif %}</span>{% endif %}
+                                {% endfor %}
+                            </dd>
+                        </div>
+                    {% endif %}
+                    {% if product.other_ingredients %}
+                        <div>
+                            <dt>Other Ingredients</dt>
+                            <dd>{{ product.other_ingredients|linebreaksbr }}</dd>
+                        </div>
+                    {% endif %}
+                    {% if product.allergen_info %}
+                        <div>
+                            <dt>Allergen Information</dt>
+                            <dd>{{ product.allergen_info|linebreaksbr }}</dd>
+                        </div>
+                    {% endif %}
+                </dl>
+            {% else %}
+                <p class="info-empty">No ingredients yet.</p>
+            {% endif %}
+        {% endwith %}
+    </section>
+</div>
+
+<div class="product-price-settings">
+    <section class="panel info-card">
+        <h2>Our retail price per bottle</h2>
+        <p class="stat-detail">What we sell one bottle for at each size. Leave a size blank if this product isn't sold in that bottle.</p>
 
         <form method="post" action="{% url 'product-retail-prices' product.pk %}" class="form-layout">
             {% csrf_token %}
@@ -119,12 +250,9 @@
         </form>
     </section>
 
-    <section class="panel">
-        <h2>Manufacturer price per bottle</h2>
-        <p class="stat-detail">
-            What we expect to pay for one bottle at each size. A new Request to
-            Quote fills these in automatically — leave a size blank if it isn't ordered.
-        </p>
+    <section class="panel info-card">
+        <h2>Expected manufacturer price per bottle</h2>
+        <p class="stat-detail">Pre-fills a new Request to Quote. Leave a size blank if it isn't ordered.</p>
 
         <form method="post" action="{% url 'product-bottle-prices' product.pk %}" class="form-layout">
             {% csrf_token %}

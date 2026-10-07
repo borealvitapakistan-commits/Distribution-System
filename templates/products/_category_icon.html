@@ -1,0 +1,36 @@
+<svg class="category-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+{% if icon == "capsule" %}
+    <rect x="2.5" y="8" width="19" height="8" rx="4" transform="rotate(-35 12 12)"/>
+    <path d="M9.7 8.7l4.6 6.6"/>
+{% elif icon == "tablet" %}
+    <circle cx="12" cy="12" r="8.5"/>
+    <path d="M6 12h12"/>
+{% elif icon == "softgel" %}
+    <ellipse cx="12" cy="12" rx="9" ry="6" transform="rotate(-20 12 12)"/>
+    <path d="M8 10.5c1-1.4 2.6-2.2 4.3-2.4"/>
+{% elif icon == "bottle" %}
+    <path d="M10 2.5h4v3l1.5 2.5V20a1.5 1.5 0 0 1-1.5 1.5h-4A1.5 1.5 0 0 1 8.5 20V8l1.5-2.5z"/>
+    <path d="M8.5 12h7"/>
+{% elif icon == "drop" %}
+    <path d="M12 3c3.5 4.4 6 7.8 6 11a6 6 0 0 1-12 0c0-3.2 2.5-6.6 6-11z"/>
+{% elif icon == "dropper" %}
+    <path d="M10.5 2.5h3v4h-3z"/>
+    <path d="M9 6.5h6l1 2.5V20a1.5 1.5 0 0 1-1.5 1.5h-5A1.5 1.5 0 0 1 8 20V9z"/>
+    <path d="M8 13h8"/>
+{% elif icon == "powder" %}
+    <path d="M3 19.5h18"/>
+    <path d="M4.5 19.5c1.2-4 4-7 7.5-7s6.3 3 7.5 7"/>
+    <path d="M12 9V7M8.5 10l-1-1.5M15.5 10l1-1.5"/>
+{% elif icon == "leaf" %}
+    <path d="M5 19c0-8 5-14 15-14 0 10-6 15-14 15"/>
+    <path d="M5 19l8-8"/>
+{% elif icon == "grid" %}
+    <rect x="3.5" y="3.5" width="7" height="7" rx="1.5"/>
+    <rect x="13.5" y="3.5" width="7" height="7" rx="1.5"/>
+    <rect x="3.5" y="13.5" width="7" height="7" rx="1.5"/>
+    <rect x="13.5" y="13.5" width="7" height="7" rx="1.5"/>
+{% else %}
+    <path d="M3.5 7.5L12 3l8.5 4.5v9L12 21l-8.5-4.5z"/>
+    <path d="M3.5 7.5L12 12l8.5-4.5M12 12v9"/>
+{% endif %}
+</svg>

@@ -20,7 +20,7 @@ class ManufacturerForm(forms.ModelForm):
     class Meta:
         model = Manufacturer
         fields = [
-            "name", "phone", "email", "address", "notes",
+            "name", "logo", "phone", "email", "address", "notes",
             "upfront_payment_percentage", "active",
         ]
         widgets = {

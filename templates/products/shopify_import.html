@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Import from Shopify
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Products</p>
+        <h1>Import from Shopify</h1>
+        <p>
+            Brings in each product's photo, description, price, tags and brand.
+            Shopify is only read — nothing in your store is changed.
+        </p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'product-list' %}">Back</a>
+    </div>
+</div>
+
+{% if error %}
+    <section class="panel">
+        <div class="empty-state">
+            <strong>Couldn't read your Shopify store.</strong>
+            <p>{{ error }}</p>
+        </div>
+    </section>
+{% else %}
+    <form method="post">
+        {% csrf_token %}
+
+        <section class="panel">
+            <div class="products-toolbar">
+                <p>
+                    <strong>{{ rows|length }}</strong> product{{ rows|length|pluralize }} in {{ store }}
+                    · {{ new_count }} will be created · {{ update_count }} will update an existing product
+                </p>
+                <label class="import-select-all">
+                    <input type="checkbox" data-select-all="import" checked>
+                    Select all
+                </label>
+                <button type="submit" class="button button-primary">Import selected</button>
+            </div>
+
+            <div class="table-wrapper">
+                <table class="products-table">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            <th class="col-image">Image</th>
+                            <th>Shopify product</th>
+                            <th>SKU</th>
+                            <th>Price</th>
+                            <th>Import into</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in rows %}
+                            <tr>
+                                <td>
+                                    <input
+                                        type="checkbox"
+                                        name="import"
+                                        value="{{ row.shopify.id }}"
+                                        aria-label="Import {{ row.shopify.title }}"
+                                        checked
+                                    >
+                                </td>
+                                <td class="col-image">
+                                    {% if row.shopify.image_url %}
+                                        <img class="product-thumb" src="{{ row.thumb }}" alt="" loading="lazy">
+                                    {% else %}
+                                        <span class="product-thumb tone-slate">
+                                            {% include "products/_category_icon.html" with icon="box" %}
+                                        </span>
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    <strong>{{ row.shopify.title }}</strong>
+                                    {% if not row.shopify.active %}
+                                        <span class="badge badge-pending">Draft</span>
+                                    {% endif %}
+                                    <span class="table-secondary">{{ row.shopify.vendor }}{% if row.shopify.product_type %} · {{ row.shopify.product_type }}{% endif %}</span>
+                                </td>
+                                <td>{{ row.skus|default:"—" }}</td>
+                                <td>{{ row.price }}</td>
+                                <td>
+                                    <select name="target_{{ row.shopify.id }}" aria-label="Import {{ row.shopify.title }} into">
+                                        <option value="new">Create new product</option>
+                                        {% for product in products %}
+                                            <option value="{{ product.pk }}" {% if row.match.pk == product.pk %}selected{% endif %}>
+                                                Update {{ product.sku }} — {{ product.name }}
+                                            </option>
+                                        {% endfor %}
+                                    </select>
+                                    {% if row.match %}
+                                        <span class="table-secondary">Matched by {{ row.reason }}</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                        {% empty %}
+                            <tr>
+                                <td colspan="6" class="empty-table">Your Shopify store has no products.</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </form>
+{% endif %}
+{% endblock %}

@@ -45,6 +45,15 @@ class Location(AuditedModel):
         TRANSIT = "TRANSIT", "In Transit"
         UNALLOCATED = "UNALLOCATED", "Unallocated"
 
+    # (on_book, is_physical, is_sellable) per type; None means the Owner
+    # chooses it — an owned/Shopify warehouse can be held back from sale.
+    FIXED_FLAGS = {
+        LocationType.OWN: (True, True, None),
+        LocationType.SHOPIFY: (True, True, None),
+        LocationType.TRANSIT: (True, True, False),
+        LocationType.UNALLOCATED: (True, True, False),
+        LocationType.SUPPLIER: (False, False, False),
+    }
 
     code = models.CharField(max_length=50, unique=True)
     name = models.CharField(max_length=200)
@@ -118,36 +127,8 @@ class Location(AuditedModel):
                 {"name": "Location name is required."}
             )
 
-        fixed_flags = {
-            self.LocationType.OWN: (
-                True,
-                True,
-                True,
-            ),
-            self.LocationType.SHOPIFY: (
-                True,
-                True,
-                True,
-            ),
-            self.LocationType.TRANSIT: (
-                True,
-                True,
-                False,
-            ),
-            self.LocationType.UNALLOCATED: (
-                True,
-                True,
-                False,
-            ),
-            self.LocationType.SUPPLIER: (
-                False,
-                False,
-                False,
-            ),
-        }
-
-        if self.location_type in fixed_flags:
-            expected = fixed_flags[self.location_type]
+        if self.location_type in self.FIXED_FLAGS:
+            expected = self.FIXED_FLAGS[self.location_type]
 
             actual = (
                 self.on_book,
@@ -155,7 +136,10 @@ class Location(AuditedModel):
                 self.is_sellable,
             )
 
-            if actual != expected:
+            if any(
+                want is not None and have != want
+                for have, want in zip(actual, expected)
+            ):
                 raise ValidationError(
                     "Location flags do not match "
                     "the selected location type."

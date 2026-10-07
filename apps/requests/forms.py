@@ -2,7 +2,7 @@ from decimal import Decimal, InvalidOperation
 from django import forms
 from django.forms import inlineformset_factory
 from apps.core.forms import PaidQuestionForm
-from apps.owner_inventory.services import available_batches_fefo
+from apps.owner_inventory.services import shippable_batches_fefo
 from apps.products.models import Product
 from .models import PurchaseOrder, PurchaseOrderItem, PurchaseOrderPayment
 
@@ -58,7 +58,7 @@ class ShipPurchaseOrderItemForm(forms.Form):
     def __init__(self, *args, product=None, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.batches = list(available_batches_fefo(product=product)) if product else []
+        self.batches = list(shippable_batches_fefo(product=product)) if product else []
 
         for batch in self.batches:
             expiry = f"expires {batch.expiry_date}" if batch.expiry_date else "no expiry set"

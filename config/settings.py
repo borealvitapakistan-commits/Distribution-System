@@ -188,6 +188,13 @@ LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
 
 
+# Shopify (read-only product import)
+SHOPIFY_STORE_DOMAIN = env("SHOPIFY_STORE_DOMAIN", default="")
+SHOPIFY_CLIENT_ID = env("SHOPIFY_CLIENT_ID", default="")
+SHOPIFY_CLIENT_SECRET = env("SHOPIFY_CLIENT_SECRET", default="")
+SHOPIFY_API_VERSION = env("SHOPIFY_API_VERSION", default="2025-10")
+
+
 # Django REST Framework
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [

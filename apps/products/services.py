@@ -14,7 +14,9 @@ from .models import (
     Product,
     ProductBottlePrice,
     ProductCategory,
+    ProductImage,
     ProductIngredient,
+    ProductPackagePrice,
     ProductRetailPrice,
 )
 
@@ -611,3 +613,90 @@ def import_retail_price_sheet(*, actor, file):
         updated += 1
 
     return updated
+
+
+@transaction.atomic
+def save_package_price(*, actor, product, manufacturer, amount, price, package=None):
+    """Creates (package=None) or edits one manufacturer's package of a
+    product: how much is in it and what that manufacturer charges."""
+    require_owner(actor)
+
+    before = None
+    if package is None:
+        package = ProductPackagePrice(product=product, created_by=actor)
+    else:
+        before = {
+            "manufacturer_id": str(package.manufacturer_id),
+            "amount": str(package.amount),
+            "price": str(package.price),
+        }
+
+    package.manufacturer = manufacturer
+    package.amount = amount
+    package.price = price
+    package.updated_by = actor
+    package.full_clean()
+    package.save()
+
+    record_audit_event(
+        user=actor,
+        action="products.package_price_saved",
+        instance=package,
+        before_data=before,
+        after_data={
+            "product_id": str(product.pk),
+            "manufacturer_id": str(manufacturer.pk),
+            "amount": str(package.amount),
+            "price": str(package.price),
+        },
+    )
+
+    return package
+
+
+@transaction.atomic
+def delete_package_price(*, actor, package):
+    require_owner(actor)
+
+    record_audit_event(
+        user=actor,
+        action="products.package_price_deleted",
+        instance=package.product,
+        before_data={
+            "manufacturer_id": str(package.manufacturer_id),
+            "amount": str(package.amount),
+            "price": str(package.price),
+        },
+    )
+    package.delete()
+
+
+@transaction.atomic
+def update_product_photos(*, actor, product, add=(), remove=()):
+    """add: uploaded image files; remove: ProductImage rows to delete."""
+    require_owner(actor)
+
+    next_order = product.gallery.count()
+
+    for photo in remove:
+        photo.image.delete(save=False)
+        photo.delete()
+
+    for index, upload in enumerate(add):
+        photo = ProductImage(
+            product=product,
+            image=upload,
+            sort_order=next_order + index,
+            created_by=actor,
+            updated_by=actor,
+        )
+        photo.full_clean()
+        photo.save()
+
+    if add or remove:
+        record_audit_event(
+            user=actor,
+            action="products.photos_updated",
+            instance=product,
+            after_data={"added": len(add), "removed": len(remove)},
+        )

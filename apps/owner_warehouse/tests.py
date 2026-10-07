@@ -17,7 +17,7 @@ from apps.products.services import create_product
 
 from .forms import LocationForm
 from .models import Inventory, Location
-from .services import create_inventory, create_location
+from .services import create_inventory, create_location, update_location
 
 
 class WarehouseRulesTests(TestCase):
@@ -82,6 +82,42 @@ class WarehouseRulesTests(TestCase):
                 name="No Region Warehouse",
                 location_type=Location.LocationType.OWN,
             )
+
+    def test_owned_warehouse_sellable_is_the_owners_choice(self):
+        default = create_location(
+            actor=self.owner,
+            code="SELL-DEFAULT",
+            name="Default Warehouse",
+            location_type=Location.LocationType.OWN,
+            inventory=self.inventory,
+        )
+        self.assertTrue(default.is_sellable)
+
+        held = create_location(
+            actor=self.owner,
+            code="SELL-HELD",
+            name="Held Warehouse",
+            location_type=Location.LocationType.OWN,
+            inventory=self.inventory,
+            is_sellable=False,
+        )
+        self.assertFalse(held.is_sellable)
+
+        released = update_location(
+            actor=self.owner, location_id=held.pk, is_sellable=True
+        )
+        self.assertTrue(released.is_sellable)
+
+    def test_supplier_location_is_never_sellable(self):
+        location = create_location(
+            actor=self.owner,
+            code="SUP-SELL",
+            name="Supplier",
+            location_type=Location.LocationType.SUPPLIER,
+            manufacturer=self.manufacturer,
+            is_sellable=True,
+        )
+        self.assertFalse(location.is_sellable)
 
     def test_non_own_location_cannot_have_inventory(self):
         with self.assertRaises(ValidationError):

@@ -531,3 +531,77 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 });
+
+// Clickable table rows: a click anywhere on the row opens it, except on
+// links, buttons and form controls inside it (they keep their own job).
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("tr.row-link[data-href]").forEach((row) => {
+        row.addEventListener("click", (event) => {
+            if (event.target.closest("a, button, input, select, label")) {
+                return;
+            }
+
+            if (window.getSelection()?.toString()) {
+                return;
+            }
+
+            if (event.metaKey || event.ctrlKey) {
+                window.open(row.dataset.href, "_blank");
+            } else {
+                window.location.href = row.dataset.href;
+            }
+        });
+    });
+
+    document.querySelectorAll("form[data-autosubmit]").forEach((form) => {
+        form.addEventListener("change", () => form.requestSubmit());
+    });
+
+    // Product form: picking a category pre-selects its unit of measure.
+    document.querySelectorAll("[data-unit-by-category]").forEach((select) => {
+        const units = JSON.parse(select.dataset.unitByCategory || "{}");
+        const unitSelect = select.form?.querySelector("[name=unit_of_measure]");
+
+        select.addEventListener("change", () => {
+            const unit = units[select.value];
+            if (unit && unitSelect) {
+                unitSelect.value = unit;
+            }
+        });
+    });
+});
+
+// "Select all" checkbox: data-select-all="<name>" ticks every
+// checkbox with that name in the same form.
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-select-all]").forEach((toggle) => {
+        const boxes = () =>
+            toggle.form?.querySelectorAll(
+                `input[type=checkbox][name="${toggle.dataset.selectAll}"]`
+            ) || [];
+
+        toggle.addEventListener("change", () => {
+            boxes().forEach((box) => {
+                box.checked = toggle.checked;
+            });
+        });
+    });
+});
+
+// Product photo gallery: clicking a thumbnail shows it as the main image.
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-gallery]").forEach((gallery) => {
+        const main = gallery.querySelector("[data-gallery-main]");
+
+        gallery.querySelectorAll("[data-gallery-src]").forEach((thumb) => {
+            thumb.addEventListener("click", () => {
+                if (main) {
+                    main.src = thumb.dataset.gallerySrc;
+                }
+                gallery
+                    .querySelectorAll(".gallery-thumb")
+                    .forEach((other) => other.classList.toggle("is-active", other === thumb));
+            });
+        });
+    });
+});

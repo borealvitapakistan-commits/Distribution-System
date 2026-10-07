@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+
+{% block title %}
+    {% if package %}Edit Package Size{% else %}Add Package Size{% endif %}
+{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'product-list' %}">Products</a>
+    <span aria-hidden="true">›</span>
+    <a href="{% url 'product-detail' product.pk %}">{{ product.name }}</a>
+    <span aria-hidden="true">›</span>
+    <span aria-current="page">{% if package %}Edit package size{% else %}Add package size{% endif %}</span>
+</nav>
+
+<div class="page-header">
+    <div>
+        <h1>{% if package %}Edit Package Size{% else %}Add Package Size{% endif %}</h1>
+        <p>{{ product.sku }} · {{ product.name }} — amount is in {{ unit }}.</p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'product-detail' product.pk %}">Back</a>
+    </div>
+</div>
+
+<section class="panel form-panel form-panel-narrow">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+            <div class="form-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        {% for field in form %}
+            <div class="form-group">
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+                {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                {% for error in field.errors %}
+                    <span class="field-error">{{ error }}</span>
+                {% endfor %}
+            </div>
+        {% endfor %}
+
+        {% if not form.manufacturer.field.queryset.exists %}
+            <p class="stat-detail">
+                No manufacturers yet — <a href="{% url 'manufacturer-create' %}">add one first</a>.
+            </p>
+        {% endif %}
+
+        <button class="button button-primary">Save Package Size</button>
+    </form>
+</section>
+{% endblock %}

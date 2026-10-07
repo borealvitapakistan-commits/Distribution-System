@@ -100,40 +100,12 @@ def normalize_location_flags(data):
     data = dict(data)
     location_type = data.get("location_type")
 
-    fixed_flags = {
-        Location.LocationType.OWN: (
-            True,
-            True,
-            True,
-        ),
-        Location.LocationType.SHOPIFY: (
-            True,
-            True,
-            True,
-        ),
-        Location.LocationType.TRANSIT: (
-            True,
-            True,
-            False,
-        ),
-        Location.LocationType.UNALLOCATED: (
-            True,
-            True,
-            False,
-        ),
-        Location.LocationType.SUPPLIER: (
-            False,
-            False,
-            False,
-        ),
-    }
+    if location_type in Location.FIXED_FLAGS:
+        flags = ("on_book", "is_physical", "is_sellable")
 
-    if location_type in fixed_flags:
-        (
-            data["on_book"],
-            data["is_physical"],
-            data["is_sellable"],
-        ) = fixed_flags[location_type]
+        for flag, value in zip(flags, Location.FIXED_FLAGS[location_type]):
+            if value is not None:
+                data[flag] = value
 
     return data
 
@@ -141,6 +113,8 @@ def normalize_location_flags(data):
 @transaction.atomic
 def create_location(*, actor, **data):
     require_owner(actor)
+
+    data.setdefault("is_sellable", True)
 
     location = Location(
         created_by=actor,

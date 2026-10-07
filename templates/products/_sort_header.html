@@ -1,0 +1,4 @@
+<a
+    class="sort-link{% if column.direction %} is-sorted{% endif %}"
+    href="{% querystring sort=column.next %}"
+>{{ label }}<svg class="sort-arrow sort-{{ column.direction|default:'none' }}" viewBox="0 0 12 16" aria-hidden="true"><path class="up" d="M6 2l4 5H2z"/><path class="down" d="M6 14l4-5H2z"/></svg></a>

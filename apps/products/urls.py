@@ -10,9 +10,12 @@ from .views import (
     ProductCSVExportView,
     ProductDetailView,
     ProductListView,
+    ProductPackageDeleteView,
+    ProductPackageFormView,
     ProductRetailPricesView,
     ProductUpdateView,
     RetailPriceSheetView,
+    ShopifyImportView,
 )
 
 
@@ -48,6 +51,11 @@ urlpatterns = [
         name="product-create",
     ),
     path(
+        "owner/products/import/shopify/",
+        ShopifyImportView.as_view(),
+        name="product-shopify-import",
+    ),
+    path(
         "owner/products/export/",
         ProductCSVExportView.as_view(),
         name="product-csv-export",
@@ -71,6 +79,21 @@ urlpatterns = [
         "owner/products/retail-price-sheet.csv",
         RetailPriceSheetView.as_view(),
         name="product-retail-price-sheet",
+    ),
+    path(
+        "owner/products/<uuid:pk>/packages/new/",
+        ProductPackageFormView.as_view(),
+        name="product-package-create",
+    ),
+    path(
+        "owner/products/<uuid:pk>/packages/<uuid:package_pk>/edit/",
+        ProductPackageFormView.as_view(),
+        name="product-package-edit",
+    ),
+    path(
+        "owner/products/<uuid:pk>/packages/<uuid:package_pk>/delete/",
+        ProductPackageDeleteView.as_view(),
+        name="product-package-delete",
     ),
     path(
         "owner/products/<uuid:pk>/edit/",

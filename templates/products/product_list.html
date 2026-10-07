@@ -7,94 +7,169 @@
 {% block content %}
 <div class="page-header">
     <div>
-        <p class="eyebrow">Products</p>
         <h1>Products</h1>
-        <p>Manage SKUs, formulations, bottle prices and activation. Retail prices are per bottle size.</p>
+        <p>Manage all products, categories, formulations and packaging.</p>
     </div>
 
-    <div>
-        <a
-            class="button button-secondary"
-            href="{% url 'product-retail-price-sheet' %}"
-        >
-            Download Price Sheet
+    <div class="products-header-actions">
+        <form method="get" class="product-search" role="search">
+            {% if params.category %}<input type="hidden" name="category" value="{{ params.category }}">{% endif %}
+            {% if params.status %}<input type="hidden" name="status" value="{{ params.status }}">{% endif %}
+            <input type="hidden" name="sort" value="{{ params.sort }}">
+            <input
+                type="search"
+                name="q"
+                value="{{ params.q }}"
+                placeholder="Search products, SKU or category…"
+                aria-label="Search products"
+            >
+            <button type="submit" aria-label="Search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+            </button>
+        </form>
+
+        <a class="button button-secondary" href="{% url 'product-shopify-import' %}">
+            Import from Shopify
         </a>
-        <a
-            class="button button-secondary"
-            href="{% url 'product-csv-export' %}"
-        >
-            Export to Shopify CSV
-        </a>
-        <a
-            class="button button-primary"
-            href="{% url 'product-create' %}"
-        >
-            New Product
+        <a class="button button-primary" href="{% url 'product-create' %}">
+            + New Product
         </a>
     </div>
 </div>
 
+<nav class="category-tiles" aria-label="Product categories">
+    <a
+        class="category-tile tone-blue{% if not params.category %} is-active{% endif %}"
+        href="{% querystring category=None %}"
+        {% if not params.category %}aria-current="page"{% endif %}
+    >
+        {% include "products/_category_icon.html" with icon="grid" %}
+        <span class="category-tile-name">All Products</span>
+        <span class="category-tile-count">{{ total_count }}</span>
+    </a>
+
+    {% for tile in tiles %}
+        <a
+            class="category-tile tone-{{ tile.tone }}{% if params.category == tile.value %} is-active{% endif %}"
+            href="{% querystring category=tile.value %}"
+            {% if params.category == tile.value %}aria-current="page"{% endif %}
+        >
+            {% include "products/_category_icon.html" with icon=tile.icon %}
+            <span class="category-tile-name">{{ tile.name }}</span>
+            <span class="category-tile-count">{{ tile.count }}</span>
+        </a>
+    {% endfor %}
+</nav>
+
 <section class="panel">
+    <div class="products-toolbar">
+        <p>
+            Showing <strong>{{ products|length }}</strong> product{{ products|length|pluralize }}
+            {% if params.q %}matching “{{ params.q }}”{% endif %}
+        </p>
+
+        <form method="get" class="products-toolbar-controls" data-autosubmit>
+            {% if params.q %}<input type="hidden" name="q" value="{{ params.q }}">{% endif %}
+            {% if params.category %}<input type="hidden" name="category" value="{{ params.category }}">{% endif %}
+
+            <label class="toolbar-select">
+                <span>Sort by:</span>
+                <select name="sort">
+                    {% for key, label in sort_options %}
+                        <option value="{{ key }}" {% if key == current_sort %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </label>
+
+            <label class="toolbar-select">
+                <span>Status:</span>
+                <select name="status">
+                    <option value="">All</option>
+                    <option value="active" {% if params.status == "active" %}selected{% endif %}>Active</option>
+                    <option value="inactive" {% if params.status == "inactive" %}selected{% endif %}>Inactive</option>
+                </select>
+            </label>
+
+            <noscript><button type="submit" class="button button-secondary button-small">Apply</button></noscript>
+        </form>
+
+        <div class="products-toolbar-links">
+            <a class="button button-secondary button-small" href="{% url 'product-retail-price-sheet' %}">Price Sheet</a>
+            <a class="button button-secondary button-small" href="{% url 'product-csv-export' %}">Shopify CSV</a>
+        </div>
+    </div>
+
     <div class="table-wrapper">
-        <table>
+        <table class="products-table">
             <thead>
                 <tr>
-                    <th>SKU</th>
-                    <th>Product</th>
-                    <th>Category</th>
-                    <th>UOM</th>
-                    {% for size in bottle_sizes %}
-                        <th>{{ size }} caps</th>
-                    {% endfor %}
-                    <th>Status</th>
-                    <th></th>
+                    <th class="col-image">Image</th>
+                    <th>{% include "products/_sort_header.html" with key="sku" label="SKU" column=columns.sku %}</th>
+                    <th>{% include "products/_sort_header.html" with key="name" label="Product Name" column=columns.name %}</th>
+                    <th>{% include "products/_sort_header.html" with key="category" label="Category" column=columns.category %}</th>
+                    <th>{% include "products/_sort_header.html" with key="unit" label="Unit" column=columns.unit %}</th>
+                    <th>{% include "products/_sort_header.html" with key="size" label="Size" column=columns.size %}</th>
+                    <th>{% include "products/_sort_header.html" with key="status" label="Status" column=columns.status %}</th>
+                    <th class="table-actions">Actions</th>
                 </tr>
             </thead>
 
             <tbody>
                 {% for product in products %}
-                    <tr>
-                        <td>
-                            <strong>{{ product.sku }}</strong>
-                        </td>
-
-                        <td>{{ product.name }}</td>
-                        <td>{{ product.category.name|default:"—" }}</td>
-                        <td>{{ product.get_unit_of_measure_display }}</td>
-                        {% for price in product.size_prices %}
-                            <td>
-                                {% if price is not None %}
-                                    {{ price }} {{ product.currency }}
-                                {% else %}
-                                    —
-                                {% endif %}
-                            </td>
-                        {% endfor %}
-
-                        <td>
-                            {% if product.active %}
-                                <span class="badge badge-open">
-                                    Active
-                                </span>
+                    {% url 'product-detail' product.pk as detail_url %}
+                    <tr class="row-link" data-href="{{ detail_url }}">
+                        <td class="col-image">
+                            {% if product.image %}
+                                <img class="product-thumb" src="{{ product.image.url }}" alt="">
                             {% else %}
-                                <span class="badge badge-pending">
-                                    Inactive
+                                <span class="product-thumb tone-{{ product.tone }}">
+                                    {% include "products/_category_icon.html" with icon=product.icon %}
                                 </span>
                             {% endif %}
                         </td>
 
+                        <td><strong>{{ product.sku }}</strong></td>
+
                         <td>
+                            <a class="product-name-link" href="{{ detail_url }}">{{ product.name }}</a>
+                        </td>
+
+                        <td>
+                            {% if product.category %}
+                                <span class="category-pill tone-{{ product.tone }}">
+                                    {% include "products/_category_icon.html" with icon=product.icon %}
+                                    {{ product.category.name }}
+                                </span>
+                            {% else %}
+                                <span class="table-secondary">—</span>
+                            {% endif %}
+                        </td>
+
+                        <td>{{ product.unit_label }}</td>
+                        <td>{{ product.size_label|default:"—" }}</td>
+
+                        <td>
+                            {% if product.active %}
+                                <span class="badge badge-open">Active</span>
+                            {% else %}
+                                <span class="badge badge-pending">Inactive</span>
+                            {% endif %}
+                        </td>
+
+                        <td class="table-actions">
                             <a
-                                class="button button-secondary button-small"
-                                href="{% url 'product-detail' product.pk %}"
+                                class="icon-button"
+                                href="{% url 'product-edit' product.pk %}"
+                                aria-label="Edit {{ product.name }}"
+                                title="Edit"
                             >
-                                View
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
                             </a>
                         </td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="10" class="empty-table">
+                        <td colspan="8" class="empty-table">
                             No products found.
                         </td>
                     </tr>

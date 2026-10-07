@@ -20,7 +20,7 @@
 </div>
 
 <section class="panel form-panel">
-    <form method="post" class="form-layout">
+    <form method="post" class="form-layout" enctype="multipart/form-data">
         {% csrf_token %}
 
         {% if form.non_field_errors %}

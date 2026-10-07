@@ -11,7 +11,7 @@
         <h1>
             {% if object %}Edit Location{% else %}New Location{% endif %}
         </h1>
-        <p>Flags for fixed location types are derived by the service.</p>
+        <p>New warehouses are sellable by default.</p>
     </div>
 
     <a class="button button-secondary" href="{% url 'location-list' %}">
@@ -36,6 +36,10 @@
                 </label>
 
                 {{ field }}
+
+                {% if field.help_text %}
+                    <small>{{ field.help_text }}</small>
+                {% endif %}
 
                 {% for error in field.errors %}
                     <span class="field-error">{{ error }}</span>

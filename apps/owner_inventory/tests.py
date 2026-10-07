@@ -16,7 +16,13 @@ from apps.owner_warehouse.services import create_inventory, create_location
 from apps.products.services import create_product, export_products_csv
 
 from .models import StockBalance, StockBatch, StockMovement
-from .services import available_batches_fefo, give_to_distributor, receive_stock
+from .services import (
+    available_batches_fefo,
+    give_to_distributor,
+    receive_stock,
+    ship_stock_to_transit,
+    shippable_batches_fefo,
+)
 
 
 class InventoryLedgerTests(TestCase):
@@ -225,6 +231,54 @@ class InventoryLedgerTests(TestCase):
                 distributor_profile=self.distributor_profile,
                 batch=movement.batch,
             )
+
+    def test_non_sellable_warehouse_cannot_ship(self):
+        held = create_location(
+            actor=self.owner,
+            code="WH-HELD",
+            name="Held Warehouse",
+            location_type=Location.LocationType.OWN,
+            inventory=self.inventory,
+            is_sellable=False,
+        )
+        held_batch = receive_stock(
+            actor=self.owner,
+            product=self.product,
+            quantity=Decimal("10"),
+            to_location=held,
+        ).batch
+        open_batch = receive_stock(
+            actor=self.owner,
+            product=self.product,
+            quantity=Decimal("10"),
+            to_location=self.warehouse,
+        ).batch
+
+        self.assertEqual(
+            list(shippable_batches_fefo(product=self.product)), [open_batch]
+        )
+
+        with self.assertRaises(ValidationError):
+            give_to_distributor(
+                actor=self.owner,
+                product=self.product,
+                quantity=Decimal("5"),
+                from_location=held,
+                distributor_profile=self.distributor_profile,
+                batch=held_batch,
+            )
+
+        with self.assertRaises(ValidationError):
+            ship_stock_to_transit(
+                actor=self.owner,
+                product=self.product,
+                quantity=Decimal("5"),
+                from_location=held,
+                batch=held_batch,
+            )
+
+        held_batch.refresh_from_db()
+        self.assertEqual(held_batch.quantity_remaining, Decimal("10"))
 
     def test_movement_is_immutable(self):
         movement = receive_stock(

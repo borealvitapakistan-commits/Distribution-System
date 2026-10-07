@@ -40,6 +40,32 @@ def available_batches_fefo(*, product=None, location=None):
     return queryset
 
 
+def shippable_batches_fefo(*, product=None):
+    """Batches the Owner can actually ship out: in an owned warehouse
+    that's currently marked sellable."""
+    from apps.owner_warehouse.models import Location
+
+    return available_batches_fefo(product=product).filter(
+        location__location_type=Location.LocationType.OWN,
+        location__is_sellable=True,
+    )
+
+
+def _require_shippable_location(location):
+    from apps.owner_warehouse.models import Location
+
+    if location.location_type != Location.LocationType.OWN:
+        raise ValidationError(
+            "Stock can only be shipped from one of the Owner's own warehouses."
+        )
+
+    if not location.is_sellable:
+        raise ValidationError(
+            f"{location.name} is not sellable. Mark it as sellable before "
+            "shipping stock from it."
+        )
+
+
 @transaction.atomic
 def post_stock_movement(
     *,
@@ -356,15 +382,11 @@ def give_to_distributor(
     batches or warehouse names, and this Owner ledger has no relationship
     to theirs beyond the one-time hand-off."""
     from apps.distributor_inventory.services import receive_stock as distributor_receive_stock
-    from apps.owner_warehouse.models import Location
 
     if batch is None:
         raise ValidationError("A batch to ship from is required.")
 
-    if from_location.location_type != Location.LocationType.OWN:
-        raise ValidationError(
-            "Stock can only be shipped from one of the Owner's own warehouses."
-        )
+    _require_shippable_location(from_location)
 
     movement = post_stock_movement(
         actor=actor,
@@ -429,15 +451,10 @@ def ship_stock_to_transit(
     Owner's warehouse — and a new lot lands in Transit carrying the same
     batch code/expiry forward, so that choice survives all the way to the
     Distributor's own stock."""
-    from apps.owner_warehouse.models import Location
-
     if batch is None:
         raise ValidationError("A batch to ship from is required.")
 
-    if from_location.location_type != Location.LocationType.OWN:
-        raise ValidationError(
-            "Stock can only be shipped from one of the Owner's own warehouses."
-        )
+    _require_shippable_location(from_location)
 
     transit = _get_or_create_transit_location(actor=actor)
     quantity = _as_decimal(quantity)

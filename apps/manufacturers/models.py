@@ -17,6 +17,7 @@ class Manufacturer(AuditedModel):
     email = models.EmailField(blank=True)
     address = models.TextField(blank=True)
     notes = models.TextField(blank=True)
+    logo = models.ImageField(upload_to="manufacturers/", null=True, blank=True)
     active = models.BooleanField(default=True)
 
     upfront_payment_percentage = models.DecimalField(

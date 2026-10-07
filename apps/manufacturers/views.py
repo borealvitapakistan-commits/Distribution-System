@@ -62,7 +62,7 @@ class ManufacturerCreateView(OwnerRequiredMixin, View):
         )
 
     def post(self, request):
-        form = ManufacturerForm(request.POST)
+        form = ManufacturerForm(request.POST, request.FILES)
         if not form.is_valid():
             return render(request, self.template_name, {"form": form})
 
@@ -115,7 +115,7 @@ class ManufacturerUpdateView(OwnerRequiredMixin, View):
         if manufacturer is None:
             raise Http404
 
-        form = ManufacturerForm(request.POST, instance=manufacturer)
+        form = ManufacturerForm(request.POST, request.FILES, instance=manufacturer)
         if not form.is_valid():
             return render(
                 request,

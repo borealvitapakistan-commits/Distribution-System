@@ -68,7 +68,15 @@ class LocationForm(forms.Form):
         required=False,
         help_text="Required for an owned warehouse.",
     )
-    is_sellable = forms.BooleanField(required=False)
+    is_sellable = forms.BooleanField(
+        label="Sellable",
+        required=False,
+        initial=True,
+        help_text=(
+            "Untick to hold this warehouse's stock back: nothing can be "
+            "shipped or given to a Distributor from it until it's ticked again."
+        ),
+    )
     address = forms.CharField(
         required=False,
         widget=forms.Textarea(

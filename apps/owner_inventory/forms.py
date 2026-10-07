@@ -7,7 +7,7 @@ from apps.products.models import Product
 from apps.owner_warehouse.models import Location
 
 from .models import StockBatch
-from .services import available_batches_fefo
+from .services import shippable_batches_fefo
 
 
 class ReceiveStockForm(forms.Form):
@@ -91,4 +91,4 @@ class GiveToDistributorForm(forms.Form):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields["batch"].queryset = available_batches_fefo()
+        self.fields["batch"].queryset = shippable_batches_fefo()

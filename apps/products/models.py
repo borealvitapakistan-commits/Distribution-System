@@ -59,7 +59,7 @@ class ProductCategory(AuditedModel):
 
 class Product(AuditedModel):
     class UnitOfMeasure(models.TextChoices):
-        PIECE = "PIECE", "Piece"
+        PIECE = "PIECE", "Unit"
         BOTTLE = "BOTTLE", "Bottle"
         BOX = "BOX", "Box"
         CASE = "CASE", "Case"
@@ -152,6 +152,19 @@ class Product(AuditedModel):
         default=UnitOfMeasure.PIECE,
     )
     units_per_case = models.PositiveIntegerField(default=1)
+    size = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[
+            MinValueValidator(Decimal("0"))
+        ],
+        help_text=(
+            "How much is in one pack, in the unit of measure: "
+            "e.g. 60 (capsules), 100 (ml) or 300 (grams)."
+        ),
+    )
     serving_size = models.CharField(
         max_length=100,
         blank=True,
@@ -223,6 +236,26 @@ class Product(AuditedModel):
         default=False
     )
     active = models.BooleanField(default=True)
+    shopify_product_id = models.CharField(
+        max_length=100,
+        blank=True,
+        db_index=True,
+        help_text="Set when the product is imported from Shopify.",
+    )
+    shopify_image_url = models.URLField(max_length=1000, blank=True)
+    key_benefits = models.TextField(
+        blank=True,
+        help_text="One benefit per line.",
+    )
+    other_ingredients = models.TextField(
+        blank=True,
+        help_text="e.g. Vegetable cellulose (capsule), magnesium stearate.",
+    )
+    allergen_info = models.TextField(
+        "Allergen information",
+        blank=True,
+        help_text="e.g. Free from gluten, dairy and soy.",
+    )
 
     objects = ProductQuerySet.as_manager()
 
@@ -424,3 +457,65 @@ class ProductRetailPrice(AuditedModel):
 
     def __str__(self):
         return f"{self.product.sku} - {self.get_bottle_size_display()} - {self.price}"
+
+
+class ProductImage(AuditedModel):
+    """Extra photos shown in the product page gallery, after the main
+    product image."""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="gallery",
+    )
+    image = models.ImageField(upload_to="products/gallery/")
+    sort_order = models.PositiveIntegerField(default=0)
+
+    objects = OwnerOnlyQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["sort_order", "created_at"]
+
+    def __str__(self):
+        return f"{self.product.sku} - photo {self.sort_order}"
+
+
+class ProductPackagePrice(AuditedModel):
+    """One package a Manufacturer supplies this product in — how much is
+    in it (60 capsules, 100 ml, …) and what that Manufacturer charges."""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="package_prices",
+    )
+    manufacturer = models.ForeignKey(
+        "manufacturers.Manufacturer",
+        on_delete=models.PROTECT,
+        related_name="package_prices",
+    )
+    amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+        help_text="How much is in the package, in the product's unit (e.g. 60 capsules).",
+    )
+    price = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+
+    objects = OwnerOnlyQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["amount", "manufacturer__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "manufacturer", "amount"],
+                name="unique_package_per_manufacturer_amount",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product.sku} - {self.manufacturer} - {self.amount}"
