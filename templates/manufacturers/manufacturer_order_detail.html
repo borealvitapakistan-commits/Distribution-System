@@ -34,9 +34,19 @@
                 <a href="{% url 'manufacturer-order-edit' order.pk %}">Edit Request to Quote</a>
             {% endif %}
             {% if order.is_quote %}
-                <a href="{% url 'manufacturer-order-quote' order.pk %}">
-                    {% if order.quoted_at %}Edit quoted prices{% else %}Enter quoted prices{% endif %}
-                </a>
+                <a href="{% url 'manufacturer-order-quote' order.pk %}">Record manufacturer's reply</a>
+                {% if order.quoted_at %}
+                    <a href="{% url 'manufacturer-order-counter' order.pk %}">Send counter-offer</a>
+                {% endif %}
+            {% endif %}
+            {% if can_edit_po %}
+                <a href="{% url 'manufacturer-order-change' order.pk %}">Change Purchase Order</a>
+            {% endif %}
+            {% if show_conversation %}
+                <a href="#conversation">Conversation history</a>
+            {% endif %}
+            {% if order.invoice_approved_at %}
+                <a href="{% url 'manufacturer-order-record-pdf' order.pk %}">Download full order record (PDF)</a>
             {% endif %}
             <a href="{% url 'manufacturer-detail' order.manufacturer.pk %}">Manufacturer details</a>
         </div>
@@ -52,7 +62,7 @@
                 {% if step.state == "done" %}Completed{% elif step.state == "current" %}In progress{% else %}Upcoming{% endif %}
             </span>
             <small>
-                {% if step.state == "current" %}{{ step.note }}{% elif step.date %}{{ step.date|date:"M d, Y" }}{% endif %}
+                {% if step.state == "current" %}{{ step.note }}{% elif step.date %}{{ step.date|date:"M d, Y" }}{% elif step.done_note %}{{ step.done_note }}{% endif %}
             </small>
         </li>
     {% endfor %}
@@ -75,7 +85,17 @@
                 </p>
                 <div class="mo-next-actions">
                     <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?download=1">Download Request to Quote</a>
-                    <a class="button button-primary" href="{% url 'manufacturer-order-quote' order.pk %}">Enter Quoted Prices</a>
+                    <a class="button button-primary" href="{% url 'manufacturer-order-quote' order.pk %}">Record Manufacturer's Reply</a>
+                </div>
+            {% elif awaiting_reply %}
+                <p>
+                    <strong>Waiting for the manufacturer.</strong> Your counter-offer is the last
+                    thing said. When {{ order.manufacturer.name }} answers, record their reply —
+                    if they agreed, just save it with the prices already filled in.
+                </p>
+                <div class="mo-next-actions">
+                    <a class="button button-secondary" href="#conversation">View Conversation</a>
+                    <a class="button button-primary" href="{% url 'manufacturer-order-quote' order.pk %}">Record Manufacturer's Reply</a>
                 </div>
             {% elif order.is_quote %}
                 <p>
@@ -86,15 +106,19 @@
                     {% else %}
                         The Manufacturer accepted every price you asked for.
                     {% endif %}
-                    When it's agreed, turn it into the Purchase Order and send it to the manufacturer.
+                    Not happy with a price? Send a counter-offer. When it's agreed, accept it —
+                    that turns it into the Purchase Order to send to the manufacturer.
                 </p>
                 <div class="mo-next-actions">
-                    <a class="button button-secondary" href="{% url 'manufacturer-order-quote' order.pk %}">Edit Quoted Prices</a>
-                    <form method="post" action="{% url 'manufacturer-order-confirm' order.pk %}" class="inline-form">
-                        {% csrf_token %}
-                        <button type="submit" class="button button-primary">Send Purchase Order</button>
-                    </form>
+                    <a class="button button-secondary" href="{% url 'manufacturer-order-counter' order.pk %}">Send Counter-offer</a>
+                    <a class="button button-secondary" href="{% url 'manufacturer-order-quote' order.pk %}">Record Another Reply</a>
                 </div>
+                <form method="post" action="{% url 'manufacturer-order-confirm' order.pk %}" class="mo-accept-form">
+                    {% csrf_token %}
+                    <label for="acceptMessage">Message with the Purchase Order <small>(optional)</small></label>
+                    <textarea id="acceptMessage" name="message" rows="2"></textarea>
+                    <button type="submit" class="button button-primary">Accept &amp; Send Purchase Order</button>
+                </form>
             {% elif order.status == "SENT" or not order.invoice_approved_at and order.status != "REFUNDED" %}
                 <p>
                     {% if order.status == "SENT" and order.pays_advance is None %}
@@ -112,6 +136,9 @@
                 </p>
                 <div class="mo-next-actions">
                     <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?download=1">Download Purchase Order</a>
+                    {% if can_edit_po %}
+                        <a class="button button-secondary" href="{% url 'manufacturer-order-change' order.pk %}">Change Purchase Order</a>
+                    {% endif %}
                     {% if order.status == "SENT" %}
                         {% if order.pays_advance is None %}
                             <a class="button button-primary" href="{% url 'manufacturer-order-advance' order.pk %}">Upload Payment Proof (Advance / No Advance)</a>
@@ -126,6 +153,14 @@
                 </div>
             {% else %}
                 <p><strong>Invoice recorded.</strong> This order has been through every step.</p>
+            {% endif %}
+
+            {% if order.invoice_approved_at %}
+                <div class="mo-next-actions">
+                    <a class="button button-primary" href="{% url 'manufacturer-order-record-pdf' order.pk %}">Download Full Order Record (PDF)</a>
+                    <a class="button button-secondary" href="{% url 'manufacturer-order-record-pdf' order.pk %}?view=1" target="_blank">View PDF</a>
+                    <a class="button button-secondary" href="#conversation">View Full Conversation History ↓</a>
+                </div>
             {% endif %}
         </div>
 
@@ -439,5 +474,9 @@
             </div>
         </form>
     </section>
+{% endif %}
+
+{% if show_conversation %}
+    {% include "manufacturers/_conversation.html" %}
 {% endif %}
 {% endblock %}

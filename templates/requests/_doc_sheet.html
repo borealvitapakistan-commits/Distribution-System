@@ -1,0 +1,124 @@
+{% comment %}
+The order as a document — Request to Quote, Quotation, Purchase Order or
+Invoice, whichever stage it's at — in the brand's logo and colour.
+Expects: purchase_order, items, doc_brand, changed_count, new_price_count.
+{% endcomment %}
+<section
+    class="doc-sheet"
+    style="--doc-color: {{ doc_brand.primary_color }}; --doc-soft: {{ doc_brand.primary_color_soft }};"
+>
+    {% if purchase_order.declined_as_quote %}
+        {% include "manufacturers/_doc_head.html" with brand=doc_brand doc_title=purchase_order.document_title doc_chip="Declined" doc_number=purchase_order.po_number doc_date=purchase_order.created_at %}
+    {% elif purchase_order.is_quote and purchase_order.quoted_at %}
+        {% include "manufacturers/_doc_head.html" with brand=doc_brand doc_title="Quotation" doc_chip="Waiting for acceptance" doc_number=purchase_order.po_number doc_date=purchase_order.quoted_at number_label="Quote number" %}
+    {% elif purchase_order.is_quote %}
+        {% include "manufacturers/_doc_head.html" with brand=doc_brand doc_title="Request to Quote" doc_number=purchase_order.po_number doc_date=purchase_order.created_at %}
+    {% elif purchase_order.invoiced_at %}
+        {% include "manufacturers/_doc_head.html" with brand=doc_brand doc_title="Invoice" doc_number=purchase_order.invoice_number doc_date=purchase_order.invoiced_at number_label="Invoice no." %}
+    {% else %}
+        {% include "manufacturers/_doc_head.html" with brand=doc_brand doc_title="Purchase Order" doc_number=purchase_order.po_number doc_date=purchase_order.purchase_order_date number_label="P.O. number" %}
+    {% endif %}
+
+    <div class="doc-parties">
+        <div>
+            <span class="doc-label">Supplier</span>
+            <div class="doc-party-name">{{ doc_brand.legal_name|default:doc_brand.name }}</div>
+            {% if doc_brand.address %}<div class="doc-party-line">{{ doc_brand.address }}</div>{% endif %}
+            {% if doc_brand.email %}<div class="doc-party-line">Mail: {{ doc_brand.email }}</div>{% endif %}
+            {% if doc_brand.phone %}<div class="doc-party-line">Phone: {{ doc_brand.phone }}</div>{% endif %}
+        </div>
+        <div>
+            <span class="doc-label">Distributor (ship to)</span>
+            {% with party=purchase_order.distributor_profile %}
+                <div class="doc-party-name">{{ party.name }}</div>
+                {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
+                {% if party.email %}<div class="doc-party-line">Mail: {{ party.email }}</div>{% endif %}
+                {% if party.phone %}<div class="doc-party-line">Phone: {{ party.phone }}</div>{% endif %}
+            {% endwith %}
+            {% if purchase_order.invoiced_at %}
+                <div class="doc-party-line">P.O. {{ purchase_order.po_number }}</div>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if changed_count or new_price_count %}
+        <p class="doc-hint" style="margin-top: 1rem;">
+            <mark class="mo-changed-mark mo-mark-changed">Orange</mark> rows: the Owner's price differs from what the Distributor asked for.
+            <mark class="mo-changed-mark">Yellow</mark> rows: the Distributor left the price empty and the Owner filled it in.
+        </p>
+    {% endif %}
+
+    <div class="doc-lines">
+        <div class="doc-row doc-row-head">
+            <span>Sr#</span>
+            <span>Description</span>
+            <span>Qty</span>
+            <span>Unit price</span>
+            <span>Total price</span>
+            <span></span>
+        </div>
+
+        {% for item in items %}
+            <div class="doc-row doc-line {% if item.price_highlight %}mo-row-{{ item.price_highlight }}{% endif %}">
+                <span class="doc-sr"></span>
+
+                <div class="doc-description">
+                    <strong>{{ item.product.name }}</strong>
+                    <span class="doc-hint">
+                        {{ item.product.sku }} · List {{ item.list_price }}{% if item.unit_price is not None and item.discount_percentage %} less {{ item.discount_percentage|floatformat:"-2" }}%{% endif %}
+                        {% if item.unavailable %} · Unavailable{% if item.quantity_dropped %} ({{ item.quantity_dropped|floatformat:"-4" }} won't be supplied){% endif %}{% endif %}
+                    </span>
+                    {% if item.owner_note %}<span class="doc-hint">Owner: “{{ item.owner_note }}”</span>{% endif %}
+                </div>
+
+                <div class="doc-figure">
+                    <span class="doc-cell-label">Qty</span>
+                    {% if purchase_order.invoiced_at %}{{ item.quantity_ordered|floatformat:"-4" }}{% else %}{{ item.quantity_requested|floatformat:"-4" }}{% endif %}
+                </div>
+
+                <div class="doc-figure">
+                    <span class="doc-cell-label">Unit price</span>
+                    {% if item.unit_price is not None %}{{ item.unit_price }}{% else %}<span class="doc-placeholder">to quote</span>{% endif %}
+                    {% if item.price_changed %}
+                        <span class="doc-requested">
+                            Asked: {% if item.requested_price_given %}{{ item.requested_unit_price }}{% else %}to quote{% endif %}
+                        </span>
+                    {% endif %}
+                </div>
+
+                <div class="doc-total">
+                    {% if item.unit_price is not None %}{{ item.line_total|floatformat:"2g" }}{% else %}—{% endif %}
+                </div>
+
+                <span></span>
+            </div>
+        {% endfor %}
+    </div>
+
+    <div class="doc-foot">
+        <div>
+            {% if purchase_order.agreement %}
+                <span class="doc-label">Agreement</span>
+                <div class="doc-terms-text">
+                    {{ purchase_order.agreement.agreement_number }} —
+                    {{ purchase_order.agreement.discount_percentage|floatformat:"-2" }}% off list price,
+                    valid {{ purchase_order.agreement.start_date|date:"M d, Y" }} – {{ purchase_order.agreement.end_date|date:"M d, Y" }}.
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="doc-totals">
+            <div class="doc-totals-row"><span>Subtotal</span><strong>{{ purchase_order.subtotal|floatformat:"2g" }}</strong></div>
+            {% if purchase_order.shipping_amount %}
+                <div class="doc-totals-row"><span>Shipping</span><strong>{{ purchase_order.shipping_amount|floatformat:"2g" }}</strong></div>
+            {% endif %}
+            {% if purchase_order.tax_percentage %}
+                <div class="doc-totals-row"><span>Tax ({{ purchase_order.tax_percentage }}%)</span><strong>{{ purchase_order.tax_amount|floatformat:"2g" }}</strong></div>
+            {% endif %}
+            <div class="doc-grand">{{ purchase_order.grand_total|floatformat:"2g" }}</div>
+            {% if purchase_order.is_quote %}
+                <div class="doc-note">Tax and shipping are confirmed on the invoice.</div>
+            {% endif %}
+        </div>
+    </div>
+</section>

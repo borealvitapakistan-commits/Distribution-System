@@ -15,16 +15,23 @@ from apps.products.services import create_product
 from apps.owner_warehouse.models import Location
 from apps.owner_warehouse.services import create_inventory, create_location
 
-from .models import PurchaseOrder, PurchaseOrderPayment
+from .models import PurchaseOrder, PurchaseOrderPayment, PurchaseOrderRevision
 from .services import (
+    accept_quote,
     add_owner_comment,
     confirm_payment,
     create_purchase_order,
     decline_purchase_order,
+    issue_invoice,
+    order_steps,
     receive_purchase_order_item,
+    record_advance_decision,
     record_payment,
     reject_payment,
+    revision_timeline,
+    send_quote,
     ship_purchase_order_item,
+    update_line_status,
     update_pricing,
 )
 
@@ -177,9 +184,11 @@ class PurchaseOrderWorkflowTests(TestCase):
         self.assertEqual(transit_balance.quantity, Decimal("4"))
 
         po.refresh_from_db()
-        # Product Y hasn't shipped yet, so the order stays open.
+        # Product Y hasn't shipped yet, so the order stays open — and
+        # isn't invoiced: the invoice goes out once everything has shipped.
         self.assertEqual(po.status, PurchaseOrder.Status.PARTIALLY_SHIPPED)
-        self.assertIsNotNone(po.invoiced_at)
+        self.assertIsNone(po.invoiced_at)
+        self.assertFalse(po.can_issue_invoice)
 
     def test_receive_moves_stock_from_transit_to_the_distributors_own_system(self):
         """Confirming receipt closes out the Owner's Transit balance and
@@ -845,6 +854,17 @@ class DistributorPaymentFlowTests(TestCase):
             },
         )
         po = PurchaseOrder.objects.get()
+        self.assertEqual(po.status, PurchaseOrder.Status.QUOTE)
+
+        # The Owner quotes from their panel; accepting it places the order.
+        owner = Client()
+        owner.force_login(self.owner)
+        item = po.items.get()
+        owner.post(
+            f"/owner/purchase-orders/{po.pk}/quote/",
+            {f"line_price_{item.pk}": "100.00", f"line_qty_{item.pk}": "10"},
+        )
+        response = self.client.post(f"/distributor/purchase-orders/{po.pk}/accept/")
         advance_url = f"/distributor/purchase-orders/{po.pk}/advance/"
         self.assertRedirects(response, advance_url)
 
@@ -1040,3 +1060,448 @@ class OrdersHubAndNotificationTests(TestCase):
 
         second_detail_response = client.get(f"/owner/purchase-orders/{po.pk}/")
         self.assertNotContains(second_detail_response, "new order you haven't opened")
+
+
+class QuoteToInvoiceTests(TestCase):
+    """The four stages, each side on its own panel: the Distributor's
+    Request to Quote → the Owner's quote (and counter-offers back and
+    forth) → the Purchase Order once the Distributor accepts → the
+    Owner's invoice. Every step lands in the order's conversation and
+    notifies the other side."""
+
+    def setUp(self):
+        from apps.core.models import Brand
+
+        Brand.objects.create(name="Boreal Vita", active=True)
+        self.owner = User.objects.create_user(
+            email="owner@rtq.test",
+            password="OwnerPassword123!",
+            role=User.Role.OWNER,
+            is_active=True,
+        )
+        self.product_x = create_product(
+            actor=self.owner, sku="RTQ-X", barcode="", name="Product X",
+            base_retail_price=Decimal("100.00"), currency="pkr",
+        )
+        self.product_y = create_product(
+            actor=self.owner, sku="RTQ-Y", barcode="", name="Product Y",
+            base_retail_price=Decimal("50.00"), currency="pkr",
+        )
+        inventory = create_inventory(actor=self.owner, code="RTQ-INV", name="RTQ Region")
+        warehouse = create_location(
+            actor=self.owner,
+            code="RTQ-WH",
+            name="RTQ Warehouse",
+            location_type=Location.LocationType.OWN,
+            inventory=inventory,
+        )
+        self.batch_x = receive_stock(
+            actor=self.owner, product=self.product_x, quantity=Decimal("100"), to_location=warehouse,
+        ).batch
+        self.distributor_user = create_distributor(
+            actor=self.owner,
+            email="dist@rtq.test",
+            temporary_password="TemporaryPassword123!",
+            name="RTQ Distributor",
+        )
+        approve_distributor(user=self.owner, distributor_id=self.distributor_user.pk)
+        self.distributor_user.refresh_from_db()
+        self.other_distributor_user = create_distributor(
+            actor=self.owner,
+            email="other@rtq.test",
+            temporary_password="TemporaryPassword123!",
+            name="Other RTQ Distributor",
+        )
+        approve_distributor(user=self.owner, distributor_id=self.other_distributor_user.pk)
+        self.other_distributor_user.refresh_from_db()
+
+        self.owner_client = Client()
+        self.owner_client.force_login(self.owner)
+        self.distributor = Client()
+        self.distributor.force_login(self.distributor_user)
+
+    def _request_to_quote(self):
+        response = self.distributor.post(
+            "/distributor/purchase-orders/new/",
+            {
+                "items-TOTAL_FORMS": "2",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-product": str(self.product_x.pk),
+                "items-0-quantity_requested": "10",
+                "items-0-requested_unit_price": "90.00",
+                "items-1-product": str(self.product_y.pk),
+                "items-1-quantity_requested": "5",
+                "items-1-requested_unit_price": "",
+                "message": "Need these for the spring season.",
+            },
+        )
+        po = PurchaseOrder.objects.get()
+        self.assertRedirects(response, f"/distributor/purchase-orders/{po.pk}/")
+        return po
+
+    def test_request_to_quote_is_not_an_order_yet(self):
+        po = self._request_to_quote()
+
+        self.assertEqual(po.status, PurchaseOrder.Status.QUOTE)
+        self.assertEqual(po.document_title, "Request to Quote")
+        item_x = po.items.get(product=self.product_x)
+        item_y = po.items.get(product=self.product_y)
+        self.assertEqual(item_x.requested_unit_price, Decimal("90.00"))
+        self.assertIsNone(item_y.unit_price)
+        self.assertEqual(po.subtotal, Decimal("900.00"))
+
+        request = po.revisions.get()
+        self.assertEqual(request.stage, PurchaseOrderRevision.Stage.REQUEST)
+        self.assertFalse(request.by_owner)
+        self.assertEqual(request.message, "Need these for the spring season.")
+
+        with self.assertRaises(ValidationError):
+            ship_purchase_order_item(
+                actor=self.owner, item_id=item_x.pk, allocations=[(self.batch_x, Decimal("1"))],
+            )
+        with self.assertRaises(ValidationError):
+            record_payment(
+                actor=self.distributor_user, purchase_order_id=po.pk, amount=Decimal("10"),
+                paid_at="2026-01-01", proof=_proof_file(),
+            )
+        with self.assertRaises(ValidationError):
+            accept_quote(actor=self.distributor_user, purchase_order_id=po.pk)
+
+        # The Owner is notified of the new request.
+        self.assertContains(self.owner_client.get("/owner/"), "1 new Purchase Order")
+        page = self.owner_client.get(f"/owner/purchase-orders/{po.pk}/")
+        self.assertContains(page, "New Request to Quote")
+        self.assertContains(page, "Need these for the spring season.")
+
+    def test_distributor_can_edit_the_request_only_until_the_owner_quotes(self):
+        po = self._request_to_quote()
+        edit_url = f"/distributor/purchase-orders/{po.pk}/edit/"
+
+        self.assertEqual(self.distributor.get(edit_url).status_code, 200)
+        self.distributor.post(
+            edit_url,
+            {
+                "items-TOTAL_FORMS": "1",
+                "items-INITIAL_FORMS": "0",
+                "items-MIN_NUM_FORMS": "0",
+                "items-MAX_NUM_FORMS": "1000",
+                "items-0-product": str(self.product_x.pk),
+                "items-0-quantity_requested": "12",
+                "items-0-requested_unit_price": "85.00",
+                "message": "Changed my mind.",
+            },
+        )
+        po.refresh_from_db()
+        item = po.items.get()
+        self.assertEqual(item.quantity_requested, Decimal("12"))
+        self.assertEqual(item.requested_unit_price, Decimal("85.00"))
+        request = po.revisions.get()
+        self.assertEqual(request.message, "Changed my mind.")
+        self.assertEqual(request.lines.get().quantity, Decimal("12"))
+
+        send_quote(
+            actor=self.owner,
+            purchase_order_id=po.pk,
+            item_updates={str(item.pk): {"unit_price": Decimal("95.00")}},
+        )
+        response = self.distributor.get(edit_url)
+        self.assertRedirects(response, f"/distributor/purchase-orders/{po.pk}/")
+
+    def test_the_whole_conversation_from_request_to_invoice(self):
+        po = self._request_to_quote()
+        item_x = po.items.get(product=self.product_x)
+        item_y = po.items.get(product=self.product_y)
+        self.owner_client.get(f"/owner/purchase-orders/{po.pk}/")
+
+        # 2. The Owner quotes from the Owner's panel: a different price for
+        #    X, and drops Y which they can't supply.
+        quote_url = f"/owner/purchase-orders/{po.pk}/quote/"
+        page = self.owner_client.get(quote_url)
+        self.assertContains(page, f'name="line_price_{item_x.pk}"')
+        self.owner_client.post(
+            quote_url,
+            {
+                f"line_price_{item_x.pk}": "95.00",
+                f"line_qty_{item_x.pk}": "10",
+                f"line_price_{item_y.pk}": "",
+                f"line_qty_{item_y.pk}": "5",
+                f"line_remove_{item_y.pk}": "on",
+                "message": "Y is out of stock this month.",
+            },
+        )
+        po.refresh_from_db()
+        item_x.refresh_from_db()
+        self.assertIsNotNone(po.quoted_at)
+        self.assertEqual(po.items.count(), 1)
+        self.assertEqual(item_x.unit_price, Decimal("95.00"))
+        self.assertEqual(item_x.discount_percentage, Decimal("5.00"))
+        self.assertEqual(item_x.price_highlight, "changed")
+
+        # The Distributor is notified and can't accept their own words.
+        dashboard = self.distributor.get("/distributor/")
+        self.assertContains(dashboard, "1 update from the Owner")
+        self.assertContains(dashboard, "the Owner sent a quote")
+        detail = self.distributor.get(f"/distributor/purchase-orders/{po.pk}/")
+        self.assertContains(detail, "quote is in.")
+        self.assertContains(detail, "Y is out of stock this month.")
+        self.assertNotContains(self.distributor.get("/distributor/"), "update from the Owner")
+
+        # Counter-offer from the Distributor's panel.
+        counter_url = f"/distributor/purchase-orders/{po.pk}/counter-offer/"
+        self.distributor.post(
+            counter_url,
+            {f"line_price_{item_x.pk}": "92.00", f"line_qty_{item_x.pk}": "10", "message": "Meet me at 92?"},
+        )
+        item_x.refresh_from_db()
+        self.assertEqual(item_x.unit_price, Decimal("95.00"))  # only proposed
+        with self.assertRaises(ValidationError):
+            accept_quote(actor=self.distributor_user, purchase_order_id=po.pk)
+        self.assertEqual(self.distributor.get(counter_url).status_code, 302)
+
+        # The Owner is notified of the counter-offer.
+        owner_dashboard = self.owner_client.get("/owner/")
+        self.assertContains(owner_dashboard, "1 Purchase Order update from Distributors")
+        self.assertContains(owner_dashboard, "counter-offer received")
+        page = self.owner_client.get(f"/owner/purchase-orders/{po.pk}/")
+        self.assertContains(page, "Counter-offer received.")
+
+        # The Owner agrees: the quote page starts from the counter-offer.
+        page = self.owner_client.get(quote_url)
+        self.assertContains(page, 'value="92.00"')
+        self.owner_client.post(
+            quote_url,
+            {f"line_price_{item_x.pk}": "92.00", f"line_qty_{item_x.pk}": "10", "message": "Deal."},
+        )
+
+        # 3. The Distributor accepts — it becomes their Purchase Order.
+        response = self.distributor.post(
+            f"/distributor/purchase-orders/{po.pk}/accept/", {"message": "Thanks!"}
+        )
+        self.assertRedirects(response, f"/distributor/purchase-orders/{po.pk}/advance/")
+        po.refresh_from_db()
+        self.assertEqual(po.status, PurchaseOrder.Status.PENDING)
+        self.assertIsNotNone(po.po_placed_at)
+        self.assertEqual(po.grand_total, Decimal("920.00"))
+
+        # The Owner changes the Purchase Order → a new version.
+        change_url = f"/owner/purchase-orders/{po.pk}/change/"
+        self.owner_client.post(
+            change_url,
+            {f"line_price_{item_x.pk}": "92.00", f"line_qty_{item_x.pk}": "8", "message": "Only 8 left."},
+        )
+        po.refresh_from_db()
+        self.assertEqual(po.items.get().quantity_requested, Decimal("8"))
+        self.assertContains(self.distributor.get("/distributor/"), "the Owner changed the Purchase Order")
+
+        # Ship everything, then 4. the invoice.
+        invoice_url = f"/owner/purchase-orders/{po.pk}/invoice/"
+        self.assertEqual(self.owner_client.get(invoice_url).status_code, 302)
+        record_advance_decision(actor=self.distributor_user, purchase_order_id=po.pk, pays_advance=False)
+        ship_purchase_order_item(
+            actor=self.owner, item_id=item_x.pk, allocations=[(self.batch_x, Decimal("8"))],
+        )
+        po.refresh_from_db()
+        self.assertTrue(po.can_issue_invoice)
+        self.assertFalse(po.can_change)
+
+        self.assertEqual(self.owner_client.get(invoice_url).status_code, 200)
+        self.owner_client.post(
+            invoice_url, {"tax_percentage": "10", "shipping_amount": "20", "message": ""},
+        )
+        po.refresh_from_db()
+        self.assertEqual(po.invoice_number, "SI-BOREAL-VITA-0001")
+        self.assertIsNotNone(po.invoiced_at)
+        self.assertEqual(po.grand_total, Decimal("829.60"))  # 736 + 73.60 tax + 20
+        self.assertEqual(po.document_title, "Invoice")
+        with self.assertRaises(ValidationError):
+            update_pricing(
+                actor=self.owner, purchase_order_id=po.pk,
+                tax_percentage=Decimal("0"), shipping_amount=Decimal("0"),
+            )
+        with self.assertRaises(ValidationError):
+            decline_purchase_order(actor=self.owner, purchase_order_id=po.pk, comment="No")
+
+        # The whole conversation, in order, on both panels.
+        timeline = revision_timeline(po)
+        self.assertEqual(
+            [step["label"] for step in timeline],
+            [
+                "Request to Quote",
+                "Owner's quote",
+                "Distributor's counter-offer",
+                "Owner's quote",
+                "Purchase Order",
+                "Purchase Order v2",
+                "Invoice",
+            ],
+        )
+        self.assertEqual(
+            [step["revision"].by_owner for step in timeline],
+            [False, True, False, True, False, True, True],
+        )
+        self.assertEqual([step["state"] for step in order_steps(po)], ["done"] * 4)
+
+        for client, url in (
+            (self.owner_client, f"/owner/purchase-orders/{po.pk}/"),
+            (self.distributor, f"/distributor/purchase-orders/{po.pk}/"),
+        ):
+            page = client.get(url)
+            self.assertContains(page, "Conversation history")
+            self.assertContains(page, "SI-BOREAL-VITA-0001")
+            self.assertEqual(client.get(f"/purchase-orders/{po.pk}/pdf/").status_code, 200)
+            record = client.get(f"/purchase-orders/{po.pk}/record/")
+            self.assertEqual(record.status_code, 200)
+            self.assertEqual(record["Content-Type"], "application/pdf")
+            self.assertEqual(
+                client.get(f"/purchase-orders/{po.pk}/conversation/").status_code, 200
+            )
+
+    def test_owner_quotes_straight_from_the_order_page(self):
+        po = self._request_to_quote()
+        item_x = po.items.get(product=self.product_x)
+        item_y = po.items.get(product=self.product_y)
+
+        page = self.owner_client.get(f"/owner/purchase-orders/{po.pk}/")
+        self.assertContains(page, f'name="line_price_{item_x.pk}"')
+        self.assertContains(page, f'action="/owner/purchase-orders/{po.pk}/quote/"')
+        self.assertContains(page, "Send Quote to Distributor")
+
+        response = self.owner_client.post(
+            f"/owner/purchase-orders/{po.pk}/quote/",
+            {
+                f"line_price_{item_x.pk}": "88.00",
+                f"line_qty_{item_x.pk}": "10",
+                f"line_price_{item_y.pk}": "45.00",
+                f"line_qty_{item_y.pk}": "5",
+            },
+        )
+        self.assertRedirects(response, f"/owner/purchase-orders/{po.pk}/")
+        item_x.refresh_from_db()
+        self.assertEqual(item_x.unit_price, Decimal("88.00"))
+
+        # Revised quotes can still be sent from the same page.
+        page = self.owner_client.get(f"/owner/purchase-orders/{po.pk}/")
+        self.assertContains(page, "Send Revised Quote to Distributor")
+
+        # Once accepted, the page shows the Purchase Order — no longer editable here.
+        accept_quote(actor=self.distributor_user, purchase_order_id=po.pk)
+        page = self.owner_client.get(f"/owner/purchase-orders/{po.pk}/")
+        self.assertNotContains(page, f'name="line_price_{item_x.pk}"')
+
+    def test_payment_form_only_shows_when_something_is_due(self):
+        po = create_purchase_order(
+            actor=self.distributor_user,
+            items=[{"product": self.product_x, "quantity_requested": Decimal("4")}],
+        )
+        record_advance_decision(actor=self.distributor_user, purchase_order_id=po.pk, pays_advance=False)
+        po.refresh_from_db()
+
+        # "No advance" with no advance required: nothing is due until it arrives.
+        self.assertFalse(po.can_pay_now)
+        page = self.distributor.get(f"/distributor/purchase-orders/{po.pk}/")
+        self.assertNotContains(page, "Pay advance")
+
+        # Once shipped, the remaining payment can be made.
+        ship_purchase_order_item(
+            actor=self.owner,
+            item_id=po.items.get().pk,
+            allocations=[(self.batch_x, Decimal("4"))],
+        )
+        po.refresh_from_db()
+        self.assertTrue(po.can_pay_now)
+        page = self.distributor.get(f"/distributor/purchase-orders/{po.pk}/")
+        self.assertContains(page, "Record remaining payment")
+
+    def test_required_advance_can_still_be_paid_after_answering_no(self):
+        profile = self.distributor_user.distributor_profile
+        profile.upfront_payment_percentage = Decimal("30")
+        profile.save()
+        po = create_purchase_order(
+            actor=self.distributor_user,
+            items=[{"product": self.product_x, "quantity_requested": Decimal("4")}],
+        )
+        record_advance_decision(actor=self.distributor_user, purchase_order_id=po.pk, pays_advance=False)
+        po.refresh_from_db()
+
+        # Shipping is blocked until the required 30% is paid, so it stays payable.
+        self.assertTrue(po.can_pay_now)
+        page = self.distributor.get(f"/distributor/purchase-orders/{po.pk}/")
+        self.assertContains(page, "Pay advance")
+
+    def test_owner_can_decline_a_request_to_quote(self):
+        po = self._request_to_quote()
+
+        decline_purchase_order(actor=self.owner, purchase_order_id=po.pk, comment="Not this season.")
+        po.refresh_from_db()
+
+        self.assertTrue(po.declined_as_quote)
+        self.assertIsNone(po.purchase_order_date)
+        self.assertEqual(order_steps(po)[0]["note"], "Declined by the Owner")
+        with self.assertRaises(ValidationError):
+            send_quote(
+                actor=self.owner,
+                purchase_order_id=po.pk,
+                item_updates={str(item.pk): {"unit_price": Decimal("1")} for item in po.items.all()},
+            )
+        page = self.distributor.get(f"/distributor/purchase-orders/{po.pk}/")
+        self.assertContains(page, "The Owner declined this request.")
+
+    def test_only_the_distributor_who_asked_can_answer_the_quote(self):
+        po = self._request_to_quote()
+        item_x = po.items.get(product=self.product_x)
+        item_y = po.items.get(product=self.product_y)
+        send_quote(
+            actor=self.owner,
+            purchase_order_id=po.pk,
+            item_updates={
+                str(item_x.pk): {"unit_price": Decimal("90.00")},
+                str(item_y.pk): {"unit_price": Decimal("50.00")},
+            },
+        )
+
+        with self.assertRaises(ValidationError):
+            accept_quote(actor=self.other_distributor_user, purchase_order_id=po.pk)
+
+        other = Client()
+        other.force_login(self.other_distributor_user)
+        self.assertEqual(
+            other.get(f"/distributor/purchase-orders/{po.pk}/counter-offer/").status_code, 404
+        )
+        other.post(f"/distributor/purchase-orders/{po.pk}/accept/")
+        po.refresh_from_db()
+        self.assertEqual(po.status, PurchaseOrder.Status.QUOTE)
+
+        with self.assertRaises(PermissionDenied):
+            send_quote(
+                actor=self.distributor_user,
+                purchase_order_id=po.pk,
+                item_updates={},
+            )
+
+    def test_a_partly_shipped_order_cannot_be_invoiced_until_the_rest_is_closed(self):
+        po = create_purchase_order(
+            actor=self.distributor_user,
+            items=[
+                {"product": self.product_x, "quantity_requested": Decimal("4")},
+                {"product": self.product_y, "quantity_requested": Decimal("5")},
+            ],
+        )
+        item_x = po.items.get(product=self.product_x)
+        item_y = po.items.get(product=self.product_y)
+        ship_purchase_order_item(
+            actor=self.owner, item_id=item_x.pk, allocations=[(self.batch_x, Decimal("4"))],
+        )
+
+        with self.assertRaises(ValidationError):
+            issue_invoice(actor=self.owner, purchase_order_id=po.pk)
+
+        update_line_status(actor=self.owner, item_id=item_y.pk, note="Discontinued", unavailable=True)
+        po = issue_invoice(actor=self.owner, purchase_order_id=po.pk)
+
+        self.assertEqual(po.subtotal, Decimal("400.00"))
+        invoice = po.revisions.get(stage=PurchaseOrderRevision.Stage.INVOICE)
+        lines = {line.product_id: line for line in invoice.lines.all()}
+        self.assertTrue(lines[self.product_y.pk].removed)
+        self.assertEqual(lines[self.product_x.pk].quantity, Decimal("4"))

@@ -16,6 +16,29 @@ from .models import (
 )
 
 
+def validate_whole_bottles(value):
+    if value is not None and value != value.to_integral_value():
+        raise forms.ValidationError("Enter a whole number of bottles.")
+
+
+def bottle_quantity_field(*, initial=None, label="Quantity", css_class=None):
+    """Number of bottles: a whole number, at least 1. min_value has to be
+    1 too — Django writes it into the input's min, and the browser counts
+    each step from there, so a min of 0.0001 makes 40 "invalid"."""
+    attrs = {"step": "1"}
+    if css_class:
+        attrs["class"] = css_class
+    return forms.DecimalField(
+        max_digits=18,
+        decimal_places=4,
+        min_value=Decimal("1"),
+        initial=initial,
+        validators=[validate_whole_bottles],
+        widget=forms.NumberInput(attrs=attrs),
+        label=label,
+    )
+
+
 class ManufacturerForm(forms.ModelForm):
     class Meta:
         model = Manufacturer
@@ -48,9 +71,21 @@ class ManufacturerOrderForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 4}),
         help_text="Printed at the bottom of the document.",
     )
+    message = forms.CharField(
+        required=False,
+        label="Message to the manufacturer",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Kept in the order's conversation history — not printed.",
+    )
 
 
 class ManufacturerOrderItemForm(forms.ModelForm):
+    save_price = forms.BooleanField(
+        required=False,
+        label="Save as system price",
+        help_text="Store this price for the product and bottle size, to reuse next time.",
+    )
+
     class Meta:
         model = ManufacturerOrderItem
         fields = [
@@ -80,6 +115,21 @@ class ManufacturerOrderItemForm(forms.ModelForm):
         self.fields["bottle_size"].choices = [("", "Bottle size — none")] + list(BottleSize.choices)
         self.fields["unit_price"].required = False
         self.fields["source_purchase_order_item"].required = False
+        self.fields["quantity"] = bottle_quantity_field(
+            label="Qty (bottles)", css_class="doc-line-input"
+        )
+        self.fields["quantity"].widget.attrs["placeholder"] = "0"
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        if cleaned_data.get("save_price") and not cleaned_data.get("DELETE"):
+            if not cleaned_data.get("bottle_size"):
+                self.add_error("save_price", "Pick a bottle size to save the price for.")
+            elif not cleaned_data.get("unit_price"):
+                self.add_error("save_price", "Enter a price to save.")
+
+        return cleaned_data
 
     def validate_unique(self):
         # The order isn't saved through this form; the service checks
@@ -112,34 +162,42 @@ class ManufacturerQuoteForm(forms.Form):
         label="Quote document (real prices)",
         help_text="The document or picture with the Manufacturer's real prices, as the manufacturer sent it.",
     )
+    message = forms.CharField(
+        required=False,
+        label="What the manufacturer said",
+        widget=forms.Textarea(attrs={"rows": 3}),
+        help_text="Their reply in their words — kept in the order's conversation history.",
+    )
 
-    def __init__(self, *args, order=None, saved_prices=None, **kwargs):
+    def __init__(self, *args, order=None, saved_prices=None, latest_lines=None, **kwargs):
+        """latest_lines: {item_pk_as_str: OrderRevisionLine} — the last
+        prices on the table (e.g. our counter-offer), so a reply that just
+        accepts them needs no retyping."""
         super().__init__(*args, **kwargs)
 
         self.order = order
         self.saved_prices = saved_prices or {}
+        latest_lines = latest_lines or {}
         self.items = (
             list(order.items.select_related("product").all()) if order else []
         )
         self.fields["quote_file"].required = not (order and order.quote_file)
 
         for item in self.items:
+            latest = latest_lines.get(str(item.pk)) or item
             self.fields[f"{self.PRICE_PREFIX}{item.pk}"] = forms.DecimalField(
                 max_digits=18,
                 decimal_places=3,
                 min_value=Decimal("0"),
                 required=False,
-                initial=item.unit_price,
+                initial=latest.unit_price,
                 widget=forms.NumberInput(attrs={"step": "0.001", "class": "doc-line-input"}),
                 label=f"{item.product.name} — quoted price",
             )
-            self.fields[f"{self.QTY_PREFIX}{item.pk}"] = forms.DecimalField(
-                max_digits=18,
-                decimal_places=4,
-                min_value=Decimal("0.0001"),
-                initial=f"{item.quantity.normalize():f}",
-                widget=forms.NumberInput(attrs={"step": "1", "min": "1", "class": "doc-line-input"}),
+            self.fields[f"{self.QTY_PREFIX}{item.pk}"] = bottle_quantity_field(
+                initial=f"{latest.quantity.normalize():f}",
                 label=f"{item.product.name} — quantity",
+                css_class="doc-line-input",
             )
             self.fields[f"{self.REMOVE_PREFIX}{item.pk}"] = forms.BooleanField(
                 required=False, label="Drop"
@@ -201,6 +259,112 @@ class ManufacturerQuoteForm(forms.Form):
             item.pk for item in self.items
             if self.cleaned_data.get(f"{self.SAVE_PREFIX}{item.pk}")
         ]
+
+
+class OrderLinesForm(forms.Form):
+    """A price and quantity per order line plus a message — shared by
+    our counter-offer and by changing a sent Purchase Order."""
+
+    PRICE_PREFIX = "line_price_"
+    QTY_PREFIX = "line_qty_"
+    REMOVE_PREFIX = "line_remove_"
+
+    allow_remove = False
+    price_label = "Price"
+
+    message = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={"rows": 3}),
+    )
+
+    def __init__(self, *args, order=None, initial_lines=None, **kwargs):
+        """initial_lines: {item_pk_as_str: OrderRevisionLine} to start
+        from instead of the order's own prices."""
+        super().__init__(*args, **kwargs)
+
+        self.items = list(order.items.select_related("product")) if order else []
+        initial_lines = initial_lines or {}
+
+        for item in self.items:
+            start = initial_lines.get(str(item.pk)) or item
+            self.fields[f"{self.PRICE_PREFIX}{item.pk}"] = forms.DecimalField(
+                max_digits=18,
+                decimal_places=3,
+                min_value=Decimal("0"),
+                required=False,
+                initial=start.unit_price,
+                widget=forms.NumberInput(attrs={"step": "0.001"}),
+                label=f"{item.product.name} — {self.price_label.lower()}",
+            )
+            self.fields[f"{self.QTY_PREFIX}{item.pk}"] = bottle_quantity_field(
+                initial=f"{start.quantity.normalize():f}",
+                label=f"{item.product.name} — quantity",
+            )
+            if self.allow_remove:
+                self.fields[f"{self.REMOVE_PREFIX}{item.pk}"] = forms.BooleanField(
+                    required=False, label="Drop"
+                )
+
+    def item_rows(self):
+        return [
+            {
+                "item": item,
+                "price": self[f"{self.PRICE_PREFIX}{item.pk}"],
+                "quantity": self[f"{self.QTY_PREFIX}{item.pk}"],
+                "remove": self[f"{self.REMOVE_PREFIX}{item.pk}"] if self.allow_remove else None,
+            }
+            for item in self.items
+        ]
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        for item in self.items:
+            if cleaned_data.get(f"{self.REMOVE_PREFIX}{item.pk}"):
+                continue
+            if cleaned_data.get(f"{self.PRICE_PREFIX}{item.pk}") is None:
+                self.add_error(f"{self.PRICE_PREFIX}{item.pk}", "Enter a price.")
+
+        return cleaned_data
+
+    def item_updates(self):
+        return {
+            str(item.pk): {
+                "unit_price": self.cleaned_data.get(f"{self.PRICE_PREFIX}{item.pk}"),
+                "quantity": self.cleaned_data.get(f"{self.QTY_PREFIX}{item.pk}"),
+            }
+            for item in self.items
+        }
+
+    def removed_item_ids(self):
+        return [
+            item.pk for item in self.items
+            if self.cleaned_data.get(f"{self.REMOVE_PREFIX}{item.pk}")
+        ]
+
+
+class CounterOfferForm(OrderLinesForm):
+    price_label = "Our price"
+
+    attachment = forms.FileField(
+        required=False,
+        label="Attachment",
+        help_text="Optional — e.g. a screenshot of the message you sent.",
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["message"].label = "Message to the manufacturer"
+        self.fields["message"].help_text = "Why you're asking for these prices."
+
+
+class PurchaseOrderEditForm(OrderLinesForm):
+    allow_remove = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["message"].label = "Reason for the change"
+        self.fields["message"].help_text = "Saved with this version of the Purchase Order."
 
 
 class ManufacturerOrderInvoiceForm(forms.Form):

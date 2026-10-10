@@ -6,43 +6,58 @@
 {% endblock %}
 
 {% block content %}
-<div class="page-header">
+<a class="mo-back-link" href="{% url 'owner-purchase-order-list' %}">← Back to Distributor's Purchase Orders</a>
+
+<div class="page-header mo-header">
     <div>
-        <p class="eyebrow">Purchase Orders</p>
-        <h1>{{ purchase_order.po_number }} — {{ purchase_order.distributor_profile.name }}</h1>
-        <p>Submitted {{ purchase_order.created_at|date:"M d, Y H:i" }}</p>
+        <div class="mo-title-row">
+            <h1>{{ purchase_order.po_number }}</h1>
+            {% include "requests/_po_status_badge.html" %}
+        </div>
+        <p>
+            Started {{ purchase_order.created_at|date:"M d, Y H:i" }}
+            · Distributor: {{ purchase_order.distributor_profile.name }}
+            {% if purchase_order.invoice_number %} · Invoice {{ purchase_order.invoice_number }}{% endif %}
+        </p>
     </div>
 
-    <div>
-        <a
-            class="button button-secondary"
-            href="{% url 'purchase-order-pdf' purchase_order.pk %}"
-            target="_blank"
-        >
-            View PDF
-        </a>
-        <a
-            class="button button-secondary"
-            href="{% url 'purchase-order-pdf' purchase_order.pk %}?download=1"
-        >
-            Download PDF
-        </a>
-        <a
-            class="button button-secondary"
-            href="{% url 'owner-purchase-order-list' %}"
-        >
-            Back
-        </a>
-    </div>
+    <details class="mo-actions">
+        <summary class="button button-secondary">Actions ▾</summary>
+        <div class="mo-actions-menu">
+            <a href="{% url 'purchase-order-pdf' purchase_order.pk %}" target="_blank">View {{ purchase_order.document_title }} (PDF)</a>
+            <a href="{% url 'purchase-order-pdf' purchase_order.pk %}?download=1">Download {{ purchase_order.document_title }} (PDF)</a>
+            {% if purchase_order.is_quote %}
+                <a href="{% url 'purchase-order-quote' purchase_order.pk %}">{% if purchase_order.quoted_at %}Send revised quote{% else %}Send quote{% endif %}</a>
+            {% endif %}
+            {% if purchase_order.can_change %}
+                <a href="{% url 'purchase-order-change' purchase_order.pk %}">Change Purchase Order</a>
+            {% endif %}
+            {% if purchase_order.can_issue_invoice %}
+                <a href="{% url 'purchase-order-invoice' purchase_order.pk %}">Issue invoice</a>
+            {% endif %}
+            {% if show_conversation %}
+                <a href="#conversation">Conversation history</a>
+            {% else %}
+                <a href="{% url 'purchase-order-conversation' purchase_order.pk %}">Conversation history</a>
+            {% endif %}
+            {% if purchase_order.invoiced_at %}
+                <a href="{% url 'purchase-order-record-pdf' purchase_order.pk %}">Download full order record (PDF)</a>
+            {% endif %}
+        </div>
+    </details>
 </div>
 
 {% if was_new %}
     <div class="notification-card">
         <h2>This is a new order you haven't opened before.</h2>
     </div>
+{% elif has_update %}
+    <div class="notification-card">
+        <h2>{{ purchase_order.distributor_profile.name }} has updated this order since you last opened it.</h2>
+    </div>
 {% endif %}
 
-{% if not purchase_order.upfront_amount_satisfied and purchase_order.status != "DECLINED" %}
+{% if not purchase_order.is_quote and not purchase_order.upfront_amount_satisfied and purchase_order.status != "DECLINED" %}
     <div class="notification-card">
         <h2>
             Shipping is on hold — this Distributor's terms require
@@ -53,20 +68,163 @@
     </div>
 {% endif %}
 
+{% include "requests/_steps.html" %}
+
+<div class="mo-cards">
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Next step</h2>
+            </div>
+        </div>
+
+        <div class="panel-body mo-next">
+            {% if purchase_order.status == "DECLINED" %}
+                <p>
+                    <strong>Declined.</strong>
+                    {% if purchase_order.owner_comment %}“{{ purchase_order.owner_comment }}”{% endif %}
+                </p>
+            {% elif awaiting_owner and not purchase_order.quoted_at %}
+                <p>
+                    <strong>New Request to Quote.</strong> {{ purchase_order.distributor_profile.name }}
+                    is asking for the products below{% if items %} at the prices they'd like{% endif %}.
+                    Send your quote — keep their prices, change them, or drop what you can't supply.
+                    They'll be notified to accept it or send a counter-offer.
+                </p>
+                <div class="mo-next-actions">
+                    <a class="button button-primary" href="#quote">Send Quote</a>
+                    <a class="button button-secondary" href="#decline">Decline</a>
+                </div>
+            {% elif awaiting_owner %}
+                <p>
+                    <strong>Counter-offer received.</strong> {{ purchase_order.distributor_profile.name }}
+                    answered your quote with their own prices — see the conversation below. Answer with a
+                    new quote: their prices are already filled in, so agreeing needs no retyping.
+                </p>
+                <div class="mo-next-actions">
+                    <a class="button button-secondary" href="#conversation">View Conversation</a>
+                    <a class="button button-primary" href="#quote">Answer with a Quote</a>
+                </div>
+            {% elif awaiting_distributor %}
+                <p>
+                    <strong>Quote sent — waiting for the Distributor.</strong>
+                    {{ purchase_order.distributor_profile.name }} has been notified to accept it, which
+                    turns it into their Purchase Order, or to send a counter-offer.
+                </p>
+                <div class="mo-next-actions">
+                    <a class="button button-secondary" href="#conversation">View Conversation</a>
+                    <a class="button button-secondary" href="#quote">Send Revised Quote</a>
+                </div>
+            {% elif not purchase_order.invoiced_at %}
+                <p>
+                    {% if purchase_order.can_issue_invoice %}
+                        <strong>Everything has shipped.</strong> Issue the invoice — it bills what was
+                        actually supplied, with the final tax and shipping.
+                    {% elif purchase_order.status == "PENDING" and purchase_order.pays_advance is None %}
+                        <strong>Purchase Order placed.</strong> The Distributor accepted your quote and
+                        still has to say whether they're paying an advance. You can prepare the shipment
+                        meanwhile{% if purchase_order.can_change %}, or change the Purchase Order{% endif %}.
+                    {% elif not purchase_order.upfront_amount_satisfied %}
+                        <strong>Waiting for payment.</strong> Confirm the Distributor's payment below
+                        once it lands — shipping unlocks after that.
+                    {% else %}
+                        <strong>Ship the order.</strong> Ship each product from your warehouses below.
+                        Once everything has shipped (or what can't be supplied is closed as unavailable),
+                        issue the invoice.
+                    {% endif %}
+                </p>
+                <div class="mo-next-actions">
+                    <a class="button button-secondary" href="{% url 'purchase-order-pdf' purchase_order.pk %}?download=1">Download Purchase Order</a>
+                    {% if purchase_order.can_change %}
+                        <a class="button button-secondary" href="{% url 'purchase-order-change' purchase_order.pk %}">Change Purchase Order</a>
+                    {% endif %}
+                    {% if purchase_order.can_issue_invoice %}
+                        <a class="button button-primary" href="{% url 'purchase-order-invoice' purchase_order.pk %}">Issue Invoice</a>
+                    {% else %}
+                        <span class="button button-primary is-disabled" aria-disabled="true" title="Ship everything first">Issue Invoice</span>
+                    {% endif %}
+                </div>
+            {% else %}
+                <p>
+                    <strong>Invoice {{ purchase_order.invoice_number }} issued.</strong>
+                    {% if purchase_order.remaining_amount > 0 %}
+                        {{ purchase_order.remaining_amount|money }} is still to be paid by the Distributor.
+                    {% else %}
+                        This order has been through every step.
+                    {% endif %}
+                </p>
+                <div class="mo-next-actions">
+                    <a class="button button-primary" href="{% url 'purchase-order-record-pdf' purchase_order.pk %}">Download Full Order Record (PDF)</a>
+                    <a class="button button-secondary" href="{% url 'purchase-order-record-pdf' purchase_order.pk %}?view=1" target="_blank">View PDF</a>
+                    <a class="button button-secondary" href="#conversation">View Full Conversation History ↓</a>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="mo-docs">
+            <h3>Documents</h3>
+            <ul>
+                <li>
+                    <span>{{ purchase_order.document_title }}</span>
+                    <a href="{% url 'purchase-order-pdf' purchase_order.pk %}" target="_blank">View PDF</a>
+                </li>
+                <li>
+                    <span>Invoice{% if purchase_order.invoice_number %} {{ purchase_order.invoice_number }}{% endif %}</span>
+                    {% if purchase_order.invoiced_at %}
+                        <a href="{% url 'purchase-order-pdf' purchase_order.pk %}" target="_blank">View</a>
+                    {% else %}
+                        <span class="table-secondary">Not issued yet</span>
+                    {% endif %}
+                </li>
+            </ul>
+        </div>
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>{{ purchase_order.document_title }}</h2>
+            </div>
+        </div>
+        <dl class="details-list mo-summary">
+            <div><dt>Number</dt><dd>{{ purchase_order.po_number }}</dd></div>
+            <div><dt>Requested</dt><dd>{{ purchase_order.created_at|date:"M d, Y" }}</dd></div>
+            <div><dt>Quote sent</dt><dd>{{ purchase_order.quoted_at|date:"M d, Y"|default:"Not yet" }}</dd></div>
+            <div><dt>PO placed</dt><dd>{{ purchase_order.purchase_order_date|date:"M d, Y"|default:"Not yet" }}</dd></div>
+            <div><dt>Invoiced</dt><dd>{{ purchase_order.invoiced_at|date:"M d, Y"|default:"Not yet" }}</dd></div>
+            <div><dt>Invoice no.</dt><dd>{{ purchase_order.invoice_number|default:"Not yet" }}</dd></div>
+            <div><dt>Distributor</dt><dd>{{ purchase_order.distributor_profile.name }}</dd></div>
+            <div><dt>Total amount</dt><dd><strong>{{ purchase_order.grand_total|money }}</strong></dd></div>
+            <div><dt>Status</dt><dd>{% include "requests/_po_status_badge.html" %}</dd></div>
+        </dl>
+    </section>
+</div>
+
 {% include "requests/_agreement_banner.html" %}
 
+{% if quote_form %}
+    <div id="quote">
+        {% include "requests/_owner_quote_sheet.html" with form=quote_form submit_label=quote_submit_label embedded=True %}
+    </div>
+{% else %}
+    {% include "requests/_doc_sheet.html" %}
+{% endif %}
+
+{% if not purchase_order.is_quote and not purchase_order.declined_as_quote %}
 <section class="panel">
     <div class="panel-header">
         <div>
-            <h2>Products &amp; prices</h2>
+            <h2>Products, shipping &amp; prices</h2>
             <p>
-                Each line starts at the agreement's discount. Change any line's % before it
-                ships — prices and totals update as you type.
+                {% if any_repriceable %}
+                    Change any line's discount % before it ships — prices and totals update as you
+                    type. Saving records a new version of the Purchase Order for the Distributor.
+                {% else %}
+                    What's been shipped and received on each line.
+                {% endif %}
             </p>
         </div>
-        <span class="badge {% if purchase_order.status == 'RECEIVED' %}badge-open{% elif purchase_order.status == 'DECLINED' %}badge-closed{% elif purchase_order.status == 'PENDING' %}badge-pending{% else %}badge-neutral{% endif %}">
-            {{ purchase_order.get_status_display }}
-        </span>
+        {% include "requests/_po_status_badge.html" %}
     </div>
 
     <form
@@ -83,7 +241,7 @@
                 <thead>
                     <tr>
                         <th>Product</th>
-                        <th>Requested</th>
+                        <th>Ordered</th>
                         <th>List price</th>
                         <th>Discount %</th>
                         <th>Unit price</th>
@@ -95,7 +253,7 @@
                 </thead>
 
                 <tbody>
-                    {% for item in purchase_order.items.all %}
+                    {% for item in items %}
                         <tr
                             data-price-row
                             data-list-price="{{ item.list_price }}"
@@ -109,7 +267,7 @@
                             <td>{{ item.quantity_requested|floatformat:"-4" }}</td>
                             <td>{{ item.list_price|money }}</td>
                             <td>
-                                {% if purchase_order.is_open and item.can_reprice %}
+                                {% if any_repriceable and item.can_reprice %}
                                     <input
                                         type="number"
                                         class="discount-input"
@@ -166,8 +324,9 @@
         {% endif %}
     </form>
 </section>
+{% endif %}
 
-{% if purchase_order.is_open %}
+{% if purchase_order.is_open and not purchase_order.is_quote %}
     <section class="panel">
         <div class="panel-header">
             <div>
@@ -215,8 +374,8 @@
     </section>
 {% endif %}
 
-{% if purchase_order.status != "DECLINED" and purchase_order.upfront_amount_satisfied %}
-    <section class="panel">
+{% if not purchase_order.is_quote and purchase_order.status != "DECLINED" and purchase_order.upfront_amount_satisfied %}
+    <section class="panel" id="ship">
         <div class="panel-header">
             <div>
                 <h2>Ship stock</h2>
@@ -296,6 +455,7 @@
     </section>
 {% endif %}
 
+{% if not purchase_order.is_quote and not purchase_order.declined_as_quote %}
 <section class="panel">
     <div class="panel-header">
         <div>
@@ -337,24 +497,26 @@
         <div><dt>Confirmed by you</dt><dd>{{ purchase_order.total_paid|money }}</dd></div>
     </dl>
 
-    <form method="post" action="{% url 'purchase-order-update-pricing' purchase_order.pk %}" class="form-layout" style="padding: 1rem 1.375rem 1.375rem;">
-        {% csrf_token %}
-        <div class="form-grid">
-            <div class="form-group">
-                <label>Tax %</label>
-                {{ pricing_form.tax_percentage }}
+    {% if not purchase_order.invoiced_at %}
+        <form method="post" action="{% url 'purchase-order-update-pricing' purchase_order.pk %}" class="form-layout" style="padding: 1rem 1.375rem 1.375rem;">
+            {% csrf_token %}
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Tax %</label>
+                    {{ pricing_form.tax_percentage }}
+                </div>
+                <div class="form-group">
+                    <label>Shipping</label>
+                    {{ pricing_form.shipping_amount }}
+                </div>
             </div>
-            <div class="form-group">
-                <label>Shipping</label>
-                {{ pricing_form.shipping_amount }}
+            <div class="form-actions">
+                <button class="button button-secondary" type="submit">
+                    Update Tax &amp; Shipping
+                </button>
             </div>
-        </div>
-        <div class="form-actions">
-            <button class="button button-secondary" type="submit">
-                Update Tax &amp; Shipping
-            </button>
-        </div>
-    </form>
+        </form>
+    {% endif %}
 
     {% if purchase_order.payments.all %}
         <div class="table-wrapper">
@@ -428,6 +590,7 @@
         </div>
     {% endif %}
 </section>
+{% endif %}
 
 <section class="panel form-panel">
     <h2>Comment to Distributor</h2>
@@ -445,26 +608,36 @@
     </form>
 </section>
 
-{% if purchase_order.status != "DECLINED" %}
-    <section class="panel form-panel">
-        <h2>Decline Purchase Order</h2>
-        <p>Closes out whatever's left unshipped. Already-shipped items are not affected.</p>
+{% if purchase_order.status != "DECLINED" and not purchase_order.invoiced_at %}
+    <section class="panel form-panel" id="decline">
+        <h2>{% if purchase_order.is_quote %}Decline Request to Quote{% else %}Decline Purchase Order{% endif %}</h2>
+        <p>
+            {% if purchase_order.is_quote %}
+                Tells the Distributor you won't supply this request. Your comment is shown to them.
+            {% else %}
+                Closes out whatever's left unshipped. Already-shipped items are not affected.
+            {% endif %}
+        </p>
 
         <form
             method="post"
             action="{% url 'purchase-order-decline' purchase_order.pk %}"
             class="form-layout confirm-form"
-            data-confirm="Decline the remaining items on this purchase order?"
+            data-confirm="{% if purchase_order.is_quote %}Decline this Request to Quote?{% else %}Decline the remaining items on this purchase order?{% endif %}"
         >
             {% csrf_token %}
             {{ decline_form.comment }}
 
             <div class="form-actions">
                 <button class="button button-danger" type="submit">
-                    Decline Purchase Order
+                    {% if purchase_order.is_quote %}Decline Request to Quote{% else %}Decline Purchase Order{% endif %}
                 </button>
             </div>
         </form>
     </section>
+{% endif %}
+
+{% if show_conversation %}
+    {% include "requests/_conversation.html" with panel="owner" %}
 {% endif %}
 {% endblock %}

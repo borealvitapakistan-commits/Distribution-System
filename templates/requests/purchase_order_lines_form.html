@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    {{ page_title }} — {{ purchase_order.po_number }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">{{ page_title }}</p>
+        <h1>{{ purchase_order.po_number }}{% if panel == "owner" %} — {{ purchase_order.distributor_profile.name }}{% endif %}</h1>
+        <p>{{ intro }}</p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{{ detail_url }}#conversation">
+            Back to order
+        </a>
+    </div>
+</div>
+
+<section class="panel form-panel">
+    <form method="post" enctype="multipart/form-data" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.errors %}
+            <div class="form-errors">
+                Nothing was saved — please fix the fields marked below.
+                {% for error in form.non_field_errors %}<br>{{ error }}{% endfor %}
+            </div>
+        {% endif %}
+
+        <div class="table-wrapper">
+            <table class="mo-lines-table">
+                <thead>
+                    <tr>
+                        <th>Product</th>
+                        <th>List price</th>
+                        <th>Current price</th>
+                        <th>{{ form.price_label }}</th>
+                        <th>Quantity</th>
+                        {% if form.allow_remove %}<th>Drop</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in form.item_rows %}
+                        <tr>
+                            <td>
+                                <strong>{{ row.item.product.name }}</strong>
+                                <div class="table-secondary">{{ row.item.product.sku }}</div>
+                            </td>
+                            <td>{{ row.item.list_price }}</td>
+                            <td>
+                                {% if row.item.unit_price is not None %}{{ row.item.unit_price }}{% else %}—{% endif %}
+                                {% if row.item.requested_price_given %}
+                                    <div class="table-secondary">Asked: {{ row.item.requested_unit_price }}</div>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {{ row.price }}
+                                {% for error in row.price.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                            </td>
+                            <td>
+                                {{ row.quantity }}
+                                {% for error in row.quantity.errors %}<div class="field-error">{{ error }}</div>{% endfor %}
+                            </td>
+                            {% if form.allow_remove %}<td>{{ row.remove }}</td>{% endif %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="{{ form.message.id_for_label }}">{{ form.message.label }}</label>
+                {{ form.message }}
+                <small>{{ form.message.help_text }}</small>
+            </div>
+            {% if form.attachment %}
+                <div class="form-group">
+                    <label for="{{ form.attachment.id_for_label }}">{{ form.attachment.label }}</label>
+                    {{ form.attachment }}
+                    <small>{{ form.attachment.help_text }}</small>
+                </div>
+            {% endif %}
+        </div>
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">{{ submit_label }}</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    Invoice — {{ purchase_order.po_number }}
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Invoice</p>
+        <h1>{{ purchase_order.po_number }} — {{ purchase_order.distributor_profile.name }}</h1>
+        <p>
+            Everything that will ship has shipped. The invoice bills what was actually supplied —
+            a product closed as unavailable only counts what went out — and will be numbered
+            <strong>{{ next_invoice_number }}</strong>. After this the order's prices are final and the
+            Distributor is notified.
+        </p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'owner-purchase-order-detail' purchase_order.pk %}">
+            Back to order
+        </a>
+    </div>
+</div>
+
+<section class="panel">
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Supplied</th>
+                    <th>Unit price</th>
+                    <th>Line total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                    <tr class="{% if item.quantity_ordered <= 0 %}mo-row-removed{% endif %}">
+                        <td>
+                            {{ item.product.name }} ({{ item.product.sku }})
+                            {% if item.unavailable %}<small class="line-note">Unavailable — {{ item.quantity_dropped|floatformat:"-4" }} not supplied</small>{% endif %}
+                        </td>
+                        <td>{{ item.quantity_ordered|floatformat:"-4" }}</td>
+                        <td>{{ item.unit_price|money }}</td>
+                        <td>{{ item.line_total|money }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+            <tfoot>
+                <tr>
+                    <th colspan="3">Subtotal</th>
+                    <th>{{ purchase_order.subtotal|money }}</th>
+                </tr>
+            </tfoot>
+        </table>
+    </div>
+</section>
+
+<section class="panel form-panel">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+
+        {% if form.errors %}
+            <div class="form-errors">
+                The invoice wasn't issued — please fix the fields marked below.
+                {% for error in form.non_field_errors %}<br>{{ error }}{% endfor %}
+            </div>
+        {% endif %}
+
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="{{ form.tax_percentage.id_for_label }}">{{ form.tax_percentage.label }}</label>
+                {{ form.tax_percentage }}
+                {% for error in form.tax_percentage.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.shipping_amount.id_for_label }}">{{ form.shipping_amount.label }}</label>
+                {{ form.shipping_amount }}
+                {% for error in form.shipping_amount.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+            </div>
+            <div class="form-group">
+                <label for="{{ form.message.id_for_label }}">{{ form.message.label }}</label>
+                {{ form.message }}
+                <small>{{ form.message.help_text }}</small>
+            </div>
+        </div>
+
+        <p class="stat-detail">
+            Already confirmed paid: {{ purchase_order.total_paid|money }}.
+        </p>
+
+        <div class="form-actions">
+            <button class="button button-primary" type="submit">Issue Invoice {{ next_invoice_number }}</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

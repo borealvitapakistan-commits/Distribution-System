@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% load money_filters %}
+
+{% block title %}
+    Conversation — {{ order.po_number }}
+{% endblock %}
+
+{% block content %}
+<a class="mo-back-link" href="{% url 'manufacturer-order-detail' order.pk %}">← Back to {{ order.po_number }}</a>
+
+<div class="page-header mo-header">
+    <div>
+        <div class="mo-title-row">
+            <h1>{{ order.po_number }} — Conversation history</h1>
+            {% include "manufacturers/_order_status_badge.html" %}
+        </div>
+        <p>
+            Everything between us and {{ order.manufacturer.name }} on this order, from the
+            Request to Quote to the invoice. For our records only — never printed or sent.
+        </p>
+    </div>
+</div>
+
+<ol class="mo-steps">
+    {% for step in steps %}
+        <li class="mo-step mo-step-{{ step.state }}">
+            <span class="mo-step-dot">{% if step.state == "done" %}✓{% else %}{{ step.number }}{% endif %}</span>
+            <strong>{{ step.title }}</strong>
+            <small>
+                {% if step.state == "current" %}{{ step.note }}{% elif step.date %}{{ step.date|date:"M d, Y" }}{% elif step.done_note %}{{ step.done_note }}{% endif %}
+            </small>
+        </li>
+    {% endfor %}
+</ol>
+
+{% include "manufacturers/_conversation.html" %}
+{% endblock %}

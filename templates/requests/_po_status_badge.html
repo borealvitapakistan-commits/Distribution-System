@@ -1,0 +1,20 @@
+{% if purchase_order.status == "QUOTE" %}
+    {% if purchase_order.quoted_at %}
+        <span class="badge badge-quote">Quote received</span>
+    {% else %}
+        <span class="badge badge-neutral">Request to Quote</span>
+    {% endif %}
+{% elif purchase_order.status == "PENDING" %}
+    <span class="badge badge-progress">PO placed</span>
+{% elif purchase_order.status == "PARTIALLY_SHIPPED" %}
+    <span class="badge badge-neutral">Partially shipped</span>
+{% elif purchase_order.status == "SHIPPED" %}
+    <span class="badge badge-neutral">Shipped</span>
+{% elif purchase_order.status == "RECEIVED" %}
+    <span class="badge badge-open">Received</span>
+{% else %}
+    <span class="badge badge-closed">Declined</span>
+{% endif %}
+{% if purchase_order.invoiced_at %}
+    <span class="badge badge-open">Invoiced</span>
+{% endif %}

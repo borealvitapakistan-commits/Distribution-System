@@ -1,0 +1,253 @@
+{% comment %}
+The Owner's quote, as an editable document: a price (or discount off list),
+quantity and drop per line, plus a message and attachment. Used on the
+quote page and embedded on the order page while it's a Request to Quote.
+Expects: form, purchase_order, doc_brand, submit_label; embedded (optional).
+{% endcomment %}
+<form method="post" enctype="multipart/form-data" id="quoteForm" action="{% url 'purchase-order-quote' purchase_order.pk %}" novalidate>
+    {% csrf_token %}
+
+    {% if not embedded %}
+    <div class="doc-toolbar">
+        <div class="doc-toolbar-title">
+            <h1>Quote {{ purchase_order.po_number }}</h1>
+            <a class="mo-back-link" href="{{ detail_url }}">← Back to order</a>
+        </div>
+
+        <div class="doc-toolbar-actions">
+            <a class="button button-secondary" href="{% url 'purchase-order-pdf' purchase_order.pk %}" target="_blank">View current PDF</a>
+        </div>
+    </div>
+
+    {% endif %}
+
+    <div class="doc-toolbar">
+        <span class="stat-detail">
+            Your prices for {{ purchase_order.distributor_profile.name }}. Type a price or a discount off
+            list price — the other follows. A price that differs from what the Distributor asked for turns
+            the row <mark class="mo-changed-mark mo-mark-changed">orange</mark>; a price where they left it
+            empty turns it <mark class="mo-changed-mark">yellow</mark> —
+            <strong><span id="quoteChangedCount">0</span></strong> changed so far.
+        </span>
+        <div class="doc-toolbar-actions">
+            <button type="submit" class="button button-doc" style="--doc-color: {{ doc_brand.primary_color }};">{{ submit_label }}</button>
+        </div>
+    </div>
+
+    {% if form.errors %}
+        <div class="form-errors">
+            The quote wasn't sent — please fix the fields marked below.
+            {% for error in form.non_field_errors %}<br>{{ error }}{% endfor %}
+        </div>
+    {% endif %}
+
+    <section
+        class="doc-sheet"
+        style="--doc-color: {{ doc_brand.primary_color }}; --doc-soft: {{ doc_brand.primary_color_soft }};"
+    >
+        {% include "manufacturers/_doc_head.html" with brand=doc_brand doc_title="Quotation" doc_chip="Draft" doc_number=purchase_order.po_number doc_date=purchase_order.created_at number_label="Quote number" %}
+
+        <div class="doc-field" style="max-width: none;">
+            <label for="{{ form.message.id_for_label }}">{{ form.message.label }}</label>
+            {{ form.message }}
+            <div class="doc-hint">{{ form.message.help_text }}</div>
+        </div>
+
+        <div class="doc-field" style="max-width: none;">
+            <label for="{{ form.attachment.id_for_label }}">{{ form.attachment.label }}</label>
+            {{ form.attachment }}
+            <div class="doc-hint">{{ form.attachment.help_text }}</div>
+        </div>
+
+        <div class="doc-parties">
+            <div>
+                <span class="doc-label">Supplier</span>
+                <div class="doc-party-name">{{ doc_brand.legal_name|default:doc_brand.name }}</div>
+                {% if doc_brand.address %}<div class="doc-party-line">{{ doc_brand.address }}</div>{% endif %}
+            </div>
+            <div>
+                <span class="doc-label">Distributor (ship to)</span>
+                {% with party=purchase_order.distributor_profile %}
+                    <div class="doc-party-name">{{ party.name }}</div>
+                    {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
+                    {% if party.phone %}<div class="doc-party-line">Phone: {{ party.phone }}</div>{% endif %}
+                {% endwith %}
+            </div>
+        </div>
+
+        <div class="doc-lines">
+            <div class="doc-row doc-row-head">
+                <span>Sr#</span>
+                <span>Description</span>
+                <span>Qty</span>
+                <span>Unit price</span>
+                <span>Total price</span>
+                <span></span>
+            </div>
+
+            {% for row in form.item_rows %}
+                <div
+                    class="doc-row doc-line quote-row"
+                    data-requested="{% if row.item.requested_price_given %}{{ row.item.requested_unit_price }}{% endif %}"
+                    data-list="{{ row.item.list_price }}"
+                >
+                    <span class="doc-sr"></span>
+
+                    <div class="doc-description">
+                        <strong>{{ row.item.product.name }}</strong>
+                        <span class="doc-hint">{{ row.item.product.sku }} · List price {{ row.item.list_price }}</span>
+                        <label class="doc-hint">
+                            Discount
+                            <input type="number" class="doc-line-input quote-discount" min="0" max="100" step="0.01" style="width: 5.5rem;" aria-label="Discount % for {{ row.item.product.name }}">
+                            % off list
+                        </label>
+                    </div>
+
+                    <div class="doc-figure">
+                        <span class="doc-cell-label">Qty</span>
+                        {{ row.quantity }}
+                        {% for error in row.quantity.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+                    </div>
+
+                    <div class="doc-figure">
+                        <span class="doc-cell-label">Unit price</span>
+                        {{ row.price }}
+                        <span class="doc-requested">
+                            Asked: {% if row.item.requested_price_given %}{{ row.item.requested_unit_price }}{% else %}to quote{% endif %}
+                        </span>
+                        {% for error in row.price.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+                    </div>
+
+                    <div class="doc-total quote-line-total">—</div>
+
+                    <div>
+                        <span hidden>{{ row.remove }}</span>
+                        <button type="button" class="doc-remove" data-drop-line title="Drop — you can't supply it" aria-label="Drop line">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                <path d="M3 6h18"></path>
+                                <path d="M8 6V4h8v2"></path>
+                                <path d="M19 6l-1 14H6L5 6"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+
+        <div class="doc-foot">
+            <div>
+                {% if purchase_order.agreement %}
+                    <span class="doc-label">Agreement</span>
+                    <div class="doc-terms-text">
+                        {{ purchase_order.agreement.agreement_number }} —
+                        {{ purchase_order.agreement.discount_percentage|floatformat:"-2" }}% off list price.
+                    </div>
+                {% endif %}
+            </div>
+
+            <div class="doc-totals">
+                <div class="doc-totals-row"><span>Subtotal</span><strong id="quoteSubtotal">0.00</strong></div>
+                <div class="doc-grand" id="quoteGrand">0.00</div>
+                <div class="doc-note">Tax and shipping are confirmed on the invoice.</div>
+            </div>
+        </div>
+    </section>
+</form>
+
+<script>
+(function () {
+    var form = document.getElementById("quoteForm");
+
+    function num(value) {
+        if (value === "" || value === null || value === undefined) { return null; }
+        var parsed = parseFloat(value);
+        return isNaN(parsed) ? null : parsed;
+    }
+
+    function differs(a, b) {
+        if (a === null || b === null) { return a !== b; }
+        return Math.abs(a - b) > 0.005;
+    }
+
+    function money(value) {
+        return value.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    function rows() {
+        return Array.prototype.slice.call(form.querySelectorAll(".quote-row"));
+    }
+
+    function priceInput(row) { return row.querySelector("input[name^='line_price_']"); }
+    function discountInput(row) { return row.querySelector(".quote-discount"); }
+
+    // Price → discount % off list.
+    function syncDiscount(row) {
+        var list = num(row.dataset.list);
+        var price = num(priceInput(row).value);
+        var input = discountInput(row);
+        if (list === null || list === 0 || price === null) { input.value = ""; return; }
+        input.value = (Math.round((list - price) * 10000 / list) / 100).toFixed(2);
+    }
+
+    // Discount % → price.
+    function syncPrice(row) {
+        var list = num(row.dataset.list);
+        var discount = num(discountInput(row).value);
+        if (list === null || discount === null) { return; }
+        priceInput(row).value = (Math.round(list * (100 - discount)) / 100).toFixed(2);
+    }
+
+    function refresh() {
+        var changed = 0;
+        var subtotal = 0;
+
+        rows().forEach(function (row) {
+            var price = num(priceInput(row).value);
+            var qty = num(row.querySelector("input[name^='line_qty_']").value);
+            var dropped = row.querySelector("input[name^='line_remove_']").checked;
+            var requested = num(row.dataset.requested);
+            var quoted = !dropped && price !== null && price !== 0;
+            var isNew = quoted && requested === null;
+            var isChanged = quoted && !isNew && differs(price, requested);
+
+            row.classList.toggle("mo-row-changed", isChanged);
+            row.classList.toggle("mo-row-new", isNew);
+            row.classList.toggle("is-dropped", dropped);
+            if (isChanged) { changed += 1; }
+
+            var totalCell = row.querySelector(".quote-line-total");
+            if (dropped) {
+                totalCell.textContent = "Dropped";
+            } else if (price === null || qty === null) {
+                totalCell.textContent = "—";
+            } else {
+                subtotal += price * qty;
+                totalCell.textContent = money(price * qty);
+            }
+        });
+
+        document.getElementById("quoteChangedCount").textContent = changed;
+        document.getElementById("quoteSubtotal").textContent = money(subtotal);
+        document.getElementById("quoteGrand").textContent = money(subtotal);
+    }
+
+    form.addEventListener("click", function (event) {
+        var button = event.target.closest("[data-drop-line]");
+        if (!button) { return; }
+        var box = button.closest(".quote-row").querySelector("input[name^='line_remove_']");
+        box.checked = !box.checked;
+        button.title = box.checked ? "Put back" : "Drop — you can't supply it";
+        refresh();
+    });
+
+    form.addEventListener("input", function (event) {
+        var row = event.target.closest(".quote-row");
+        if (row && event.target.classList.contains("quote-discount")) { syncPrice(row); }
+        if (row && event.target.name && event.target.name.indexOf("line_price_") === 0) { syncDiscount(row); }
+        refresh();
+    });
+
+    rows().forEach(syncDiscount);
+    refresh();
+})();
+</script>

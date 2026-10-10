@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    @page {
+        size: A4; margin: 1.4cm 1.6cm 1.8cm 1.6cm;
+        @frame footer { -pdf-frame-content: footer; bottom: 0.7cm; margin-left: 1.6cm; margin-right: 1.6cm; height: 0.6cm; }
+    }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #374151; }
+    .top-bar { background-color: {{ brand.primary_color }}; height: 6px; font-size: 1pt; }
+    .brand-name { font-size: 18pt; font-weight: bold; color: {{ brand.primary_color }}; }
+    .brand-lines { color: #6b7280; font-size: 8.5pt; line-height: 1.5; }
+    h1 { font-size: 20pt; color: {{ brand.primary_color }}; margin: 12px 0 2px 0; }
+    h2 {
+        font-size: 12pt; color: {{ brand.primary_color }}; margin: 16px 0 6px 0;
+        padding-bottom: 3px; border-bottom: 1.5px solid {{ brand.primary_color }};
+    }
+    .subtitle { color: #6b7280; font-size: 9pt; margin-bottom: 8px; }
+    .label { font-weight: bold; color: #374151; font-size: 8.5pt; }
+    .muted { color: #6b7280; }
+    .small { font-size: 7.5pt; }
+    table.meta { width: 100%; }
+    table.meta td { vertical-align: top; padding: 0 6px 6px 0; }
+    table.grid { width: 100%; }
+    table.grid th {
+        color: {{ brand.primary_color }}; font-weight: bold; font-size: 8.5pt;
+        padding: 4px; text-align: left; border-bottom: 1px solid #d1d5db; background-color: #f9fafb;
+    }
+    table.grid td { padding: 4px; font-size: 8.5pt; border-bottom: 0.5px solid #e5e7eb; vertical-align: top; }
+    table.grid .num { text-align: right; }
+    tr.changed td { background-color: #fdba74; color: #7c2d12; }
+    tr.new td { background-color: #fff176; color: #5f5300; }
+    tr.removed td { color: #9ca3af; text-decoration: line-through; }
+    tr.total td { font-weight: bold; color: #111827; border-bottom: 0; }
+    .legend { font-size: 7.5pt; color: #6b7280; margin-top: 4px; }
+    .swatch { padding: 0 6px; }
+    table.step { width: 100%; margin-top: 10px; border: 1px solid #e5e7eb; }
+    table.step td.head { padding: 6px 8px; background-color: #f3f4f6; }
+    table.step td.head-them { padding: 6px 8px; background-color: #fef3c7; }
+    table.step td.body { padding: 6px 8px; }
+    .step-title { font-weight: bold; font-size: 10pt; color: #111827; }
+    .message { margin: 2px 0 6px 0; font-size: 9pt; color: #111827; }
+    .stage-done { color: #059669; font-weight: bold; }
+    .stage-open { color: #6b7280; }
+    #footer { font-size: 7.5pt; color: #9ca3af; text-align: center; }
+</style>
+</head>
+<body>
+    <div id="footer">
+        {{ purchase_order.po_number }} - complete order record | generated {{ generated_at|date:"M d, Y H:i" }} | page <pdf:pagenumber> of <pdf:pagecount>
+    </div>
+
+    <div class="top-bar">&nbsp;</div>
+
+    <table class="meta" style="margin-top: 12px;">
+        <tr>
+            <td>
+                {% if brand.logo %}
+                    <img src="{{ brand.logo.url }}" style="height: 40px;">
+                {% else %}
+                    <div class="brand-name">{{ brand.name|default:"" }}</div>
+                {% endif %}
+                <div class="brand-lines">{{ brand.legal_name|default:brand.name }}</div>
+            </td>
+        </tr>
+    </table>
+
+    <h1>Order Record - {{ purchase_order.po_number }}</h1>
+    <div class="subtitle">
+        Everything on this order from the Request to Quote to the invoice, between the Owner and {{ purchase_order.distributor_profile.name }}.
+    </div>
+
+    <table class="meta">
+        <tr>
+            <td width="34%">
+                <div class="label">Distributor</div>
+                <div>{{ purchase_order.distributor_profile.name }}</div>
+                {% if purchase_order.distributor_profile.phone %}<div class="muted">{{ purchase_order.distributor_profile.phone }}</div>{% endif %}
+                {% if purchase_order.distributor_profile.email %}<div class="muted">{{ purchase_order.distributor_profile.email }}</div>{% endif %}
+            </td>
+            <td width="33%">
+                <div class="label">Status</div>
+                <div>{{ purchase_order.get_status_display }}</div>
+                <div class="label" style="margin-top: 4px;">Invoice no.</div>
+                <div>{{ purchase_order.invoice_number|default:"-" }}</div>
+                {% if purchase_order.agreement %}
+                    <div class="label" style="margin-top: 4px;">Agreement</div>
+                    <div>{{ purchase_order.agreement.agreement_number }}</div>
+                {% endif %}
+            </td>
+            <td width="33%">
+                <div class="label">Order total</div>
+                <div style="font-size: 13pt; font-weight: bold; color: {{ brand.primary_color }};">{{ purchase_order.grand_total|floatformat:"2g" }}</div>
+                <div class="muted">Paid {{ purchase_order.total_paid|floatformat:"2g" }} | remaining {{ purchase_order.remaining_amount|floatformat:"2g" }}</div>
+            </td>
+        </tr>
+    </table>
+
+    <h2>Stages</h2>
+    <table class="grid">
+        <tr>
+            {% for step in steps %}
+                <th width="25%">{{ step.number }}. {{ step.title }}</th>
+            {% endfor %}
+        </tr>
+        <tr>
+            {% for step in steps %}
+                <td>
+                    {% if step.state == "done" %}
+                        <span class="stage-done">Completed</span><br>
+                        {% if step.date %}{{ step.date|date:"M d, Y" }}{% elif step.done_note %}{{ step.done_note }}{% endif %}
+                    {% else %}
+                        <span class="stage-open">{% if step.state == "current" %}In progress{% else %}Upcoming{% endif %}</span><br>
+                        <span class="muted">{{ step.note }}</span>
+                    {% endif %}
+                </td>
+            {% endfor %}
+        </tr>
+    </table>
+
+    <h2>Final order lines</h2>
+    <table class="grid" repeat="1">
+        <thead>
+            <tr>
+                <th width="5%">#</th>
+                <th>Product</th>
+                <th width="9%" class="num">Qty</th>
+                <th width="12%" class="num">List price</th>
+                <th width="13%" class="num">Asked</th>
+                <th width="13%" class="num">Final price</th>
+                <th width="14%" class="num">Line total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in items %}
+                <tr class="{{ item.price_highlight }}">
+                    <td>{{ forloop.counter }}</td>
+                    <td>{{ item.product.name }}<br><span class="small muted">{{ item.product.sku }}{% if item.unavailable %} | unavailable, {{ item.quantity_dropped|floatformat:"-4" }} not supplied{% endif %}</span></td>
+                    <td class="num">{{ item.quantity_ordered|floatformat:"-4" }}</td>
+                    <td class="num">{{ item.list_price|floatformat:"2g" }}</td>
+                    <td class="num">{% if item.requested_price_given %}{{ item.requested_unit_price|floatformat:"2g" }}{% elif purchase_order.quoted_at %}to quote{% else %}-{% endif %}</td>
+                    <td class="num">{% if item.unit_price is not None %}{{ item.unit_price|floatformat:"2g" }}{% else %}-{% endif %}</td>
+                    <td class="num">{{ item.line_total|floatformat:"2g" }}</td>
+                </tr>
+            {% endfor %}
+            <tr class="total"><td colspan="6" class="num">Subtotal</td><td class="num">{{ purchase_order.subtotal|floatformat:"2g" }}</td></tr>
+            {% if purchase_order.shipping_amount %}
+                <tr class="total"><td colspan="6" class="num">Shipping</td><td class="num">{{ purchase_order.shipping_amount|floatformat:"2g" }}</td></tr>
+            {% endif %}
+            {% if purchase_order.tax_percentage %}
+                <tr class="total"><td colspan="6" class="num">Tax ({{ purchase_order.tax_percentage|floatformat:"-2" }}%)</td><td class="num">{{ purchase_order.tax_amount|floatformat:"2g" }}</td></tr>
+            {% endif %}
+            <tr class="total"><td colspan="6" class="num">Grand total</td><td class="num">{{ purchase_order.grand_total|floatformat:"2g" }}</td></tr>
+        </tbody>
+    </table>
+    <div class="legend">
+        <span class="swatch" style="background-color: #fdba74;">&nbsp;&nbsp;&nbsp;</span> final price differs from what the Distributor asked
+        &nbsp; <span class="swatch" style="background-color: #fff176;">&nbsp;&nbsp;&nbsp;</span> price given by the Owner where none was asked
+        &nbsp; white = unchanged
+    </div>
+
+    <h2>Payments</h2>
+    {% if payments %}
+        <table class="grid">
+            <thead>
+                <tr>
+                    <th width="14%">Payment</th>
+                    <th width="15%">Date paid</th>
+                    <th width="16%" class="num">Amount</th>
+                    <th width="16%">Status</th>
+                    <th width="17%">Recorded by</th>
+                    <th>Note</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for payment in payments %}
+                    <tr class="{% if payment.status == 'REJECTED' %}removed{% endif %}">
+                        <td>{{ payment.get_kind_display }}</td>
+                        <td>{{ payment.paid_at|date:"M d, Y" }}</td>
+                        <td class="num">{{ payment.amount|floatformat:"2g" }}</td>
+                        <td>{{ payment.get_status_display }}</td>
+                        <td>{{ payment.created_by|default:"-" }}</td>
+                        <td>{{ payment.note|default:"-" }}</td>
+                    </tr>
+                {% endfor %}
+                <tr class="total"><td colspan="2" class="num">Confirmed paid</td><td class="num">{{ purchase_order.total_paid|floatformat:"2g" }}</td><td colspan="3"></td></tr>
+            </tbody>
+        </table>
+    {% else %}
+        <div class="muted">No payments recorded.</div>
+    {% endif %}
+
+    <h2>Conversation history</h2>
+    <div class="legend" style="margin-top: 0;">
+        Oldest first. <span class="swatch" style="background-color: #fdba74;">&nbsp;&nbsp;&nbsp;</span> price moved since the step before
+        &nbsp; <span class="swatch" style="background-color: #fff176;">&nbsp;&nbsp;&nbsp;</span> price given for the first time
+    </div>
+
+    {% for step in timeline %}
+        {% with revision=step.revision %}
+        <table class="step">
+            <tr>
+                <td class="{% if revision.by_owner %}head{% else %}head-them{% endif %}">
+                    <span class="step-title">#{{ revision.number }} {{ step.label }}</span>
+                    - {% if revision.by_owner %}Owner{% else %}{{ purchase_order.distributor_profile.name }}{% endif %}
+                    <span class="muted"> | {{ revision.created_at|date:"M d, Y H:i" }}{% if revision.created_by %} | entered by {{ revision.created_by }}{% endif %}{% if revision.attachment %} | attachment on file{% endif %}</span>
+                </td>
+            </tr>
+            <tr>
+                <td class="body">
+                    {% if revision.message %}<div class="message">"{{ revision.message|linebreaksbr }}"</div>{% endif %}
+                    <table class="grid">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th width="12%" class="num">Qty</th>
+                                <th width="18%" class="num">Price</th>
+                                <th width="18%" class="num">Line total</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for row in step.rows %}
+                                <tr class="{% if row.line.removed %}removed{% else %}{{ row.highlight }}{% endif %}">
+                                    <td>{{ row.line.product.name }}{% if row.line.removed %} (dropped){% endif %}</td>
+                                    <td class="num">
+                                        {{ row.line.quantity|floatformat:"-4" }}
+                                        {% if row.quantity_changed %}<br><span class="small">was {{ row.previous.quantity|floatformat:"-4" }}</span>{% endif %}
+                                    </td>
+                                    <td class="num">
+                                        {% if row.line.unit_price is not None %}{{ row.line.unit_price|floatformat:"2g" }}{% else %}to quote{% endif %}
+                                        {% if row.highlight == "changed" %}<br><span class="small">was {{ row.previous.unit_price|floatformat:"2g" }}</span>{% endif %}
+                                    </td>
+                                    <td class="num">{% if row.line.unit_price is not None and not row.line.removed %}{{ row.line.line_total|floatformat:"2g" }}{% else %}-{% endif %}</td>
+                                </tr>
+                            {% endfor %}
+                            <tr class="total"><td colspan="3" class="num">Subtotal</td><td class="num">{{ revision.total|floatformat:"2g" }}</td></tr>
+                        </tbody>
+                    </table>
+                </td>
+            </tr>
+        </table>
+        {% endwith %}
+    {% empty %}
+        <div class="muted">No conversation recorded for this order.</div>
+    {% endfor %}
+</body>
+</html>

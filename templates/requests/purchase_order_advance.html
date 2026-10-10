@@ -40,18 +40,14 @@
         {% csrf_token %}
 
         {% if purchase_order.distributor_profile.upfront_payment_percentage > 0 %}
-            {% with total=purchase_order.grand_total none_message="No advance payment — note your terms require an advance before the Owner can ship. You can still pay it later from the order page." %}
+            {% with total=purchase_order.grand_total none_message="No advance payment — note your terms require an advance before the Owner can ship. You can still pay it later from the order page." paid_note="Your payment counts once the Owner confirms they've received it." %}
                 {% include "core/_paid_question.html" %}
             {% endwith %}
         {% else %}
-            {% with total=purchase_order.grand_total none_message="No advance payment — the full amount will be paid when the order arrives." %}
+            {% with total=purchase_order.grand_total none_message="No advance payment — the full amount will be paid when the order arrives." paid_note="Your payment counts once the Owner confirms they've received it." %}
                 {% include "core/_paid_question.html" %}
             {% endwith %}
         {% endif %}
-
-        <p class="stat-detail">
-            Your payment counts once the Owner confirms they've received it.
-        </p>
 
         <div class="form-actions">
             <button class="button button-primary" type="submit">

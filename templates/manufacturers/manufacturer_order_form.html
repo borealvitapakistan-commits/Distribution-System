@@ -29,10 +29,12 @@
 
     <div class="doc-toolbar">
         <span class="stat-detail">
-            Pick products and bottle sizes — prices fill in from your saved prices.
+            Pick products and bottle sizes, then type the price you want — or click
+            <em>Use system price</em> on a line to use the price saved in the system.
             Leave a price empty to have it quoted.
         </span>
         <div class="doc-toolbar-actions">
+            <button class="button button-secondary" type="button" id="moUseAllSaved" title="Fill every empty price with the system price, where one is saved">Use system prices for empty lines</button>
             <label for="{{ form.brand.id_for_label }}">RTQ brand: <span class="required">*</span></label>
             {{ form.brand }}
             <button class="button button-doc" type="submit" data-doc-save>Save RTQ</button>
@@ -110,6 +112,10 @@
             <div class="doc-terms">
                 <span class="doc-label">Terms and conditions</span>
                 {{ form.terms }}
+
+                <span class="doc-label">{{ form.message.label }}</span>
+                {{ form.message }}
+                <div class="doc-hint">{{ form.message.help_text }}</div>
             </div>
 
             <div class="doc-totals">
@@ -126,6 +132,7 @@
 </template>
 
 {{ bottle_prices|json_script:"moBottlePrices" }}
+{{ product_prices|json_script:"moProductPrices" }}
 {{ sheet_data|json_script:"docSheetData" }}
 
 <script>
@@ -134,6 +141,7 @@
     if (!form) { return; }
 
     var savedPrices = JSON.parse(document.getElementById("moBottlePrices").textContent || "{}");
+    var productPrices = JSON.parse(document.getElementById("moProductPrices").textContent || "{}");
     var sheetData = JSON.parse(document.getElementById("docSheetData").textContent || "{}");
     var sheet = document.getElementById("docSheet");
     var rowsContainer = document.getElementById("moRows");
@@ -215,27 +223,57 @@
     function savedPriceFor(row) {
         var product = row.querySelector("select[name$='-product']");
         var size = row.querySelector("select[name$='-bottle_size']");
-        if (!product || !size || !product.value || !size.value) { return null; }
-        return (savedPrices[product.value] || {})[size.value] || null;
+        if (!product || !product.value) { return null; }
+        // The price saved for this bottle size, else the product's own price.
+        var sized = size && size.value ? (savedPrices[product.value] || {})[size.value] : null;
+        return sized || productPrices[product.value] || null;
     }
 
-    // Picking a product or bottle size fills in the saved price — unless the
-    // price was typed by hand, which is never overwritten.
-    function applySavedPrice(row) {
+    // The system (saved) price is only used when asked for: each line offers
+    // a "Use system price" button instead of filling it in by itself. A price
+    // that came from that button is cleared again if the product or size
+    // changes, since it belonged to the old one; a typed price is never touched.
+    function useSavedPrice(row) {
+        var priceInput = row.querySelector("input[name$='-unit_price']");
+        var saved = savedPriceFor(row);
+        if (!priceInput || saved === null) { return; }
+        priceInput.value = saved;
+        priceInput.dataset.autofilled = saved;
+        refreshSavedPrice(row);
+    }
+
+    function refreshSavedPrice(row) {
         var priceInput = row.querySelector("input[name$='-unit_price']");
         var product = row.querySelector("select[name$='-product']");
         var hint = row.querySelector("[data-line-hint]");
+        var button = row.querySelector("[data-use-saved-price]");
         if (!priceInput) { return; }
 
         var saved = savedPriceFor(row);
-        var autoFilled = priceInput.dataset.autofilled === "1";
+        var filledFrom = priceInput.dataset.autofilled || "";
 
-        if (saved !== null && (priceInput.value === "" || autoFilled)) {
-            priceInput.value = saved;
-            priceInput.dataset.autofilled = "1";
-        } else if (saved === null && autoFilled) {
+        // Prices are saved per bottle size, so saving needs a size picked.
+        var saveBox = row.querySelector("input[name$='-save_price']");
+        var sizeSelect = row.querySelector("select[name$='-bottle_size']");
+        if (saveBox) {
+            var noSize = !sizeSelect || !sizeSelect.value;
+            saveBox.disabled = noSize;
+            if (noSize) { saveBox.checked = false; }
+            saveBox.closest("label").title = noSize
+                ? "Pick a bottle size to save the price for"
+                : "Store this price for the product and bottle size, to reuse next time";
+        }
+
+        if (filledFrom && String(saved) !== filledFrom) {
             priceInput.value = "";
             priceInput.dataset.autofilled = "";
+        }
+
+        if (button) {
+            var alreadyUsed = saved !== null && priceInput.value !== "" &&
+                parseFloat(priceInput.value) === parseFloat(saved);
+            button.hidden = saved === null || alreadyUsed;
+            button.textContent = saved !== null ? "Use system price (" + saved + ")" : "";
         }
 
         if (hint) {
@@ -243,7 +281,7 @@
                 hint.textContent = "—select above—";
             } else {
                 var name = product.options[product.selectedIndex].text;
-                hint.textContent = name + (saved !== null ? " · saved price " + saved : " · no saved price for this size");
+                hint.textContent = name + (saved !== null ? " · system price " + saved : " · no system price");
             }
         }
     }
@@ -288,12 +326,19 @@
         var row = wrapper.firstElementChild;
         rowsContainer.appendChild(row);
         totalFormsInput.value = index + 1;
-        applySavedPrice(row);
+        refreshSavedPrice(row);
         computeTotals();
         row.querySelector("select[name$='-product']").focus();
     });
 
     rowsContainer.addEventListener("click", function (event) {
+        var useButton = event.target.closest("[data-use-saved-price]");
+        if (useButton) {
+            useSavedPrice(useButton.closest("[data-line]"));
+            computeTotals();
+            return;
+        }
+
         var button = event.target.closest("[data-remove-line]");
         if (!button) { return; }
         var row = button.closest("[data-line]");
@@ -308,7 +353,7 @@
 
         var row = event.target.closest("[data-line]");
         if (row && event.target.matches("select[name$='-product'], select[name$='-bottle_size']")) {
-            applySavedPrice(row);
+            refreshSavedPrice(row);
         }
         computeTotals();
     });
@@ -316,11 +361,23 @@
     form.addEventListener("input", function (event) {
         if (event.target.matches("input[name$='-unit_price']")) {
             event.target.dataset.autofilled = "";
+            refreshSavedPrice(event.target.closest("[data-line]"));
         }
         computeTotals();
     });
 
-    rowsContainer.querySelectorAll("[data-line]").forEach(applySavedPrice);
+    document.getElementById("moUseAllSaved").addEventListener("click", function () {
+        rowsContainer.querySelectorAll("[data-line]").forEach(function (row) {
+            var priceInput = row.querySelector("input[name$='-unit_price']");
+            var deleteBox = row.querySelector("input[name$='-DELETE']");
+            if (priceInput && priceInput.value === "" && !(deleteBox && deleteBox.checked)) {
+                useSavedPrice(row);
+            }
+        });
+        computeTotals();
+    });
+
+    rowsContainer.querySelectorAll("[data-line]").forEach(refreshSavedPrice);
     applyVendor();
     applyBrand();
     computeTotals();

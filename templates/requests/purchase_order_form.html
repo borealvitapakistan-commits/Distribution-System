@@ -1,163 +1,125 @@
 {% extends "base.html" %}
 
 {% block title %}
-    Place Order
+    {% if purchase_order %}Edit {{ purchase_order.po_number }}{% else %}New Request to Quote{% endif %}
 {% endblock %}
 
 {% block content %}
-<div class="page-header">
-    <div>
-        <p class="eyebrow">Orders</p>
-        <h1>Place Order</h1>
-        <p>
-            Pick products and quantities. Prices come from your signed
-            agreement; the Owner confirms them when the order arrives.
-        </p>
+<form method="post" id="poForm" novalidate>
+    {% csrf_token %}
+
+    <div class="doc-toolbar">
+        <div class="doc-toolbar-title">
+            <h1>{% if purchase_order %}Edit Request to Quote {{ purchase_order.po_number }}{% else %}New Request to Quote{% endif %}</h1>
+            <a class="mo-back-link" href="{% if purchase_order %}{% url 'distributor-purchase-order-detail' purchase_order.pk %}{% else %}{% url 'distributor-purchase-order-list' %}{% endif %}">
+                ← {% if purchase_order %}Back to order{% else %}Back to list{% endif %}
+            </a>
+        </div>
+
+        <div class="doc-toolbar-actions">
+            {% if purchase_order %}
+                <a class="button button-secondary" href="{% url 'purchase-order-pdf' purchase_order.pk %}" target="_blank">Print PDF</a>
+                <a class="button button-secondary" href="{% url 'purchase-order-pdf' purchase_order.pk %}?download=1">Download PDF</a>
+            {% else %}
+                <span class="button button-secondary" aria-disabled="true" title="Send the RTQ first">Print PDF</span>
+                <span class="button button-secondary" aria-disabled="true" title="Send the RTQ first">Download PDF</span>
+            {% endif %}
+        </div>
     </div>
 
-    <a
-        class="button button-secondary"
-        href="{% url 'distributor-orders-hub' %}"
-    >
-        Back
-    </a>
-</div>
+    <div class="doc-toolbar">
+        <span class="stat-detail">
+            Pick products and quantities, then type the price you want — or click
+            <em>Use agreement price</em> on a line to use your agreement's price.
+            Leave a price empty to have the Owner quote it.
+            {% if agreement %}
+                Agreement {{ agreement.agreement_number }}: {{ agreement.discount_percentage|floatformat:"-2" }}% off list price{% if agreement.product_rates.all %} (some products have their own discount){% endif %}, valid until {{ agreement.end_date|date:"M d, Y" }}.
+            {% else %}
+                No signed agreement covers today, so agreement prices are list prices. <a href="{% url 'distributor-agreement-list' %}">See your agreements</a>.
+            {% endif %}
+        </span>
+        <div class="doc-toolbar-actions">
+            <button class="button button-secondary" type="button" id="poUseAllAgreement" title="Fill every empty price with the agreement price">Use agreement prices for empty lines</button>
+            <button class="button button-doc" type="submit" style="--doc-color: {{ doc_brand.primary_color }};">{% if purchase_order %}Save RTQ{% else %}Send RTQ{% endif %}</button>
+        </div>
+    </div>
 
-<div class="notification-card">
-    {% if agreement %}
-        <h2>
-            Your agreement {{ agreement.agreement_number }} gives you
-            {{ agreement.discount_percentage|floatformat:"-2" }}% off list price{% if agreement.product_rates.all %}
-            (some products have their own discount){% endif %} — valid until {{ agreement.end_date|date:"M d, Y" }}.
-        </h2>
-    {% else %}
-        <h2>
-            You have no signed agreement covering today, so list prices apply.
-            <a href="{% url 'distributor-agreement-list' %}">See your agreements</a>.
-        </h2>
+    {% if form.errors or formset.total_error_count or formset.non_form_errors or service_error %}
+        <div class="form-errors">
+            {% if purchase_order %}The changes weren't saved{% else %}The Request to Quote wasn't sent{% endif %}
+            — please fix the fields marked below.
+            {% for error in formset.non_form_errors %}<br>{{ error }}{% endfor %}
+            {% if service_error %}
+                {% for message in service_error.messages %}<br>{{ message }}{% empty %}<br>{{ service_error }}{% endfor %}
+            {% endif %}
+        </div>
     {% endif %}
-</div>
 
-<section class="panel form-panel">
-    <form method="post" class="form-layout" id="poForm">
-        {% csrf_token %}
+    <section
+        class="doc-sheet"
+        style="--doc-color: {{ doc_brand.primary_color }}; --doc-soft: {{ doc_brand.primary_color_soft }};"
+    >
+        {% include "manufacturers/_doc_head.html" with brand=doc_brand doc_title="Request to Quote" doc_number=purchase_order.po_number doc_date=purchase_order.created_at|default:today %}
 
-        {% if formset.total_error_count %}
-            <div class="form-errors">
-                The order wasn't created — please fix the fields marked below.
+        <div class="doc-parties">
+            <div>
+                <span class="doc-label">Supplier</span>
+                <div class="doc-party-name">{{ doc_brand.legal_name|default:doc_brand.name }}</div>
+                {% if doc_brand.address %}<div class="doc-party-line">{{ doc_brand.address }}</div>{% endif %}
+                {% if doc_brand.email %}<div class="doc-party-line">Mail: {{ doc_brand.email }}</div>{% endif %}
+                {% if doc_brand.phone %}<div class="doc-party-line">Phone: {{ doc_brand.phone }}</div>{% endif %}
             </div>
-        {% endif %}
-
-        {% if service_error %}
-            <div class="form-errors">
-                {{ service_error }}
+            <div>
+                <span class="doc-label">Ship to</span>
+                {% with party=distributor_profile %}
+                    <div class="doc-party-name">{{ party.name }}</div>
+                    {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
+                    {% if party.email %}<div class="doc-party-line">Mail: {{ party.email }}</div>{% endif %}
+                    {% if party.phone %}<div class="doc-party-line">Phone: {{ party.phone }}</div>{% endif %}
+                {% endwith %}
             </div>
-        {% endif %}
+        </div>
 
         {{ formset.management_form }}
 
-        {% if formset.non_form_errors %}
-            <div class="form-errors">
-                {{ formset.non_form_errors }}
+        <div class="doc-lines">
+            <div class="doc-row doc-row-head">
+                <span>Sr#</span>
+                <span>Description</span>
+                <span>Qty</span>
+                <span>Unit price</span>
+                <span>Total price</span>
+                <span></span>
             </div>
-        {% endif %}
 
-        <div id="poRows">
-            {% for item_form in formset %}
-                <div class="form-grid nested-form">
-                    <div class="form-group">
-                        <label>Product</label>
-                        {{ item_form.product }}
-                        {% for error in item_form.product.errors %}
-                            <span class="field-error">{{ error }}</span>
-                        {% endfor %}
-                    </div>
-
-                    <div class="form-group">
-                        <label>Quantity</label>
-                        {{ item_form.quantity_requested }}
-                        {% for error in item_form.quantity_requested.errors %}
-                            <span class="field-error">{{ error }}</span>
-                        {% endfor %}
-                    </div>
-
-                    <div class="form-group">
-                        <label>Your price</label>
-                        <span class="po-unit-price">—</span>
-                    </div>
-
-                    <div class="form-group">
-                        <label>Line total</label>
-                        <span class="po-line-total">0.00</span>
-                    </div>
-
-                    {% if item_form.DELETE %}
-                        <div class="form-group">
-                            <label>Remove</label>
-                            {{ item_form.DELETE }}
-                        </div>
-                    {% endif %}
-
-                    {% for hidden in item_form.hidden_fields %}
-                        {{ hidden }}
-                    {% endfor %}
-                </div>
-
-                {% for error in item_form.non_field_errors %}
-                    <span class="field-error">
-                        {{ error }}
-                    </span>
+            <div id="poRows">
+                {% for item_form in formset %}
+                    {% include "requests/_rtq_line.html" with line=item_form %}
                 {% endfor %}
-            {% endfor %}
+            </div>
+
+            <button type="button" class="doc-add" id="poAddRow">＋ Add line item</button>
         </div>
 
-        <div>
-            <button type="button" class="button button-secondary" id="poAddRow">
-                + Add Product
-            </button>
-        </div>
+        <div class="doc-foot">
+            <div class="doc-terms">
+                <span class="doc-label">{{ form.message.label }}</span>
+                {{ form.message }}
+                <div class="doc-hint">{{ form.message.help_text }}</div>
+            </div>
 
-        <div class="form-actions" style="justify-content: space-between;">
-            <strong>
-                Estimated total: <span id="poEstimatedTotal">0.00</span>
-            </strong>
-
-            <button class="button button-primary" type="submit">
-                Submit Order
-            </button>
+            <div class="doc-totals">
+                <div class="doc-totals-row"><span>Subtotal</span><strong id="poEstimatedTotal">0.00</strong></div>
+                <div class="doc-grand" id="poGrandTotal">0.00</div>
+                <div class="doc-note" id="poUnpriced" hidden></div>
+                <div class="doc-note">Tax and shipping are confirmed on the invoice.</div>
+            </div>
         </div>
-    </form>
-</section>
+    </section>
+</form>
 
 <template id="poEmptyRow">
-    <div class="form-grid nested-form">
-        <div class="form-group">
-            <label>Product</label>
-            {{ formset.empty_form.product }}
-        </div>
-
-        <div class="form-group">
-            <label>Quantity</label>
-            {{ formset.empty_form.quantity_requested }}
-        </div>
-
-        <div class="form-group">
-            <label>Your price</label>
-            <span class="po-unit-price">—</span>
-        </div>
-
-        <div class="form-group">
-            <label>Line total</label>
-            <span class="po-line-total">0.00</span>
-        </div>
-
-        {% if formset.empty_form.DELETE %}
-            <div class="form-group">
-                <label>Remove</label>
-                {{ formset.empty_form.DELETE }}
-            </div>
-        {% endif %}
-    </div>
+    {% include "requests/_rtq_line.html" with line=formset.empty_form %}
 </template>
 
 <script>
@@ -166,77 +128,161 @@
     if (!form) { return; }
 
     var rowsContainer = document.getElementById("poRows");
-    var addRowButton = document.getElementById("poAddRow");
     var emptyRowTemplate = document.getElementById("poEmptyRow");
     var totalFormsInput = form.querySelector("input[name$='-TOTAL_FORMS']");
 
     function formatMoney(amount) {
-        var formatted = amount.toLocaleString("en-US", {
-            minimumFractionDigits: 2, maximumFractionDigits: 2,
-        });
+        return amount.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
 
-        var abs = Math.abs(amount);
-        var suffix = "";
+    // The product's list price less this Distributor's agreement discount,
+    // carried on each <option> as data-price / data-discount.
+    function agreementPriceFor(row) {
+        var product = row.querySelector("select[name$='-product']");
+        if (!product || !product.value) { return null; }
+        var option = product.options[product.selectedIndex];
+        var list = parseFloat(option.getAttribute("data-price") || "0");
+        var discount = parseFloat(option.getAttribute("data-discount") || "0");
+        return {
+            list: list,
+            discount: discount,
+            price: (Math.round(list * (100 - discount)) / 100).toFixed(2),
+        };
+    }
 
-        if (abs >= 10000000) {
-            suffix = (amount / 10000000).toFixed(2) + " CR";
-        } else if (abs >= 100000) {
-            suffix = (amount / 100000).toFixed(1) + " Lakh";
-        } else if (abs >= 1000) {
-            suffix = (amount / 1000).toFixed(1) + "k";
+    // Like "Use system price" on a Manufacturer RTQ: the agreement price is
+    // only used when asked for. A price that came from the button is cleared
+    // again if the product changes; a typed price is never touched.
+    function useAgreementPrice(row) {
+        var priceInput = row.querySelector("input[name$='-requested_unit_price']");
+        var prices = agreementPriceFor(row);
+        if (!priceInput || prices === null) { return; }
+        priceInput.value = prices.price;
+        priceInput.dataset.autofilled = prices.price;
+        refreshLine(row);
+    }
+
+    function refreshLine(row) {
+        var priceInput = row.querySelector("input[name$='-requested_unit_price']");
+        var product = row.querySelector("select[name$='-product']");
+        var hint = row.querySelector("[data-line-hint]");
+        var button = row.querySelector("[data-use-agreement-price]");
+        if (!priceInput) { return; }
+
+        var prices = agreementPriceFor(row);
+        var filledFrom = priceInput.dataset.autofilled || "";
+
+        if (filledFrom && (!prices || prices.price !== filledFrom)) {
+            priceInput.value = "";
+            priceInput.dataset.autofilled = "";
         }
 
-        return suffix ? formatted + " (" + suffix + ")" : formatted;
+        if (button) {
+            var alreadyUsed = prices !== null && priceInput.value !== "" &&
+                parseFloat(priceInput.value) === parseFloat(prices.price);
+            button.hidden = prices === null || alreadyUsed;
+            button.textContent = prices !== null ? "Use agreement price (" + prices.price + ")" : "";
+        }
+
+        if (hint) {
+            if (!product || !product.value) {
+                hint.textContent = "—select above—";
+            } else {
+                hint.textContent = "List price " + prices.list.toFixed(2) +
+                    (prices.discount > 0 ? " · agreement " + prices.discount + "% off = " + prices.price : " · no agreement discount");
+            }
+        }
     }
 
     function computeTotals() {
-        var grandTotal = 0;
+        var subtotal = 0;
+        var unpriced = 0;
 
-        rowsContainer.querySelectorAll(".nested-form").forEach(function (row) {
-            var select = row.querySelector("select[name$='-product']");
-            var qtyInput = row.querySelector("input[name$='-quantity_requested']");
-            var unitEl = row.querySelector(".po-unit-price");
-            var totalEl = row.querySelector(".po-line-total");
+        rowsContainer.querySelectorAll("[data-line]").forEach(function (row) {
+            var product = row.querySelector("select[name$='-product']");
+            var qty = parseFloat(row.querySelector("input[name$='-quantity_requested']").value || "0");
+            var priceInput = row.querySelector("input[name$='-requested_unit_price']");
+            var totalEl = row.querySelector("[data-line-total]");
+            var deleteBox = row.querySelector("input[name$='-DELETE']");
 
-            if (!select || !qtyInput || !totalEl) { return; }
+            row.classList.toggle("is-removed", Boolean(deleteBox && deleteBox.checked));
+            if (deleteBox && deleteBox.checked) { return; }
 
-            var option = select.options[select.selectedIndex];
-            var listPrice = option ? parseFloat(option.getAttribute("data-price") || "0") : 0;
-            var discount = option ? parseFloat(option.getAttribute("data-discount") || "0") : 0;
-            var price = Math.round(listPrice * (100 - discount)) / 100;
-            var qty = parseFloat(qtyInput.value || "0");
-            var lineTotal = (isNaN(price) || isNaN(qty)) ? 0 : price * qty;
-
-            if (unitEl) {
-                unitEl.textContent = option && option.value
-                    ? formatMoney(price) + (discount > 0 ? " (" + formatMoney(listPrice) + " less " + discount + "%)" : "")
-                    : "—";
+            if (priceInput.value === "" || parseFloat(priceInput.value) === 0) {
+                totalEl.textContent = product && product.value ? "To quote" : "—";
+                if (product && product.value) { unpriced += 1; }
+                return;
             }
 
-            totalEl.textContent = formatMoney(lineTotal);
-            grandTotal += lineTotal;
+            var line = (parseFloat(priceInput.value) || 0) * (isNaN(qty) ? 0 : qty);
+            totalEl.textContent = formatMoney(line);
+            subtotal += line;
         });
 
-        var totalEl = document.getElementById("poEstimatedTotal");
-        if (totalEl) { totalEl.textContent = formatMoney(grandTotal); }
+        document.getElementById("poEstimatedTotal").textContent = formatMoney(subtotal);
+        document.getElementById("poGrandTotal").textContent = formatMoney(subtotal);
+
+        var note = document.getElementById("poUnpriced");
+        note.hidden = unpriced === 0;
+        note.textContent = unpriced ? "+ " + unpriced + " line(s) for the Owner to quote" : "";
     }
 
-    if (addRowButton && emptyRowTemplate && totalFormsInput) {
-        addRowButton.addEventListener("click", function () {
-            var index = parseInt(totalFormsInput.value, 10);
-            var html = emptyRowTemplate.innerHTML.replace(/__prefix__/g, index);
+    document.getElementById("poAddRow").addEventListener("click", function () {
+        var index = parseInt(totalFormsInput.value, 10);
+        var wrapper = document.createElement("div");
+        wrapper.innerHTML = emptyRowTemplate.innerHTML.replace(/__prefix__/g, index).trim();
+        var row = wrapper.firstElementChild;
+        rowsContainer.appendChild(row);
+        totalFormsInput.value = index + 1;
+        refreshLine(row);
+        computeTotals();
+        row.querySelector("select[name$='-product']").focus();
+    });
 
-            var wrapper = document.createElement("div");
-            wrapper.innerHTML = html.trim();
-            rowsContainer.appendChild(wrapper.firstElementChild);
-
-            totalFormsInput.value = index + 1;
+    rowsContainer.addEventListener("click", function (event) {
+        var useButton = event.target.closest("[data-use-agreement-price]");
+        if (useButton) {
+            useAgreementPrice(useButton.closest("[data-line]"));
             computeTotals();
-        });
-    }
+            return;
+        }
 
-    form.addEventListener("input", computeTotals);
-    form.addEventListener("change", computeTotals);
+        var button = event.target.closest("[data-remove-line]");
+        if (!button) { return; }
+        var row = button.closest("[data-line]");
+        var deleteBox = row.querySelector("input[name$='-DELETE']");
+        if (deleteBox) { deleteBox.checked = true; }
+        computeTotals();
+    });
+
+    form.addEventListener("change", function (event) {
+        var row = event.target.closest("[data-line]");
+        if (row && event.target.matches("select[name$='-product']")) {
+            refreshLine(row);
+        }
+        computeTotals();
+    });
+
+    form.addEventListener("input", function (event) {
+        if (event.target.matches("input[name$='-requested_unit_price']")) {
+            event.target.dataset.autofilled = "";
+            refreshLine(event.target.closest("[data-line]"));
+        }
+        computeTotals();
+    });
+
+    document.getElementById("poUseAllAgreement").addEventListener("click", function () {
+        rowsContainer.querySelectorAll("[data-line]").forEach(function (row) {
+            var priceInput = row.querySelector("input[name$='-requested_unit_price']");
+            var deleteBox = row.querySelector("input[name$='-DELETE']");
+            if (priceInput && priceInput.value === "" && !(deleteBox && deleteBox.checked)) {
+                useAgreementPrice(row);
+            }
+        });
+        computeTotals();
+    });
+
+    rowsContainer.querySelectorAll("[data-line]").forEach(refreshLine);
     computeTotals();
 })();
 </script>

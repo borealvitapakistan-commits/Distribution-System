@@ -9,8 +9,11 @@
 <div class="page-header">
     <div>
         <p class="eyebrow">Purchase Orders</p>
-        <h1>Purchase Orders</h1>
-        <p>Purchase orders submitted by Distributors.</p>
+        <h1>Distributor's Purchase Orders</h1>
+        <p>
+            Requests to Quote and Purchase Orders from Distributors — answer each request with a
+            quote, then ship and invoice once they accept it.
+        </p>
     </div>
 </div>
 
@@ -19,40 +22,45 @@
         <table>
             <thead>
                 <tr>
-                    <th>PO Number</th>
+                    <th>Number</th>
                     <th>Distributor</th>
-                    <th>Submitted</th>
+                    <th>Started</th>
                     <th>Items</th>
-                    <th>Grand Total</th>
-                    <th>Status</th>
+                    <th>Total</th>
+                    <th>Stage</th>
+                    <th>Next</th>
                     <th></th>
                 </tr>
             </thead>
 
             <tbody>
                 {% for purchase_order in purchase_orders %}
-                    <tr class="{% if not purchase_order.owner_viewed_at %}row-highlight{% endif %}">
+                    <tr class="{% if not purchase_order.owner_viewed_at or purchase_order.pk in updated_ids %}row-highlight{% endif %}">
                         <td>
                             <strong>{{ purchase_order.po_number }}</strong>
                             {% if not purchase_order.owner_viewed_at %}
                                 <span class="badge badge-pending">New</span>
+                            {% elif purchase_order.pk in updated_ids %}
+                                <span class="badge badge-pending">Updated</span>
+                            {% endif %}
+                            {% if purchase_order.invoice_number %}
+                                <div class="table-secondary">{{ purchase_order.invoice_number }}</div>
                             {% endif %}
                         </td>
                         <td>{{ purchase_order.distributor_profile.name }}</td>
                         <td>{{ purchase_order.created_at|date:"M d, Y" }}</td>
                         <td>{{ purchase_order.items.count }}</td>
                         <td>{{ purchase_order.grand_total|money }}</td>
-                        <td>
-                            {% if purchase_order.status == "PENDING" %}
-                                <span class="badge badge-pending">Pending</span>
-                            {% elif purchase_order.status == "PARTIALLY_SHIPPED" %}
-                                <span class="badge badge-neutral">Partially shipped</span>
-                            {% elif purchase_order.status == "SHIPPED" %}
-                                <span class="badge badge-neutral">Shipped</span>
-                            {% elif purchase_order.status == "RECEIVED" %}
-                                <span class="badge badge-open">Received</span>
+                        <td>{% include "requests/_po_status_badge.html" %}</td>
+                        <td class="table-secondary">
+                            {% if purchase_order.status == "QUOTE" %}
+                                {% if purchase_order.latest_stage == "QUOTE" %}Waiting for the Distributor{% else %}<strong>Send your quote</strong>{% endif %}
+                            {% elif purchase_order.status == "DECLINED" %}
+                                —
+                            {% elif not purchase_order.invoiced_at %}
+                                {% if purchase_order.status == "PENDING" %}Ship{% elif purchase_order.status == "PARTIALLY_SHIPPED" %}Ship the rest{% else %}Invoice{% endif %}
                             {% else %}
-                                <span class="badge badge-closed">Declined</span>
+                                Done
                             {% endif %}
                         </td>
                         <td>
@@ -66,7 +74,7 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="7" class="empty-table">
+                        <td colspan="8" class="empty-table">
                             No purchase orders yet.
                         </td>
                     </tr>

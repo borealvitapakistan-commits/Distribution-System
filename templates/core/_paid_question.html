@@ -77,6 +77,10 @@ dispatch a "paid:refresh" event on the box.
         <label for="{{ form.note.id_for_label }}">Note</label>
         {{ form.note }}
     </div>
+
+    {% if paid_note %}
+        <p class="stat-detail">{{ paid_note }}</p>
+    {% endif %}
 </div>
 
 <p class="stat-detail" data-paid-none hidden>{{ none_message }}</p>

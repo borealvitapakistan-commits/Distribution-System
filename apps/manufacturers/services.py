@@ -20,6 +20,8 @@ from .models import (
     ManufacturerOrder,
     ManufacturerOrderItem,
     ManufacturerOrderPayment,
+    OrderRevision,
+    OrderRevisionLine,
 )
 
 
@@ -106,6 +108,7 @@ def _validate_order_items(items, *, require_price=True):
         quantity = row.get("quantity")
         unit_price = row.get("unit_price")
         source_purchase_order_item = row.get("source_purchase_order_item")
+        save_price = bool(row.get("save_price"))
 
         if not product:
             raise ValidationError("Every row needs a product.")
@@ -147,6 +150,7 @@ def _validate_order_items(items, *, require_price=True):
                 "quantity": quantity,
                 "unit_price": unit_price,
                 "source_purchase_order_item": source_purchase_order_item,
+                "save_price": save_price,
             }
         )
 
@@ -190,6 +194,81 @@ def _create_order_lines(*, actor, order, rows):
         line.full_clean()
 
     return ManufacturerOrderItem.objects.bulk_create(lines)
+
+
+def _line_snapshot(item, *, unit_price=None, quantity=None, removed=False):
+    """One line of an OrderRevision, taken from a live order line —
+    with this step's price/quantity when they differ from the item's
+    own (a counter-offer doesn't change the order, only proposes)."""
+    return {
+        "item": None if removed else item,
+        "product": item.product,
+        "bottle_size": item.bottle_size,
+        "quantity": item.quantity if quantity is None else quantity,
+        "unit_price": item.unit_price if unit_price is None else unit_price,
+        "removed": removed,
+    }
+
+
+def _record_revision(*, actor, order, stage, lines, message="", attachment=None):
+    """Freezes one step of the negotiation: the lines as they stand
+    now and what was said. The order must already be locked
+    (select_for_update) so the numbering can't collide."""
+    last = order.revisions.order_by("-number").values_list("number", flat=True).first()
+
+    revision = OrderRevision(
+        order=order,
+        number=(last or 0) + 1,
+        stage=stage,
+        message=(message or "").strip(),
+        attachment=attachment or None,
+        created_by=actor,
+        updated_by=actor,
+    )
+    revision.full_clean()
+    revision.save()
+
+    OrderRevisionLine.objects.bulk_create(
+        [
+            OrderRevisionLine(
+                revision=revision,
+                created_by=actor,
+                updated_by=actor,
+                **line,
+            )
+            for line in lines
+        ]
+    )
+
+    return revision
+
+
+def _current_lines(order):
+    return [_line_snapshot(item) for item in order.items.select_related("product")]
+
+
+def _save_system_prices(*, actor, rows):
+    """Lines ticked "Save as system price" on a Request to Quote store
+    their price as our saved price for that product and bottle size —
+    the one the "Use system price" button offers next time."""
+    saved = []
+
+    for row in rows:
+        if not row.get("save_price"):
+            continue
+        if row["bottle_size"] is None or row["unit_price"] is None:
+            raise ValidationError(
+                f"{row['product'].name}: a saved price needs a bottle size and a price."
+            )
+        save_bottle_price(
+            actor=actor,
+            product=row["product"],
+            bottle_size=row["bottle_size"],
+            price=row["unit_price"],
+        )
+        saved.append(row)
+
+    return saved
 
 
 def _next_manufacturer_po_number():
@@ -239,6 +318,13 @@ def create_manufacturer_order(
 
     lines = _create_order_lines(actor=actor, order=order, rows=rows)
     create_batches_for_order(actor=actor, order=order, items=lines)
+    _record_revision(
+        actor=actor,
+        order=order,
+        stage=OrderRevision.Stage.PURCHASE_ORDER,
+        lines=[_line_snapshot(line) for line in lines],
+        message=note,
+    )
 
     record_audit_event(
         user=actor,
@@ -256,7 +342,9 @@ def create_manufacturer_order(
 
 
 @transaction.atomic
-def create_request_to_quote(*, actor, manufacturer, items, brand=None, terms=""):
+def create_request_to_quote(
+    *, actor, manufacturer, items, brand=None, terms="", message=""
+):
     """Step one: the products, bottle sizes and quantities we want, at the
     prices we'd like (pre-filled from our saved prices, each optional).
     Printed and sent to the Manufacturer (our vendor) — nothing is
@@ -278,7 +366,15 @@ def create_request_to_quote(*, actor, manufacturer, items, brand=None, terms="")
     order.full_clean()
     order.save()
 
-    _create_order_lines(actor=actor, order=order, rows=rows)
+    lines = _create_order_lines(actor=actor, order=order, rows=rows)
+    _save_system_prices(actor=actor, rows=rows)
+    _record_revision(
+        actor=actor,
+        order=order,
+        stage=OrderRevision.Stage.REQUEST,
+        lines=[_line_snapshot(line) for line in lines],
+        message=message,
+    )
 
     record_audit_event(
         user=actor,
@@ -308,11 +404,13 @@ def _get_quote_for_update(order_id):
 
 @transaction.atomic
 def update_request_to_quote(
-    *, actor, order_id, manufacturer, items, brand=None, terms=""
+    *, actor, order_id, manufacturer, items, brand=None, terms="", message=None
 ):
     """Rewrites a Request to Quote's lines — only until the
     Manufacturer's quote has been entered, since after that the
-    asked-for prices are what the quote is compared against."""
+    asked-for prices are what the quote is compared against. Until then
+    it's still our draft, so its first revision is rewritten in place
+    rather than adding a new step to the conversation."""
     require_owner(actor)
 
     order = _get_quote_for_update(order_id)
@@ -332,7 +430,33 @@ def update_request_to_quote(
     order.save()
 
     order.items.all().delete()
-    _create_order_lines(actor=actor, order=order, rows=rows)
+    lines = _create_order_lines(actor=actor, order=order, rows=rows)
+    _save_system_prices(actor=actor, rows=rows)
+
+    request = order.revisions.filter(stage=OrderRevision.Stage.REQUEST).first()
+    if request is None:
+        _record_revision(
+            actor=actor,
+            order=order,
+            stage=OrderRevision.Stage.REQUEST,
+            lines=[_line_snapshot(line) for line in lines],
+            message=message or "",
+        )
+    else:
+        request.lines.all().delete()
+        OrderRevisionLine.objects.bulk_create(
+            [
+                OrderRevisionLine(
+                    revision=request, created_by=actor, updated_by=actor,
+                    **_line_snapshot(line),
+                )
+                for line in lines
+            ]
+        )
+        if message is not None:
+            request.message = message.strip()
+        request.updated_by = actor
+        request.save(update_fields=["message", "updated_at", "updated_by"])
 
     record_audit_event(
         user=actor,
@@ -350,7 +474,14 @@ def update_request_to_quote(
 
 @transaction.atomic
 def record_manufacturer_quote(
-    *, actor, order_id, item_updates, quote_file=None, remove_item_ids=(), save_price_item_ids=()
+    *,
+    actor,
+    order_id,
+    item_updates,
+    quote_file=None,
+    remove_item_ids=(),
+    save_price_item_ids=(),
+    message="",
 ):
     """The Manufacturer's real prices came back to us from the Manufacturer
     (on paper, by email, a picture, ...). The Owner uploads that reply and
@@ -358,7 +489,9 @@ def record_manufacturer_quote(
     we asked for are highlighted on the order. Lines the Manufacturer
     can't supply can be dropped. For the lines in save_price_item_ids,
     the quoted price also replaces our saved price for that product and
-    bottle size. Can be re-entered until the order is confirmed.
+    bottle size. Every reply is kept as its own step in the order's
+    conversation, so this is entered again for each new reply until the
+    order is confirmed.
 
     item_updates: {item_pk_as_str: {"unit_price": Decimal, "quantity": Decimal}}"""
     require_owner(actor)
@@ -378,10 +511,12 @@ def record_manufacturer_quote(
         raise ValidationError("At least one product must stay on the order.")
 
     changes = []
+    dropped = []
 
     for item in items:
         if str(item.pk) in remove_item_ids:
             changes.append({"item_id": str(item.pk), "removed": True})
+            dropped.append(_line_snapshot(item, removed=True))
             item.delete()
             continue
 
@@ -427,21 +562,34 @@ def record_manufacturer_quote(
     order.updated_by = actor
     order.save(update_fields=["quote_file", "quoted_at", "updated_at", "updated_by"])
 
+    revision = _record_revision(
+        actor=actor,
+        order=order,
+        stage=OrderRevision.Stage.QUOTE,
+        lines=_current_lines(order) + dropped,
+        message=message,
+        attachment=quote_file,
+    )
+
     record_audit_event(
         user=actor,
         action="manufacturer.quote_recorded",
         instance=order,
-        after_data={"items": changes},
+        after_data={"revision": revision.number, "items": changes},
     )
 
     return order
 
 
 @transaction.atomic
-def confirm_purchase_order(*, actor, order_id):
+def confirm_purchase_order(*, actor, order_id, message=""):
     """Step two: the quoted prices are agreed, so the Request to Quote
     becomes the Purchase Order we send the Manufacturer. From here the
-    usual flow continues — advance payment, receiving, invoice."""
+    usual flow continues — advance payment, receiving, invoice.
+
+    What's accepted is the Manufacturer's latest quote, so this isn't
+    allowed while our own counter-offer is still waiting for their
+    answer — record their reply first (the same prices, if they agreed)."""
     require_owner(actor)
 
     order = _get_quote_for_update(order_id)
@@ -449,6 +597,12 @@ def confirm_purchase_order(*, actor, order_id):
     if order.quoted_at is None:
         raise ValidationError(
             "Enter the Manufacturer's quote before turning this into a Purchase Order."
+        )
+
+    if awaiting_manufacturer_reply(order):
+        raise ValidationError(
+            "Your counter-offer is still waiting for the Manufacturer's answer — "
+            "record their reply before sending the Purchase Order."
         )
 
     lines = list(order.items.select_related("product"))
@@ -462,6 +616,13 @@ def confirm_purchase_order(*, actor, order_id):
     order.save(update_fields=["status", "po_sent_at", "updated_at", "updated_by"])
 
     create_batches_for_order(actor=actor, order=order, items=lines)
+    _record_revision(
+        actor=actor,
+        order=order,
+        stage=OrderRevision.Stage.PURCHASE_ORDER,
+        lines=[_line_snapshot(line) for line in lines],
+        message=message,
+    )
 
     record_audit_event(
         user=actor,
@@ -471,6 +632,250 @@ def confirm_purchase_order(*, actor, order_id):
     )
 
     return order
+
+
+def awaiting_manufacturer_reply(order):
+    """On a Request to Quote: whose turn it is. True while our request
+    or our counter-offer is the last thing said."""
+    latest = order.revisions.order_by("-number").first()
+    return latest is not None and latest.stage in (
+        OrderRevision.Stage.REQUEST,
+        OrderRevision.Stage.COUNTER,
+    )
+
+
+@transaction.atomic
+def record_counter_offer(*, actor, order_id, item_updates, message="", attachment=None):
+    """We answer the Manufacturer's quote with the prices (and
+    quantities) we want instead. This only proposes — the order's own
+    prices stay at the Manufacturer's latest quote until they reply,
+    and that reply is what can be turned into the Purchase Order.
+
+    item_updates: {item_pk_as_str: {"unit_price": Decimal, "quantity": Decimal}}"""
+    require_owner(actor)
+
+    order = _get_quote_for_update(order_id)
+
+    if order.quoted_at is None:
+        raise ValidationError(
+            "Enter the Manufacturer's quote first — a counter-offer answers their prices."
+        )
+
+    lines = []
+    changes = []
+
+    for item in order.items.select_related("product"):
+        update = item_updates.get(str(item.pk)) or {}
+        unit_price = update.get("unit_price")
+        quantity = update.get("quantity")
+
+        if unit_price is None:
+            raise ValidationError(f"Enter the price you're offering for {item.product.name}.")
+
+        unit_price = _as_decimal(unit_price)
+        quantity = item.quantity if quantity is None else _as_decimal(quantity)
+
+        if unit_price < 0:
+            raise ValidationError("Unit price cannot be negative.")
+        if quantity <= 0:
+            raise ValidationError("Quantity must be greater than zero.")
+
+        lines.append(_line_snapshot(item, unit_price=unit_price, quantity=quantity))
+        changes.append(
+            {"item_id": str(item.pk), "unit_price": str(unit_price), "quantity": str(quantity)}
+        )
+
+    revision = _record_revision(
+        actor=actor,
+        order=order,
+        stage=OrderRevision.Stage.COUNTER,
+        lines=lines,
+        message=message,
+        attachment=attachment,
+    )
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.counter_offer_sent",
+        instance=order,
+        after_data={"revision": revision.number, "items": changes},
+    )
+
+    return revision
+
+
+@transaction.atomic
+def update_purchase_order(
+    *, actor, order_id, item_updates, remove_item_ids=(), message=""
+):
+    """Changes a Purchase Order already sent to the Manufacturer — prices,
+    quantities, or dropping a line — as long as the goods haven't arrived
+    and the invoice isn't in yet. Every change is saved as a new version
+    of the Purchase Order (v2, v3, ...), so the earlier ones stay visible.
+
+    A dropped line's batch is still only Pending (nothing has arrived),
+    so it's removed along with the line.
+
+    item_updates: {item_pk_as_str: {"unit_price": Decimal, "quantity": Decimal}}"""
+    require_owner(actor)
+
+    order = _get_order_for_update(order_id)
+
+    if (
+        order.status != ManufacturerOrder.Status.SENT
+        or order.received_at is not None
+        or order.invoice_approved_at is not None
+    ):
+        raise ValidationError(
+            "Only a Purchase Order that hasn't been received or invoiced yet can be changed."
+        )
+
+    remove_item_ids = {str(pk) for pk in remove_item_ids}
+    items = list(order.items.select_for_update().select_related("product", "batch"))
+
+    if all(str(item.pk) in remove_item_ids for item in items):
+        raise ValidationError("At least one product must stay on the order.")
+
+    before = {"grand_total": str(order.grand_total)}
+    changes = []
+    dropped = []
+
+    for item in items:
+        if str(item.pk) in remove_item_ids:
+            dropped.append(_line_snapshot(item, removed=True))
+            changes.append({"item_id": str(item.pk), "removed": True})
+            batch = getattr(item, "batch", None)
+            if batch is not None:
+                record_audit_event(
+                    user=actor,
+                    action="batches.batch_removed",
+                    instance=batch,
+                    before_data={"code": batch.code},
+                    reason=f"Line dropped from Purchase Order {order.po_number}",
+                )
+                batch.delete()
+            item.delete()
+            continue
+
+        update = item_updates.get(str(item.pk)) or {}
+        unit_price = update.get("unit_price")
+        quantity = update.get("quantity")
+
+        if unit_price is None:
+            raise ValidationError(f"Enter the price for {item.product.name}.")
+
+        unit_price = _as_decimal(unit_price)
+        quantity = item.quantity if quantity is None else _as_decimal(quantity)
+
+        if unit_price == item.unit_price and quantity == item.quantity:
+            continue
+
+        item.unit_price = unit_price
+        item.quantity = quantity
+        item.updated_by = actor
+        item.full_clean()
+        item.save(update_fields=["unit_price", "quantity", "updated_at", "updated_by"])
+        changes.append(
+            {"item_id": str(item.pk), "unit_price": str(unit_price), "quantity": str(quantity)}
+        )
+
+    if not changes:
+        raise ValidationError("Nothing was changed on the Purchase Order.")
+
+    if order.grand_total < order.total_paid:
+        raise ValidationError(
+            f"The new total ({order.grand_total}) would be less than what's already "
+            f"been paid ({order.total_paid})."
+        )
+
+    order.updated_by = actor
+    order.save(update_fields=["updated_at", "updated_by"])
+
+    revision = _record_revision(
+        actor=actor,
+        order=order,
+        stage=OrderRevision.Stage.PURCHASE_ORDER,
+        lines=_current_lines(order) + dropped,
+        message=message,
+    )
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.purchase_order_updated",
+        instance=order,
+        before_data=before,
+        after_data={
+            "revision": revision.number,
+            "grand_total": str(order.grand_total),
+            "items": changes,
+        },
+    )
+
+    return revision
+
+
+def revision_timeline(order):
+    """The order's whole conversation, oldest first, ready to show:
+    each step with its lines compared against the step before it.
+    A line is "changed" (orange) when its price moved, "new" (yellow)
+    when a price was given where there was none, "" (white) when it's
+    the same — the same colours as on the order itself."""
+    revisions = list(
+        order.revisions
+        .select_related("created_by")
+        .prefetch_related("lines__product")
+        .order_by("number")
+    )
+
+    timeline = []
+    previous = {}
+    po_version = 0
+
+    for revision in revisions:
+        if revision.stage == OrderRevision.Stage.PURCHASE_ORDER:
+            po_version += 1
+
+        label = revision.get_stage_display()
+        if revision.stage == OrderRevision.Stage.PURCHASE_ORDER and po_version > 1:
+            label = f"Purchase Order v{po_version}"
+
+        rows = []
+        current = {}
+
+        for line in revision.lines.all():
+            before = previous.get(line.line_key)
+            highlight = ""
+            if not line.removed and before is not None and line.unit_price is not None:
+                if before.unit_price is None:
+                    highlight = "new"
+                elif before.unit_price != line.unit_price:
+                    highlight = "changed"
+
+            rows.append(
+                {
+                    "line": line,
+                    "previous": before,
+                    "highlight": highlight,
+                    "quantity_changed": (
+                        before is not None and before.quantity != line.quantity
+                    ),
+                }
+            )
+
+            if not line.removed:
+                current[line.line_key] = line
+
+        timeline.append(
+            {
+                "revision": revision,
+                "label": label,
+                "rows": rows,
+                "changed_count": sum(1 for row in rows if row["highlight"]),
+            }
+        )
+        previous = current
+
+    return timeline
 
 
 def _get_order_for_update(order_id):
@@ -597,6 +1002,18 @@ def record_manufacturer_invoice(
             "invoice_approved_by", "shipping_amount", "tax_percentage",
             "updated_at", "updated_by",
         ]
+    )
+
+    _record_revision(
+        actor=actor,
+        order=order,
+        stage=OrderRevision.Stage.INVOICE,
+        lines=_current_lines(order),
+        message=(
+            f"Manufacturer's invoice no. {order.supplier_invoice_ref}"
+            if order.supplier_invoice_ref else ""
+        ),
+        attachment=invoice_file,
     )
 
     record_audit_event(

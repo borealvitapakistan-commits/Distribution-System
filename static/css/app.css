@@ -1745,7 +1745,7 @@ input[type="checkbox"] {
 
 .mo-steps {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     margin: 0 0 1.5rem;
     padding: 0;
     list-style: none;
@@ -1871,6 +1871,95 @@ input[type="checkbox"] {
 
 .mo-items tfoot td {
     border-top: 0.0625rem solid var(--slate-200);
+}
+
+.mo-items tr.mo-row-removed td {
+    color: var(--slate-400);
+    text-decoration: line-through;
+}
+
+.mo-thread {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 0;
+    padding: 0 1.25rem 1.25rem;
+    list-style: none;
+}
+
+.mo-msg {
+    max-width: 52rem;
+    width: 92%;
+    padding: 0.875rem 1rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: var(--radius);
+    background: var(--white);
+}
+
+.mo-msg-us {
+    align-self: flex-end;
+    border-color: #bfdbfe;
+    background: #f5f9ff;
+}
+
+.mo-msg-them {
+    align-self: flex-start;
+    border-color: #fde68a;
+    background: #fffdf5;
+}
+
+.mo-msg-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.mo-msg-number {
+    color: var(--slate-500);
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.mo-msg-text {
+    margin: 0 0 0.5rem;
+    white-space: normal;
+}
+
+.mo-msg-file {
+    margin: 0 0 0.5rem;
+    font-size: 0.875rem;
+}
+
+.mo-msg-lines {
+    width: 100%;
+    font-size: 0.875rem;
+}
+
+.mo-accept-form {
+    display: grid;
+    gap: 0.375rem;
+    max-width: 32rem;
+    margin-top: 0.75rem;
+}
+
+.mo-accept-form button {
+    justify-self: start;
+}
+
+.mo-lines-table input[type="number"] {
+    width: 8rem;
+}
+
+@media (max-width: 40rem) {
+    .mo-thread {
+        padding: 0 0.75rem 0.75rem;
+    }
+
+    .mo-msg {
+        width: 100%;
+    }
 }
 
 .mo-total-label {
@@ -2266,6 +2355,43 @@ input[type="checkbox"] {
 
 .doc-figure {
     text-align: center;
+}
+
+.doc-use-price {
+    display: block;
+    margin: 0.375rem auto 0;
+    padding: 0.125rem 0.5rem;
+    color: var(--doc-color, var(--blue-600));
+    border: 0.0625rem dashed currentColor;
+    border-radius: 0.375rem;
+    background: transparent;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.doc-use-price:hover {
+    background: var(--doc-soft, var(--slate-100));
+}
+
+.doc-use-price[hidden] {
+    display: none;
+}
+
+.doc-save-price {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    margin-top: 0.375rem;
+    color: var(--slate-600);
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+
+.doc-save-price:has(input:disabled) {
+    color: var(--slate-400);
+    cursor: not-allowed;
 }
 
 .doc-total {

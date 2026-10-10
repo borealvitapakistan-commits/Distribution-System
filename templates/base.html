@@ -84,12 +84,12 @@
 
                     <a
                         href="{% url 'owner-purchase-orders-hub' %}"
-                        class="{% if request.resolver_match.url_name == 'owner-purchase-orders-hub' or request.resolver_match.url_name == 'owner-purchase-order-list' or request.resolver_match.url_name == 'owner-purchase-order-detail' or request.resolver_match.url_name == 'manufacturer-order-list' or request.resolver_match.url_name == 'manufacturer-order-create' or request.resolver_match.url_name == 'manufacturer-order-detail' or request.resolver_match.url_name == 'manufacturer-order-edit' or request.resolver_match.url_name == 'manufacturer-order-quote' or request.resolver_match.url_name == 'manufacturer-order-received' or request.resolver_match.url_name == 'manufacturer-order-advance' %}active{% endif %}"
+                        class="{% if request.resolver_match.url_name == 'owner-purchase-orders-hub' or request.resolver_match.url_name == 'owner-purchase-order-list' or request.resolver_match.url_name == 'owner-purchase-order-detail' or request.resolver_match.url_name == 'purchase-order-quote' or request.resolver_match.url_name == 'purchase-order-change' or request.resolver_match.url_name == 'purchase-order-invoice' or request.resolver_match.url_name == 'manufacturer-order-list' or request.resolver_match.url_name == 'manufacturer-order-create' or request.resolver_match.url_name == 'manufacturer-order-detail' or request.resolver_match.url_name == 'manufacturer-order-edit' or request.resolver_match.url_name == 'manufacturer-order-quote' or request.resolver_match.url_name == 'manufacturer-order-received' or request.resolver_match.url_name == 'manufacturer-order-advance' %}active{% endif %}"
                     >
                         <span class="nav-icon">✉</span>
                         Purchase Orders
-                        {% if new_purchase_orders_count %}
-                            <span class="nav-badge">{{ new_purchase_orders_count }}</span>
+                        {% if purchase_orders_attention_count %}
+                            <span class="nav-badge">{{ purchase_orders_attention_count }}</span>
                         {% endif %}
                     </a>
 
@@ -127,10 +127,13 @@
 
                     <a
                         href="{% url 'distributor-orders-hub' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-orders-hub' or request.resolver_match.url_name == 'distributor-purchase-order-list' or request.resolver_match.url_name == 'distributor-purchase-order-detail' or request.resolver_match.url_name == 'purchase-order-create' %}active{% endif %}"
+                        class="{% if request.resolver_match.url_name == 'distributor-orders-hub' or request.resolver_match.url_name == 'distributor-purchase-order-list' or request.resolver_match.url_name == 'distributor-purchase-order-detail' or request.resolver_match.url_name == 'purchase-order-create' or request.resolver_match.url_name == 'purchase-order-edit' or request.resolver_match.url_name == 'purchase-order-counter' or request.resolver_match.url_name == 'distributor-purchase-order-advance' or request.resolver_match.url_name == 'distributor-purchase-order-receive' %}active{% endif %}"
                     >
                         <span class="nav-icon">✉</span>
                         Orders
+                        {% if order_updates_count %}
+                            <span class="nav-badge">{{ order_updates_count }}</span>
+                        {% endif %}
                     </a>
 
                     <a

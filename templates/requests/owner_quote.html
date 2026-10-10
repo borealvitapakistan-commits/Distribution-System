@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Quote — {{ purchase_order.po_number }}
+{% endblock %}
+
+{% block content %}
+{% include "requests/_owner_quote_sheet.html" %}
+{% endblock %}

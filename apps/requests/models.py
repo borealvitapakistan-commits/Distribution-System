@@ -11,12 +11,20 @@ from .querysets import PurchaseOrderQuerySet
 
 
 class PurchaseOrder(AdvanceFinalPaymentsMixin, AuditedModel):
-    """A Distributor asking the Owner for stock. Paid for the same way as
-    an order to a Manufacturer — an optional advance right after placing
-    it, and the rest once the goods arrive (see apps.core.payments) —
-    except the Owner has to confirm each payment actually landed."""
+    """A Distributor asking the Owner for stock, in the same four stages
+    as an order to a Manufacturer: the Distributor's Request to Quote, the
+    Owner's quote (and any counter-offers back and forth), the Purchase
+    Order once the Distributor accepts, and the Owner's invoice. Both
+    sides work from their own panel — every step is kept in the order's
+    conversation (PurchaseOrderRevision).
+
+    Paid for the same way as an order to a Manufacturer — an optional
+    advance right after placing it, and the rest once the goods arrive
+    (see apps.core.payments) — except the Owner has to confirm each
+    payment actually landed."""
 
     class Status(models.TextChoices):
+        QUOTE = "QUOTE", "Request to Quote"
         PENDING = "PENDING", "Pending"
         PARTIALLY_SHIPPED = "PARTIALLY_SHIPPED", "Partially shipped"
         SHIPPED = "SHIPPED", "Shipped"
@@ -61,7 +69,26 @@ class PurchaseOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         default=Decimal("0.00"),
         validators=[MinValueValidator(Decimal("0"))],
     )
-    invoiced_at = models.DateTimeField(null=True, blank=True)
+    quoted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the Owner first answered the Request to Quote with prices.",
+    )
+    po_placed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the Distributor accepted the quote and it became a Purchase Order.",
+    )
+    invoice_number = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="The Owner's invoice number, given when the invoice is issued: SI-<BRAND>-0001.",
+    )
+    invoiced_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the Owner issued the invoice.",
+    )
     pays_advance = models.BooleanField(
         null=True,
         blank=True,
@@ -75,11 +102,62 @@ class PurchaseOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         blank=True,
         help_text="When the Owner first opened this order. Null means it's new.",
     )
+    owner_seen_revision = models.PositiveIntegerField(
+        default=0,
+        help_text="The last step of the conversation the Owner has seen.",
+    )
+    distributor_seen_revision = models.PositiveIntegerField(
+        default=0,
+        help_text="The last step of the conversation the Distributor has seen.",
+    )
 
     objects = PurchaseOrderQuerySet.as_manager()
 
     class Meta:
         ordering = ["-created_at"]
+
+    @property
+    def is_quote(self):
+        return self.status == self.Status.QUOTE
+
+    @property
+    def is_invoiced(self):
+        return self.invoiced_at is not None
+
+    @property
+    def declined_as_quote(self):
+        """Declined by the Owner before it ever became a Purchase Order."""
+        return self.status == self.Status.DECLINED and self.po_placed_at is None
+
+    @property
+    def document_title(self):
+        if self.is_quote or self.declined_as_quote:
+            return "Quotation" if self.quoted_at else "Request to Quote"
+        return "Invoice" if self.is_invoiced else "Purchase Order"
+
+    @property
+    def purchase_order_date(self):
+        if self.is_quote or self.declined_as_quote:
+            return None
+        return self.po_placed_at or self.created_at
+
+    @property
+    def has_price_changes(self):
+        return any(item.price_changed for item in self.items.all())
+
+    @property
+    def can_issue_invoice(self):
+        """The invoice goes out once everything that will ship has shipped
+        — every line sent in full or closed as unavailable (or the rest of
+        the order declined)."""
+        if self.is_quote or self.is_invoiced:
+            return False
+        items = list(self.items.all())
+        if not any(item.quantity_shipped > 0 for item in items):
+            return False
+        return self.status == self.Status.DECLINED or all(
+            item.quantity_to_ship_remaining <= 0 for item in items
+        )
 
     @property
     def subtotal(self):
@@ -131,6 +209,16 @@ class PurchaseOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         return self.status not in (self.Status.RECEIVED, self.Status.DECLINED)
 
     @property
+    def can_change(self):
+        """A placed Purchase Order can still be changed by the Owner (as a
+        new version) until anything ships or the invoice goes out."""
+        return (
+            self.status == self.Status.PENDING
+            and not self.is_invoiced
+            and all(item.quantity_shipped == 0 for item in self.items.all())
+        )
+
+    @property
     def awaiting_receipt(self):
         """Anything shipped that the Distributor hasn't confirmed yet."""
         return any(item.quantity_to_receive_remaining > 0 for item in self.items.all())
@@ -139,6 +227,26 @@ class PurchaseOrder(AdvanceFinalPaymentsMixin, AuditedModel):
     def required_upfront_amount(self):
         pct = self.distributor_profile.upfront_payment_percentage
         return (self.grand_total * pct / Decimal("100")).quantize(Decimal("0.01"))
+
+    @property
+    def can_pay_now(self):
+        """Whether the Distributor's order page offers a payment form.
+
+        Before anything ships only an advance can be paid: when they said
+        they'd pay one and none stands (e.g. the Owner rejected it), or
+        when their terms require more up front than they've paid — the
+        Owner won't ship until then. Answering "No advance" with no
+        required advance means nothing is due until the goods arrive.
+        After shipping, it's the remaining (final) payment."""
+        if self.is_quote or self.status == self.Status.DECLINED:
+            return False
+        if self.pays_advance is None or self.remaining_amount <= 0:
+            return False
+        if self.status != self.Status.PENDING:
+            return True
+        if self.pays_advance and not self.advance_paid:
+            return True
+        return self.paid_so_far < self.required_upfront_amount
 
     @property
     def upfront_amount_satisfied(self):
@@ -189,11 +297,28 @@ class PurchaseOrderItem(AuditedModel):
         ),
     )
 
+    requested_unit_price = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
+        help_text=(
+            "The price the Distributor asked for on the Request to Quote "
+            "(blank = asked the Owner to quote)."
+        ),
+    )
+
     unit_price = models.DecimalField(
         max_digits=18,
         decimal_places=2,
+        null=True,
+        blank=True,
         validators=[MinValueValidator(Decimal("0"))],
-        help_text="list_price less discount_percentage.",
+        help_text=(
+            "The current agreed price — list_price less discount_percentage. "
+            "Blank only on a Request to Quote."
+        ),
     )
 
     owner_note = models.TextField(
@@ -264,7 +389,35 @@ class PurchaseOrderItem(AuditedModel):
 
     @property
     def line_total(self):
+        if self.unit_price is None:
+            return Decimal("0.00")
         return (self.quantity_ordered * self.unit_price).quantize(Decimal("0.01"))
+
+    @property
+    def requested_price_given(self):
+        """Whether the Distributor asked for a price. A 0 counts as not
+        given — it means "please quote"."""
+        return self.requested_unit_price not in (None, Decimal("0"))
+
+    @property
+    def price_highlight(self):
+        """How the line is coloured once the Owner's price is in:
+        "changed" (orange) — the Distributor asked for a price and the
+        Owner's differs; "new" (yellow) — they left it empty and the
+        Owner filled it in; "" (white) — it matches, or nothing is
+        quoted yet. Orders placed directly, before the Request to Quote
+        existed, have no asked-for price and are never highlighted."""
+        if self.unit_price in (None, Decimal("0")) or not self.purchase_order.quoted_at:
+            return ""
+        if not self.requested_price_given:
+            return "new"
+        if self.unit_price != self.requested_unit_price:
+            return "changed"
+        return ""
+
+    @property
+    def price_changed(self):
+        return bool(self.price_highlight)
 
     def __str__(self):
         return f"{self.product.sku} - {self.quantity_requested}"
@@ -330,3 +483,118 @@ class PurchaseOrderPayment(AuditedModel):
 
     def __str__(self):
         return f"{self.purchase_order.po_number} - {self.amount}"
+
+
+class PurchaseOrderRevision(AuditedModel):
+    """One step in the back-and-forth on a Distributor's order — their
+    Request to Quote, each quote the Owner sends back, each counter-offer,
+    every version of the Purchase Order and the Owner's invoice.
+
+    Each one is a frozen copy of the lines as they stood at that moment
+    plus the message that went with it, so the whole conversation can
+    always be traced. Nothing here changes once it's saved; the live
+    prices are still on PurchaseOrderItem."""
+
+    class Stage(models.TextChoices):
+        REQUEST = "REQUEST", "Request to Quote"
+        QUOTE = "QUOTE", "Owner's quote"
+        COUNTER = "COUNTER", "Distributor's counter-offer"
+        PURCHASE_ORDER = "PURCHASE_ORDER", "Purchase Order"
+        INVOICE = "INVOICE", "Invoice"
+
+    purchase_order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.PROTECT,
+        related_name="revisions",
+    )
+
+    number = models.PositiveIntegerField()
+
+    stage = models.CharField(max_length=20, choices=Stage.choices)
+
+    by_owner = models.BooleanField(
+        default=False,
+        help_text="Said by the Owner (otherwise by the Distributor).",
+    )
+
+    message = models.TextField(blank=True)
+
+    attachment = models.FileField(
+        upload_to="purchase_order_revisions/",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["purchase_order", "number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["purchase_order", "number"],
+                name="unique_revision_number_per_purchase_order",
+            ),
+        ]
+
+    @property
+    def total(self):
+        total = sum(
+            (line.line_total for line in self.lines.all() if not line.removed),
+            Decimal("0.00"),
+        )
+        return total.quantize(Decimal("0.01"))
+
+    def __str__(self):
+        return f"{self.purchase_order.po_number} #{self.number} - {self.get_stage_display()}"
+
+
+class PurchaseOrderRevisionLine(AuditedModel):
+    revision = models.ForeignKey(
+        PurchaseOrderRevision,
+        on_delete=models.CASCADE,
+        related_name="lines",
+    )
+
+    item = models.ForeignKey(
+        PurchaseOrderItem,
+        on_delete=models.SET_NULL,
+        related_name="revision_lines",
+        null=True,
+        blank=True,
+        help_text="The live order line; blank once that line was dropped from the order.",
+    )
+
+    product = models.ForeignKey(
+        "products.Product",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+
+    quantity = models.DecimalField(max_digits=18, decimal_places=4)
+
+    unit_price = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Blank = no price given (please quote).",
+    )
+
+    removed = models.BooleanField(
+        default=False,
+        help_text="This line was dropped from the order at this step.",
+    )
+
+    class Meta:
+        ordering = ["product__name"]
+
+    @property
+    def line_key(self):
+        return self.product_id
+
+    @property
+    def line_total(self):
+        if self.unit_price is None:
+            return Decimal("0.00")
+        return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+
+    def __str__(self):
+        return f"{self.revision} - {self.product_id} - {self.unit_price}"

@@ -474,6 +474,17 @@ def bottle_price_map(products=None):
     return prices
 
 
+def product_price_map():
+    """{product_id_str: "price"} — each product's own price, offered on
+    the Request to Quote as the system price when no price is saved for
+    the chosen bottle size. Products without a price are left out."""
+    return {
+        str(pk): str(price)
+        for pk, price in Product.objects.filter(base_retail_price__gt=0)
+        .values_list("pk", "base_retail_price")
+    }
+
+
 @transaction.atomic
 def save_retail_price(*, actor, product, bottle_size, price):
     """Creates or replaces what we sell one bottle of a product for at

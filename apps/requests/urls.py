@@ -1,19 +1,27 @@
 from django.urls import path
 
 from .views import (
+    AcceptQuoteView,
     CommentPurchaseOrderView,
     ConfirmPaymentView,
     DeclinePurchaseOrderView,
+    DistributorCounterOfferView,
     DistributorOrdersHubView,
     DistributorPurchaseOrderAdvanceView,
     DistributorPurchaseOrderDetailView,
     DistributorPurchaseOrderListView,
     DistributorPurchaseOrderReceiveView,
+    IssueInvoiceView,
+    OwnerPurchaseOrderChangeView,
     OwnerPurchaseOrderDetailView,
     OwnerPurchaseOrderListView,
     OwnerPurchaseOrdersHubView,
+    OwnerQuoteView,
+    PurchaseOrderConversationView,
     PurchaseOrderCreateView,
+    PurchaseOrderEditView,
     PurchaseOrderPDFView,
+    PurchaseOrderRecordPDFView,
     RecordPaymentView,
     RejectPaymentView,
     ShipPurchaseOrderItemView,
@@ -45,6 +53,21 @@ urlpatterns = [
         name="distributor-purchase-order-detail",
     ),
     path(
+        "distributor/purchase-orders/<uuid:pk>/edit/",
+        PurchaseOrderEditView.as_view(),
+        name="purchase-order-edit",
+    ),
+    path(
+        "distributor/purchase-orders/<uuid:pk>/counter-offer/",
+        DistributorCounterOfferView.as_view(),
+        name="purchase-order-counter",
+    ),
+    path(
+        "distributor/purchase-orders/<uuid:pk>/accept/",
+        AcceptQuoteView.as_view(),
+        name="purchase-order-accept",
+    ),
+    path(
         "distributor/purchase-orders/<uuid:pk>/advance/",
         DistributorPurchaseOrderAdvanceView.as_view(),
         name="distributor-purchase-order-advance",
@@ -73,6 +96,21 @@ urlpatterns = [
         "owner/purchase-orders/<uuid:pk>/",
         OwnerPurchaseOrderDetailView.as_view(),
         name="owner-purchase-order-detail",
+    ),
+    path(
+        "owner/purchase-orders/<uuid:pk>/quote/",
+        OwnerQuoteView.as_view(),
+        name="purchase-order-quote",
+    ),
+    path(
+        "owner/purchase-orders/<uuid:pk>/change/",
+        OwnerPurchaseOrderChangeView.as_view(),
+        name="purchase-order-change",
+    ),
+    path(
+        "owner/purchase-orders/<uuid:pk>/invoice/",
+        IssueInvoiceView.as_view(),
+        name="purchase-order-invoice",
     ),
     path(
         "owner/purchase-orders/<uuid:pk>/items/<uuid:item_id>/ship/",
@@ -118,5 +156,15 @@ urlpatterns = [
         "purchase-orders/<uuid:pk>/pdf/",
         PurchaseOrderPDFView.as_view(),
         name="purchase-order-pdf",
+    ),
+    path(
+        "purchase-orders/<uuid:pk>/record/",
+        PurchaseOrderRecordPDFView.as_view(),
+        name="purchase-order-record-pdf",
+    ),
+    path(
+        "purchase-orders/<uuid:pk>/conversation/",
+        PurchaseOrderConversationView.as_view(),
+        name="purchase-order-conversation",
     ),
 ]

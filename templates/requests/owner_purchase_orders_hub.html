@@ -22,8 +22,11 @@
                 {% if new_purchase_orders_count %}
                     <span class="badge badge-pending">{{ new_purchase_orders_count }} new</span>
                 {% endif %}
+                {% if purchase_order_updates_count %}
+                    <span class="badge badge-pending">{{ purchase_order_updates_count }} updated</span>
+                {% endif %}
             </span>
-            <span class="hub-card-desc">Orders Distributors have placed with you.</span>
+            <span class="hub-card-desc">Requests to Quote and orders from Distributors — quote, ship and invoice.</span>
         </a>
 
         <a class="hub-card" href="{% url 'manufacturer-order-list' %}">

@@ -388,3 +388,129 @@ class ManufacturerOrderPayment(AuditedModel):
 
     def __str__(self):
         return f"{self.order.po_number} - {self.get_kind_display()} - {self.amount}"
+
+
+class OrderRevision(AuditedModel):
+    """One step in the back-and-forth on a Manufacturer order — our
+    Request to Quote, each reply the Manufacturer sends, each counter-offer
+    we make, every version of the Purchase Order and the final invoice.
+
+    Each one is a frozen copy of the lines as they stood at that moment
+    plus the message that went with it, so the whole conversation (who
+    asked for what price, when, and what was finally agreed) can always
+    be traced. Nothing here changes once it's saved; the live prices
+    are still on ManufacturerOrderItem."""
+
+    class Stage(models.TextChoices):
+        REQUEST = "REQUEST", "Request to Quote"
+        QUOTE = "QUOTE", "Manufacturer's quote"
+        COUNTER = "COUNTER", "Our counter-offer"
+        PURCHASE_ORDER = "PURCHASE_ORDER", "Purchase Order"
+        INVOICE = "INVOICE", "Manufacturer's invoice"
+
+    FROM_MANUFACTURER = {Stage.QUOTE, Stage.INVOICE}
+
+    order = models.ForeignKey(
+        ManufacturerOrder,
+        on_delete=models.PROTECT,
+        related_name="revisions",
+    )
+
+    number = models.PositiveIntegerField()
+
+    stage = models.CharField(max_length=20, choices=Stage.choices)
+
+    message = models.TextField(
+        blank=True,
+        help_text="What was said with this step — our note, or what the Manufacturer replied.",
+    )
+
+    attachment = models.FileField(
+        upload_to="manufacturer_order_revisions/",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["order", "number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["order", "number"],
+                name="unique_revision_number_per_manufacturer_order",
+            ),
+        ]
+
+    @property
+    def from_manufacturer(self):
+        return self.stage in self.FROM_MANUFACTURER
+
+    @property
+    def total(self):
+        total = sum(
+            (line.line_total for line in self.lines.all() if not line.removed),
+            Decimal("0.00"),
+        )
+        return total.quantize(Decimal("0.01"))
+
+    def __str__(self):
+        return f"{self.order.po_number} #{self.number} - {self.get_stage_display()}"
+
+
+class OrderRevisionLine(AuditedModel):
+    revision = models.ForeignKey(
+        OrderRevision,
+        on_delete=models.CASCADE,
+        related_name="lines",
+    )
+
+    item = models.ForeignKey(
+        ManufacturerOrderItem,
+        on_delete=models.SET_NULL,
+        related_name="revision_lines",
+        null=True,
+        blank=True,
+        help_text="The live order line; blank once that line was dropped from the order.",
+    )
+
+    product = models.ForeignKey(
+        "products.Product",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+
+    bottle_size = models.PositiveSmallIntegerField(
+        choices=BottleSize.choices,
+        null=True,
+        blank=True,
+    )
+
+    quantity = models.DecimalField(max_digits=18, decimal_places=4)
+
+    unit_price = models.DecimalField(
+        max_digits=18,
+        decimal_places=3,
+        null=True,
+        blank=True,
+        help_text="Blank = no price given (please quote).",
+    )
+
+    removed = models.BooleanField(
+        default=False,
+        help_text="This line was dropped from the order at this step.",
+    )
+
+    class Meta:
+        ordering = ["product__name", "bottle_size"]
+
+    @property
+    def line_key(self):
+        return (self.product_id, self.bottle_size)
+
+    @property
+    def line_total(self):
+        if self.unit_price is None:
+            return Decimal("0.00")
+        return (self.quantity * self.unit_price).quantize(Decimal("0.01"))
+
+    def __str__(self):
+        return f"{self.revision} - {self.product_id} - {self.unit_price}"

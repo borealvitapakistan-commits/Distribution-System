@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Conversation — {{ purchase_order.po_number }}
+{% endblock %}
+
+{% block content %}
+<a class="mo-back-link" href="{% if panel == 'owner' %}{% url 'owner-purchase-order-detail' purchase_order.pk %}{% else %}{% url 'distributor-purchase-order-detail' purchase_order.pk %}{% endif %}">← Back to {{ purchase_order.po_number }}</a>
+
+<div class="page-header mo-header">
+    <div>
+        <div class="mo-title-row">
+            <h1>{{ purchase_order.po_number }} — Conversation history</h1>
+            {% include "requests/_po_status_badge.html" %}
+        </div>
+        <p>
+            Everything between the Owner and {% if panel == "owner" %}{{ purchase_order.distributor_profile.name }}{% else %}you{% endif %}
+            on this order, from the Request to Quote to the invoice.
+        </p>
+    </div>
+</div>
+
+{% include "requests/_steps.html" %}
+
+{% include "requests/_conversation.html" %}
+{% endblock %}

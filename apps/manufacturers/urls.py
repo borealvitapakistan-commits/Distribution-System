@@ -11,8 +11,12 @@ from .views import (
     ManufacturerOrderDetailView,
     ManufacturerOrderListView,
     ManufacturerOrderPDFView,
+    ManufacturerOrderRecordPDFView,
     ManufacturerUpdateView,
     ManufacturerOrderAdvanceView,
+    ManufacturerOrderCounterView,
+    ManufacturerOrderConversationView,
+    ManufacturerPurchaseOrderEditView,
     ManufacturerOrderReceiveView,
     RecordManufacturerPaymentView,
     SetManufacturerOrderOutcomeView,
@@ -50,6 +54,21 @@ urlpatterns = [
         name="manufacturer-order-quote",
     ),
     path(
+        "owner/manufacturer-orders/<uuid:pk>/conversation/",
+        ManufacturerOrderConversationView.as_view(),
+        name="manufacturer-order-conversation",
+    ),
+    path(
+        "owner/manufacturer-orders/<uuid:pk>/counter/",
+        ManufacturerOrderCounterView.as_view(),
+        name="manufacturer-order-counter",
+    ),
+    path(
+        "owner/manufacturer-orders/<uuid:pk>/change/",
+        ManufacturerPurchaseOrderEditView.as_view(),
+        name="manufacturer-order-change",
+    ),
+    path(
         "owner/manufacturer-orders/<uuid:pk>/confirm/",
         ConfirmPurchaseOrderView.as_view(),
         name="manufacturer-order-confirm",
@@ -73,6 +92,11 @@ urlpatterns = [
         "owner/manufacturer-orders/<uuid:pk>/payments/",
         RecordManufacturerPaymentView.as_view(),
         name="manufacturer-order-payment",
+    ),
+    path(
+        "owner/manufacturer-orders/<uuid:pk>/record.pdf",
+        ManufacturerOrderRecordPDFView.as_view(),
+        name="manufacturer-order-record-pdf",
     ),
     path(
         "owner/manufacturer-orders/<uuid:pk>/pdf/",

@@ -1161,3 +1161,352 @@ class RequestToQuoteFlowTests(TestCase):
         vitamin_d = rows[1]
         self.assertEqual(vitamin_d["quantity"], Decimal("100"))
         self.assertIsNone(vitamin_d["cells"][1]["item"])
+
+    def quote_reply(self, order, prices, message="", **kwargs):
+        from .services import record_manufacturer_quote
+
+        lines = self.lines(order)
+        return record_manufacturer_quote(
+            actor=self.owner,
+            order_id=order.pk,
+            quote_file=kwargs.pop("quote_file", None) or (
+                None if order.quote_file else proof_file("quote.png")
+            ),
+            item_updates={
+                str(lines[key].pk): {"unit_price": Decimal(price)}
+                for key, price in prices.items()
+            },
+            message=message,
+            **kwargs,
+        )
+
+    def test_every_negotiation_round_is_kept(self):
+        from .models import OrderRevision
+        from .services import (
+            awaiting_manufacturer_reply,
+            confirm_purchase_order,
+            record_counter_offer,
+            revision_timeline,
+        )
+
+        order = self.make_quote()
+        ash60 = (self.ashwagandha.pk, 60)
+        ash120 = (self.ashwagandha.pk, 120)
+        d3 = (self.vitamin_d.pk, 60)
+        self.assertTrue(awaiting_manufacturer_reply(order))
+
+        # No counter-offer before the Manufacturer has quoted.
+        with self.assertRaises(ValidationError):
+            record_counter_offer(actor=self.owner, order_id=order.pk, item_updates={})
+
+        self.quote_reply(
+            order, {ash60: "22", ash120: "30", d3: "10"}, message="Raw material went up."
+        )
+        self.assertFalse(awaiting_manufacturer_reply(order))
+
+        lines = self.lines(order)
+        record_counter_offer(
+            actor=self.owner,
+            order_id=order.pk,
+            item_updates={
+                str(lines[ash60].pk): {"unit_price": Decimal("20")},
+                str(lines[ash120].pk): {"unit_price": Decimal("30")},
+                str(lines[d3].pk): {"unit_price": Decimal("10"), "quantity": Decimal("200")},
+            },
+            message="Please, 20 for the 60s.",
+        )
+
+        # The counter only proposes: the order stays at their quote.
+        lines = self.lines(order)
+        self.assertEqual(lines[ash60].unit_price, Decimal("22"))
+        self.assertEqual(lines[d3].quantity, Decimal("100"))
+        self.assertTrue(awaiting_manufacturer_reply(order))
+
+        with self.assertRaises(ValidationError):
+            confirm_purchase_order(actor=self.owner, order_id=order.pk)
+
+        self.quote_reply(order, {ash60: "22", ash120: "30", d3: "10"}, message="Sorry, 22 is our best.")
+        confirm_purchase_order(actor=self.owner, order_id=order.pk, message="Accepted at 22.")
+
+        stages = list(order.revisions.values_list("stage", flat=True))
+        self.assertEqual(
+            stages,
+            [
+                OrderRevision.Stage.REQUEST,
+                OrderRevision.Stage.QUOTE,
+                OrderRevision.Stage.COUNTER,
+                OrderRevision.Stage.QUOTE,
+                OrderRevision.Stage.PURCHASE_ORDER,
+            ],
+        )
+
+        timeline = revision_timeline(order)
+        highlights = [
+            {(row["line"].product_id, row["line"].bottle_size): row["highlight"] for row in step["rows"]}
+            for step in timeline
+        ]
+        self.assertEqual(highlights[1], {ash60: "changed", ash120: "new", d3: ""})
+        self.assertEqual(highlights[2][ash60], "changed")  # 22 -> 20
+        self.assertEqual(highlights[3][ash60], "changed")  # 20 -> 22
+        self.assertEqual(highlights[4][ash60], "")
+        self.assertEqual(timeline[1]["revision"].message, "Raw material went up.")
+        self.assertTrue(timeline[1]["revision"].from_manufacturer)
+        self.assertFalse(timeline[2]["revision"].from_manufacturer)
+        self.assertEqual(timeline[4]["label"], "Purchase Order")
+        self.assertEqual(timeline[0]["revision"].total, Decimal("2000.00"))
+
+        # The final Purchase Order is still coloured against our first ask.
+        self.assertEqual(self.lines(order)[ash60].price_highlight, "changed")
+
+    def test_editing_the_request_rewrites_its_draft(self):
+        from .services import update_request_to_quote
+
+        order = self.make_quote()
+        update_request_to_quote(
+            actor=self.owner,
+            order_id=order.pk,
+            manufacturer=self.manufacturer,
+            brand=self.brand,
+            message="Need these by March.",
+            items=[{"product": self.ashwagandha, "bottle_size": 60, "quantity": "5", "unit_price": "9"}],
+        )
+
+        revision = order.revisions.get()
+        self.assertEqual(revision.message, "Need these by March.")
+        line = revision.lines.get()
+        self.assertEqual((line.quantity, line.unit_price), (Decimal("5"), Decimal("9")))
+
+    def test_purchase_order_changes_are_versioned(self):
+        from apps.batches.models import Batch
+
+        from .models import OrderRevision
+        from .services import confirm_purchase_order, revision_timeline, update_purchase_order
+
+        order = self.make_quote()
+        ash60 = (self.ashwagandha.pk, 60)
+        ash120 = (self.ashwagandha.pk, 120)
+        d3 = (self.vitamin_d.pk, 60)
+        self.quote_reply(order, {ash60: "12", ash120: "30", d3: "10"})
+        confirm_purchase_order(actor=self.owner, order_id=order.pk)
+
+        lines = self.lines(order)
+        d3_batch = lines[d3].batch.pk
+        updates = {str(item.pk): {"unit_price": item.unit_price} for item in lines.values()}
+
+        with self.assertRaises(ValidationError):
+            update_purchase_order(actor=self.owner, order_id=order.pk, item_updates=updates)
+
+        updates[str(lines[ash60].pk)] = {"unit_price": Decimal("11"), "quantity": Decimal("120")}
+        update_purchase_order(
+            actor=self.owner,
+            order_id=order.pk,
+            item_updates=updates,
+            remove_item_ids=[lines[d3].pk],
+            message="They're out of D3.",
+        )
+
+        order.refresh_from_db()
+        lines = self.lines(order)
+        self.assertNotIn(d3, lines)
+        self.assertFalse(Batch.objects.filter(pk=d3_batch).exists())
+        self.assertEqual(lines[ash60].unit_price, Decimal("11"))
+        self.assertEqual(order.subtotal, Decimal("2820.00"))
+
+        timeline = revision_timeline(order)
+        self.assertEqual(timeline[-1]["label"], "Purchase Order v2")
+        last = {
+            (row["line"].product_id, row["line"].bottle_size): row for row in timeline[-1]["rows"]
+        }
+        self.assertTrue(last[d3]["line"].removed)
+        self.assertEqual(last[ash60]["highlight"], "changed")
+        self.assertTrue(last[ash60]["quantity_changed"])
+        self.assertEqual(timeline[-1]["revision"].total, Decimal("2820.00"))
+
+        # Can't drop below what's already been paid.
+        record_manufacturer_payment(
+            actor=self.owner, order_id=order.pk, amount="2000",
+            paid_at="2026-01-01", proof=proof_file(), kind=ManufacturerOrderPayment.Kind.ADVANCE,
+        )
+        cheap = {str(item.pk): {"unit_price": Decimal("1")} for item in lines.values()}
+        with self.assertRaises(ValidationError):
+            update_purchase_order(actor=self.owner, order_id=order.pk, item_updates=cheap)
+
+        # Once invoiced, the Purchase Order is final and the invoice is a step too.
+        record_manufacturer_invoice(actor=self.owner, order_id=order.pk, supplier_invoice_ref="GL-77")
+        self.assertEqual(order.revisions.last().stage, OrderRevision.Stage.INVOICE)
+        with self.assertRaises(ValidationError):
+            update_purchase_order(
+                actor=self.owner, order_id=order.pk,
+                item_updates={str(item.pk): {"unit_price": Decimal("15")} for item in lines.values()},
+            )
+
+    def test_negotiation_pages(self):
+        from .services import confirm_purchase_order
+
+        self.client.force_login(self.owner)
+        order = self.make_quote()
+        detail_url = reverse("manufacturer-order-detail", kwargs={"pk": order.pk})
+        counter_url = reverse("manufacturer-order-counter", kwargs={"pk": order.pk})
+        change_url = reverse("manufacturer-order-change", kwargs={"pk": order.pk})
+
+        self.assertRedirects(self.client.get(counter_url), detail_url)
+        self.assertRedirects(self.client.get(change_url), detail_url)
+
+        self.quote_reply(
+            order,
+            {(self.ashwagandha.pk, 60): "22", (self.ashwagandha.pk, 120): "30", (self.vitamin_d.pk, 60): "10"},
+            message="Our best price.",
+        )
+        self.assertEqual(self.client.get(counter_url).status_code, 200)
+
+        lines = list(order.items.all())
+        data = {"message": "Can you do 20?"}
+        for item in lines:
+            data[f"line_price_{item.pk}"] = "20"
+            data[f"line_qty_{item.pk}"] = f"{item.quantity.normalize():f}"
+        response = self.client.post(counter_url, data)
+        self.assertRedirects(response, detail_url + "#conversation")
+
+        detail = self.client.get(detail_url)
+        self.assertContains(detail, "Conversation history")
+        self.assertContains(detail, "Can you do 20?")
+        self.assertContains(detail, "Our best price.")
+        self.assertContains(detail, "Waiting for the manufacturer")
+
+        # Accepting their reply sends the message along with the PO.
+        self.quote_reply(
+            order,
+            {(self.ashwagandha.pk, 60): "21", (self.ashwagandha.pk, 120): "30", (self.vitamin_d.pk, 60): "10"},
+        )
+        self.client.post(
+            reverse("manufacturer-order-confirm", kwargs={"pk": order.pk}),
+            {"message": "Deal at 21."},
+        )
+        self.assertEqual(order.revisions.last().message, "Deal at 21.")
+
+        self.assertEqual(self.client.get(change_url).status_code, 200)
+        data = {"message": "Fewer bottles."}
+        for item in order.items.all():
+            data[f"line_price_{item.pk}"] = str(item.unit_price)
+            data[f"line_qty_{item.pk}"] = "10"
+        self.assertRedirects(self.client.post(change_url, data), detail_url)
+
+        # The Purchase Order page doesn't show the conversation, but it's all kept.
+        detail = self.client.get(detail_url)
+        self.assertNotContains(detail, "Conversation history")
+        self.assertNotContains(detail, "Can you do 20?")
+        conversation = self.client.get(
+            reverse("manufacturer-order-conversation", kwargs={"pk": order.pk})
+        )
+        self.assertContains(conversation, "Can you do 20?")
+        self.assertContains(conversation, "Purchase Order v2")
+        self.assertContains(conversation, "Fewer bottles.")
+
+        # Once invoiced, the order links to the full history again.
+        from .services import record_manufacturer_invoice as invoice
+        invoice(actor=self.owner, order_id=order.pk)
+        detail = self.client.get(detail_url)
+        self.assertContains(detail, "View Full Conversation History")
+        self.assertContains(detail, "Can you do 20?")
+        self.assertContains(detail, "Purchase Order v2")
+        self.assertContains(detail, "Download Full Order Record (PDF)")
+
+        record = self.client.get(reverse("manufacturer-order-record-pdf", kwargs={"pk": order.pk}))
+        self.assertEqual(record.status_code, 200)
+        self.assertEqual(record["Content-Type"], "application/pdf")
+        self.assertIn("attachment", record["Content-Disposition"])
+        self.assertIn(f"Order-Record-{order.po_number}.pdf", record["Content-Disposition"])
+        self.assertTrue(record.content.startswith(b"%PDF"))
+
+    def test_rtq_can_save_its_prices_as_system_prices(self):
+        from apps.products.models import ProductBottlePrice
+
+        from .services import create_request_to_quote
+
+        create_request_to_quote(
+            actor=self.owner,
+            manufacturer=self.manufacturer,
+            items=[
+                {"product": self.ashwagandha, "bottle_size": 60, "quantity": "1", "unit_price": "19", "save_price": True},
+                {"product": self.vitamin_d, "bottle_size": 60, "quantity": "1", "unit_price": "25"},
+            ],
+        )
+        self.assertEqual(
+            ProductBottlePrice.objects.get(product=self.ashwagandha, bottle_size=60).price, Decimal("19")
+        )
+        # Not ticked: the saved price stays as it was.
+        self.assertEqual(
+            ProductBottlePrice.objects.get(product=self.vitamin_d, bottle_size=60).price, Decimal("10")
+        )
+
+        with self.assertRaises(ValidationError):
+            create_request_to_quote(
+                actor=self.owner,
+                manufacturer=self.manufacturer,
+                items=[{"product": self.ashwagandha, "quantity": "1", "unit_price": "19", "save_price": True}],
+            )
+
+        # Through the page: ticking without a bottle size is refused.
+        self.client.force_login(self.owner)
+        data = {
+            "manufacturer": self.manufacturer.pk,
+            "brand": self.brand.pk,
+            "items-TOTAL_FORMS": "1",
+            "items-INITIAL_FORMS": "0",
+            "items-0-product": self.vitamin_d.pk,
+            "items-0-bottle_size": "",
+            "items-0-quantity": "2",
+            "items-0-unit_price": "30",
+            "items-0-save_price": "on",
+        }
+        response = self.client.post(reverse("manufacturer-order-create"), data)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Pick a bottle size to save the price for.")
+
+        data["items-0-bottle_size"] = "60"
+        response = self.client.post(reverse("manufacturer-order-create"), data)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            ProductBottlePrice.objects.get(product=self.vitamin_d, bottle_size=60).price, Decimal("30")
+        )
+
+    def test_tracker_has_four_phases(self):
+        from .services import confirm_purchase_order, record_counter_offer
+        from .views import order_steps
+
+        def states(order):
+            order.refresh_from_db()
+            return [(step["title"], step["state"]) for step in order_steps(order)]
+
+        order = self.make_quote()
+        self.assertEqual(
+            states(order),
+            [
+                ("Request to Quote", "current"),
+                ("Quote", "upcoming"),
+                ("Purchase Order", "upcoming"),
+                ("Invoice", "upcoming"),
+            ],
+        )
+
+        prices = {(item.product_id, item.bottle_size): "12" for item in order.items.all()}
+        self.quote_reply(order, prices)
+        self.assertEqual([s for _, s in states(order)], ["done", "current", "upcoming", "upcoming"])
+
+        record_counter_offer(
+            actor=self.owner,
+            order_id=order.pk,
+            item_updates={str(item.pk): {"unit_price": Decimal("11")} for item in order.items.all()},
+        )
+        self.assertEqual(order_steps(order)[1]["note"], "Waiting for the manufacturer's reply")
+
+        self.quote_reply(order, prices)
+        self.assertIn("Negotiating", order_steps(order)[1]["note"])
+
+        confirm_purchase_order(actor=self.owner, order_id=order.pk)
+        order.refresh_from_db()
+        self.assertEqual([s for _, s in states(order)], ["done", "done", "current", "upcoming"])
+
+        record_manufacturer_invoice(actor=self.owner, order_id=order.pk)
+        order.refresh_from_db()
+        self.assertEqual([s for _, s in states(order)], ["done"] * 4)

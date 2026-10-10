@@ -10,14 +10,14 @@
     <div>
         <p class="eyebrow">Purchase Orders</p>
         <h1>My Purchase Orders</h1>
-        <p>Products you've asked the Owner for, and their status.</p>
+        <p>Your Requests to Quote and Purchase Orders with the Owner, and where each one stands.</p>
     </div>
 
     <a
         class="button button-primary"
         href="{% url 'purchase-order-create' %}"
     >
-        Place Order
+        Request to Quote
     </a>
 </div>
 
@@ -26,33 +26,45 @@
         <table>
             <thead>
                 <tr>
-                    <th>PO Number</th>
-                    <th>Submitted</th>
+                    <th>Number</th>
+                    <th>Started</th>
                     <th>Items</th>
-                    <th>Grand Total</th>
-                    <th>Status</th>
+                    <th>Total</th>
+                    <th>Stage</th>
+                    <th>Next</th>
                     <th></th>
                 </tr>
             </thead>
 
             <tbody>
                 {% for purchase_order in purchase_orders %}
-                    <tr>
-                        <td><strong>{{ purchase_order.po_number }}</strong></td>
+                    <tr class="{% if purchase_order.pk in updated_ids %}row-highlight{% endif %}">
+                        <td>
+                            <strong>{{ purchase_order.po_number }}</strong>
+                            {% if purchase_order.pk in updated_ids %}
+                                <span class="badge badge-pending">Updated</span>
+                            {% endif %}
+                            {% if purchase_order.invoice_number %}
+                                <div class="table-secondary">{{ purchase_order.invoice_number }}</div>
+                            {% endif %}
+                        </td>
                         <td>{{ purchase_order.created_at|date:"M d, Y" }}</td>
                         <td>{{ purchase_order.items.count }}</td>
                         <td>{{ purchase_order.grand_total|money }}</td>
-                        <td>
-                            {% if purchase_order.status == "PENDING" %}
-                                <span class="badge badge-pending">Pending</span>
-                            {% elif purchase_order.status == "PARTIALLY_SHIPPED" %}
-                                <span class="badge badge-neutral">Partially shipped</span>
-                            {% elif purchase_order.status == "SHIPPED" %}
-                                <span class="badge badge-neutral">Shipped</span>
-                            {% elif purchase_order.status == "RECEIVED" %}
-                                <span class="badge badge-open">Received</span>
+                        <td>{% include "requests/_po_status_badge.html" %}</td>
+                        <td class="table-secondary">
+                            {% if purchase_order.status == "QUOTE" %}
+                                {% if purchase_order.latest_stage == "QUOTE" %}<strong>Accept or counter the quote</strong>{% else %}Waiting for the Owner{% endif %}
+                            {% elif purchase_order.status == "PENDING" and purchase_order.pays_advance is None %}
+                                <strong>Answer the advance payment</strong>
+                            {% elif purchase_order.awaiting_receipt %}
+                                <strong>Confirm what arrived</strong>
+                            {% elif purchase_order.status == "DECLINED" %}
+                                —
+                            {% elif not purchase_order.invoiced_at %}
+                                Waiting for the Owner
                             {% else %}
-                                <span class="badge badge-closed">Declined</span>
+                                Done
                             {% endif %}
                         </td>
                         <td>
@@ -66,8 +78,8 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="6" class="empty-table">
-                            You haven't submitted any purchase orders yet.
+                        <td colspan="7" class="empty-table">
+                            You haven't asked the Owner for anything yet.
                         </td>
                     </tr>
                 {% endfor %}

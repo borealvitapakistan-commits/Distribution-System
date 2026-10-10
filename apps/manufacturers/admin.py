@@ -5,6 +5,8 @@ from .models import (
     ManufacturerOrder,
     ManufacturerOrderItem,
     ManufacturerOrderPayment,
+    OrderRevision,
+    OrderRevisionLine,
 )
 
 
@@ -40,9 +42,49 @@ class ManufacturerOrderPaymentInline(admin.TabularInline):
         return False
 
 
+class OrderRevisionInline(admin.TabularInline):
+    model = OrderRevision
+    extra = 0
+    fields = ("number", "stage", "message", "attachment", "created_by", "created_at")
+    readonly_fields = fields
+    show_change_link = True
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+class OrderRevisionLineInline(admin.TabularInline):
+    model = OrderRevisionLine
+    extra = 0
+    fields = ("product", "bottle_size", "quantity", "unit_price", "removed")
+    readonly_fields = fields
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(OrderRevision)
+class OrderRevisionAdmin(admin.ModelAdmin):
+    list_display = ("order", "number", "stage", "created_by", "created_at")
+    list_filter = ("stage",)
+    search_fields = ("order__po_number", "message")
+    readonly_fields = ("order", "number", "stage", "message", "attachment")
+    inlines = [OrderRevisionLineInline]
+
+
 @admin.register(ManufacturerOrder)
 class ManufacturerOrderAdmin(admin.ModelAdmin):
     list_display = ("po_number", "manufacturer", "brand", "status", "received_at", "created_at")
     list_filter = ("status",)
     search_fields = ("po_number", "manufacturer__name", "brand__name")
-    inlines = [ManufacturerOrderItemInline, ManufacturerOrderPaymentInline]
+    inlines = [
+        ManufacturerOrderItemInline,
+        ManufacturerOrderPaymentInline,
+        OrderRevisionInline,
+    ]

@@ -6,6 +6,7 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views import View
 from django.views.generic import DetailView, ListView
@@ -13,9 +14,10 @@ from django.views.generic import DetailView, ListView
 from apps.accounts.mixins import OwnerRequiredMixin
 from apps.core.models import Brand
 from apps.core.utils import render_pdf
-from apps.products.services import bottle_price_map
+from apps.products.services import bottle_price_map, product_price_map
 
 from .forms import (
+    CounterOfferForm,
     ManufacturerAdvancePaymentForm,
     ManufacturerForm,
     ManufacturerOrderForm,
@@ -25,9 +27,11 @@ from .forms import (
     ManufacturerOrderPaymentForm,
     ManufacturerOrderReceiveForm,
     ManufacturerQuoteForm,
+    PurchaseOrderEditForm,
 )
-from .models import Manufacturer, ManufacturerOrder
+from .models import Manufacturer, ManufacturerOrder, OrderRevision
 from .services import (
+    awaiting_manufacturer_reply,
     confirm_purchase_order,
     create_manufacturer,
     create_request_to_quote,
@@ -40,6 +44,9 @@ from .services import (
     record_manufacturer_payment,
     set_manufacturer_order_outcome,
     update_manufacturer,
+    record_counter_offer,
+    revision_timeline,
+    update_purchase_order,
 )
 
 
@@ -163,6 +170,7 @@ def manufacturer_order_item_rows(formset):
                 "source_purchase_order_item": form.cleaned_data.get(
                     "source_purchase_order_item"
                 ),
+                "save_price": form.cleaned_data.get("save_price", False),
             }
         )
 
@@ -285,6 +293,7 @@ class RequestToQuoteFormMixin:
                 "order": order,
                 "service_error": service_error,
                 "bottle_prices": bottle_price_map(),
+                "product_prices": product_price_map(),
                 "sheet_data": document_sheet_data(),
                 "brand": brand,
                 "today": timezone.localdate(),
@@ -342,6 +351,7 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
                 manufacturer=form.cleaned_data["manufacturer"],
                 brand=form.cleaned_data["brand"],
                 terms=form.cleaned_data["terms"],
+                message=form.cleaned_data["message"],
                 items=manufacturer_order_item_rows(formset),
             )
         except (PermissionDenied, ValidationError) as exc:
@@ -400,6 +410,11 @@ class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, Vie
                     "manufacturer": order.manufacturer,
                     "brand": order.brand,
                     "terms": order.terms,
+                    "message": (
+                        order.revisions.filter(stage=OrderRevision.Stage.REQUEST)
+                        .values_list("message", flat=True)
+                        .first()
+                    ) or "",
                 }
             ),
             formset,
@@ -424,6 +439,7 @@ class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, Vie
                 manufacturer=form.cleaned_data["manufacturer"],
                 brand=form.cleaned_data["brand"],
                 terms=form.cleaned_data["terms"],
+                message=form.cleaned_data["message"],
                 items=manufacturer_order_item_rows(formset),
             )
         except (PermissionDenied, ValidationError) as exc:
@@ -435,7 +451,8 @@ class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, Vie
 
 class ManufacturerOrderQuoteView(OwnerRequiredMixin, View):
     """The Manufacturer's reply: upload their document and type in the
-    real prices. Changed prices are highlighted yellow."""
+    real prices, with what they said. Each reply is its own step in the
+    order's conversation. Changed prices are highlighted."""
 
     template_name = "manufacturers/manufacturer_order_quote.html"
 
@@ -460,6 +477,7 @@ class ManufacturerOrderQuoteView(OwnerRequiredMixin, View):
             saved_prices=bottle_price_map(
                 products=order.items.values_list("product_id", flat=True)
             ),
+            latest_lines=_latest_lines(order),
         )
 
     def get(self, request, pk):
@@ -484,6 +502,7 @@ class ManufacturerOrderQuoteView(OwnerRequiredMixin, View):
                 quote_file=form.cleaned_data["quote_file"],
                 remove_item_ids=form.removed_item_ids(),
                 save_price_item_ids=form.save_price_item_ids(),
+                message=form.cleaned_data["message"],
             )
         except (PermissionDenied, ValidationError) as exc:
             form.add_error(None, exc)
@@ -492,9 +511,9 @@ class ManufacturerOrderQuoteView(OwnerRequiredMixin, View):
         saved = len(form.save_price_item_ids())
         messages.success(
             request,
-            "Manufacturer's quote saved."
+            "Manufacturer's reply saved."
             + (f" {saved} saved price(s) updated." if saved else "")
-            + " Review the highlighted changes, then send the Purchase Order.",
+            + " Review the highlighted changes, then send a counter-offer or the Purchase Order.",
         )
         return redirect("manufacturer-order-detail", pk=order.pk)
 
@@ -504,7 +523,11 @@ class ConfirmPurchaseOrderView(OwnerRequiredMixin, View):
 
     def post(self, request, pk):
         try:
-            order = confirm_purchase_order(actor=request.user, order_id=pk)
+            order = confirm_purchase_order(
+                actor=request.user,
+                order_id=pk,
+                message=request.POST.get("message", ""),
+            )
         except (PermissionDenied, ValidationError) as exc:
             messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
             return redirect("manufacturer-order-detail", pk=pk)
@@ -517,24 +540,201 @@ class ConfirmPurchaseOrderView(OwnerRequiredMixin, View):
         return redirect("manufacturer-order-advance", pk=order.pk)
 
 
-def order_steps(order):
-    """The Request to Quote → Purchase Order → Invoice tracker at the top
-    of an order. Each step is "done", "current" or "upcoming"."""
-    invoiced = order.invoice_approved_at is not None
+def _latest_lines(order):
+    """The last prices on the table, per live order line."""
+    latest = order.revisions.order_by("-number").first()
+    if latest is None:
+        return {}
+    return {
+        str(line.item_id): line
+        for line in latest.lines.all()
+        if line.item_id and not line.removed
+    }
 
-    if order.is_quote:
-        states = ["current", "upcoming", "upcoming"]
-    elif not invoiced:
-        states = ["done", "current", "upcoming"]
-    else:
-        states = ["done", "done", "done"]
 
-    quote_note = (
-        "Quote received" if order.quoted_at else "Waiting for the prices from the manufacturer"
+class OrderLinesFormView(OwnerRequiredMixin, View):
+    """A page with one price and quantity per line plus a message —
+    our counter-offer, or a change to a sent Purchase Order."""
+
+    template_name = "manufacturers/manufacturer_order_lines_form.html"
+    form_class = None
+    page_title = ""
+    intro = ""
+    submit_label = ""
+
+    def allowed(self, order):
+        raise NotImplementedError
+
+    def not_allowed(self, request, order):
+        raise NotImplementedError
+
+    def initial_lines(self, order):
+        return {}
+
+    def save(self, request, order, form):
+        raise NotImplementedError
+
+    def _render(self, request, order, form):
+        return render(
+            request,
+            self.template_name,
+            {
+                "order": order,
+                "form": form,
+                "page_title": self.page_title,
+                "intro": self.intro,
+                "submit_label": self.submit_label,
+                "brand": _order_brand(order),
+            },
+        )
+
+    def _form(self, order, *args):
+        return self.form_class(*args, order=order, initial_lines=self.initial_lines(order))
+
+    def get(self, request, pk):
+        order = _get_owner_order(request, pk)
+        if not self.allowed(order):
+            return self.not_allowed(request, order)
+        return self._render(request, order, self._form(order))
+
+    def post(self, request, pk):
+        order = _get_owner_order(request, pk)
+        if not self.allowed(order):
+            return self.not_allowed(request, order)
+
+        form = self._form(order, request.POST, request.FILES)
+        if not form.is_valid():
+            return self._render(request, order, form)
+
+        try:
+            self.save(request, order, form)
+        except (PermissionDenied, ValidationError) as exc:
+            form.add_error(None, exc)
+            return self._render(request, order, form)
+
+        return redirect(self.success_url(order))
+
+    def success_url(self, order):
+        return reverse("manufacturer-order-detail", args=[order.pk])
+
+
+class ManufacturerOrderCounterView(OrderLinesFormView):
+    """We answer the Manufacturer's quote with the prices we want."""
+
+    form_class = CounterOfferForm
+    page_title = "Counter-offer"
+    intro = (
+        "Starting from the manufacturer's latest prices — change the ones you "
+        "want to negotiate. This doesn't change the order yet: once you have "
+        "their answer, record it as their reply."
     )
+    submit_label = "Save Counter-offer"
+
+    def success_url(self, order):
+        return f"{super().success_url(order)}#conversation"
+
+    def allowed(self, order):
+        return order.is_quote and order.quoted_at is not None
+
+    def not_allowed(self, request, order):
+        messages.info(
+            request,
+            "A counter-offer answers the manufacturer's quote — "
+            + ("enter their quote first." if order.is_quote else "this is already a Purchase Order."),
+        )
+        return redirect("manufacturer-order-detail", pk=order.pk)
+
+    def save(self, request, order, form):
+        revision = record_counter_offer(
+            actor=request.user,
+            order_id=order.pk,
+            item_updates=form.item_updates(),
+            message=form.cleaned_data["message"],
+            attachment=form.cleaned_data["attachment"],
+        )
+        messages.success(
+            request,
+            f"Counter-offer saved (step {revision.number}). Send it to "
+            f"{order.manufacturer.name}, then record their reply.",
+        )
+
+
+class ManufacturerPurchaseOrderEditView(OrderLinesFormView):
+    """Changes a sent Purchase Order, saved as a new version."""
+
+    form_class = PurchaseOrderEditForm
+    page_title = "Change Purchase Order"
+    intro = (
+        "Change prices or quantities, or drop a line. The current Purchase Order "
+        "is kept as it was, and this becomes its next version."
+    )
+    submit_label = "Save New Version"
+
+    def allowed(self, order):
+        return (
+            order.status == ManufacturerOrder.Status.SENT
+            and order.received_at is None
+            and order.invoice_approved_at is None
+        )
+
+    def not_allowed(self, request, order):
+        messages.info(
+            request,
+            "Only a Purchase Order that hasn't been received or invoiced yet can be changed.",
+        )
+        return redirect("manufacturer-order-detail", pk=order.pk)
+
+    def save(self, request, order, form):
+        update_purchase_order(
+            actor=request.user,
+            order_id=order.pk,
+            item_updates=form.item_updates(),
+            remove_item_ids=form.removed_item_ids(),
+            message=form.cleaned_data["message"],
+        )
+        messages.success(
+            request,
+            f"Purchase Order {order.po_number} updated — download it again and "
+            "send the new version to the manufacturer.",
+        )
+
+
+def order_steps(order):
+    """The Request to Quote → Quote → Purchase Order → Invoice tracker at
+    the top of an order. Each step is "done", "current" or "upcoming".
+
+    Quote is the back-and-forth with the Manufacturer: it starts with
+    their first reply and lasts until the Purchase Order is sent."""
+    invoiced = order.invoice_approved_at is not None
+    revisions = list(order.revisions.order_by("number").values_list("stage", "created_at"))
+    quotes = [at for stage, at in revisions if stage == OrderRevision.Stage.QUOTE]
+    counters = sum(1 for stage, _ in revisions if stage == OrderRevision.Stage.COUNTER)
+    po_versions = sum(1 for stage, _ in revisions if stage == OrderRevision.Stage.PURCHASE_ORDER)
+
+    if order.is_quote and order.quoted_at is None:
+        states = ["current", "upcoming", "upcoming", "upcoming"]
+    elif order.is_quote:
+        states = ["done", "current", "upcoming", "upcoming"]
+    elif not invoiced:
+        states = ["done", "done", "current", "upcoming"]
+    else:
+        states = ["done", "done", "done", "done"]
+
+    if order.is_quote and awaiting_manufacturer_reply(order):
+        quote_note = "Waiting for the manufacturer's reply"
+    elif counters:
+        quote_note = f"Negotiating — {len(quotes)} repl{'y' if len(quotes) == 1 else 'ies'}, {counters} counter-offer{'' if counters == 1 else 's'}"
+    else:
+        quote_note = "Review the manufacturer's prices"
+
     po_note = "With the manufacturer"
     if order.status == ManufacturerOrder.Status.RECEIVED or order.received_at:
         po_note = "Goods received"
+    if po_versions > 1:
+        po_note += f" · v{po_versions}"
+
+    # Older orders went straight to a Purchase Order, with no quote at all.
+    skipped_quote = not order.is_quote and order.quoted_at is None
 
     return [
         {
@@ -542,23 +742,51 @@ def order_steps(order):
             "title": "Request to Quote",
             "state": states[0],
             "date": order.created_at,
-            "note": quote_note if states[0] == "current" else "Completed",
+            "note": "Waiting for the prices from the manufacturer",
         },
         {
             "number": 2,
-            "title": "Purchase Order",
+            "title": "Quote",
             "state": states[1],
-            "date": order.purchase_order_date,
-            "note": {"current": po_note, "done": "Completed"}.get(states[1], "Upcoming"),
+            "date": None if skipped_quote else (quotes[-1] if quotes else order.quoted_at),
+            "note": quote_note if states[1] == "current" else "Upcoming",
+            "done_note": "Ordered directly" if skipped_quote else "",
         },
         {
             "number": 3,
-            "title": "Invoice",
+            "title": "Purchase Order",
             "state": states[2],
+            "date": order.purchase_order_date,
+            "note": po_note if states[2] == "current" else "Upcoming",
+        },
+        {
+            "number": 4,
+            "title": "Invoice",
+            "state": states[3],
             "date": order.invoice_approved_at,
-            "note": "Completed" if invoiced else "Upcoming",
+            "note": "Upcoming",
         },
     ]
+
+
+class ManufacturerOrderConversationView(OwnerRequiredMixin, View):
+    """The whole conversation with the Manufacturer on one order, from
+    the Request to Quote to the invoice — for the Owner to look back on.
+    It's shown on the order itself only while still negotiating."""
+
+    template_name = "manufacturers/manufacturer_order_conversation.html"
+
+    def get(self, request, pk):
+        order = _get_owner_order(request, pk)
+        return render(
+            request,
+            self.template_name,
+            {
+                "order": order,
+                "timeline": revision_timeline(order),
+                "steps": order_steps(order),
+            },
+        )
 
 
 class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
@@ -591,6 +819,17 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
             1 for item in context["items"] if item.price_highlight == "new"
         )
         context["can_edit_quote"] = self.object.is_quote and self.object.quoted_at is None
+        # Shown while negotiating and once the order is complete; hidden
+        # in between, while the Purchase Order is with the manufacturer.
+        context["show_conversation"] = (
+            self.object.is_quote or self.object.invoice_approved_at is not None
+        )
+        if context["show_conversation"]:
+            context["timeline"] = revision_timeline(self.object)
+        context["awaiting_reply"] = (
+            self.object.is_quote and awaiting_manufacturer_reply(self.object)
+        )
+        context["can_edit_po"] = ManufacturerPurchaseOrderEditView().allowed(self.object)
         context["brand"] = _order_brand(self.object)
         return context
 
@@ -946,4 +1185,43 @@ class ManufacturerOrderPDFView(OwnerRequiredMixin, View):
             f'{disposition}; filename="{kind}-{order.po_number}{suffix}.pdf"'
         )
 
+        return response
+
+
+class ManufacturerOrderRecordPDFView(OwnerRequiredMixin, View):
+    """The complete record of one order as a PDF, for our files: the
+    stages, the final lines with their price changes, payments and the
+    whole conversation with the Manufacturer. Internal only."""
+
+    def get(self, request, pk):
+        order = (
+            ManufacturerOrder.objects
+            .for_user(request.user)
+            .select_related("manufacturer", "brand")
+            .prefetch_related("items__product", "items__batch", "payments__created_by")
+            .filter(pk=pk)
+            .first()
+        )
+
+        if order is None:
+            raise Http404
+
+        pdf_bytes = render_pdf(
+            "manufacturers/manufacturer_order_record_pdf.html",
+            {
+                "order": order,
+                "brand": _order_brand(order),
+                "steps": order_steps(order),
+                "items": list(order.items.all()),
+                "payments": list(order.payments.all()),
+                "timeline": revision_timeline(order),
+                "generated_at": timezone.now(),
+            },
+        )
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        disposition = "inline" if request.GET.get("view") else "attachment"
+        response["Content-Disposition"] = (
+            f'{disposition}; filename="Order-Record-{order.po_number}.pdf"'
+        )
         return response

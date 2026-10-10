@@ -39,6 +39,26 @@
     </div>
 {% endif %}
 
+{% if purchase_order_updates %}
+    <div class="notification-card">
+        <h2>
+            {{ purchase_order_updates_count }} Purchase Order update{{ purchase_order_updates_count|pluralize }} from Distributors
+        </h2>
+
+        <div class="notification-list">
+            {% for order in purchase_order_updates %}
+                <a href="{% url 'owner-purchase-order-detail' order.pk %}">
+                    <span>
+                        <strong>{{ order.po_number }}</strong> — {{ order.distributor_profile.name }}:
+                        {% include "requests/_step_summary.html" with step=order.latest_step %}
+                    </span>
+                    <span>{{ order.latest_step.created_at|date:"M d, Y H:i" }}</span>
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+{% endif %}
+
 <div class="stats-grid">
     <article class="stat-card">
         <span class="stat-label">Active Owners</span>

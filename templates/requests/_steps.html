@@ -1,0 +1,14 @@
+<ol class="mo-steps">
+    {% for step in steps %}
+        <li class="mo-step mo-step-{{ step.state }}">
+            <span class="mo-step-dot">{% if step.state == "done" %}✓{% else %}{{ step.number }}{% endif %}</span>
+            <strong>{{ step.title }}</strong>
+            <span class="badge {% if step.state == 'done' %}badge-open{% elif step.state == 'current' %}badge-progress{% else %}badge-neutral{% endif %}">
+                {% if step.state == "done" %}Completed{% elif step.state == "current" %}In progress{% else %}Upcoming{% endif %}
+            </span>
+            <small>
+                {% if step.state == "current" %}{{ step.note }}{% elif step.date %}{{ step.date|date:"M d, Y" }}{% elif step.done_note %}{{ step.done_note }}{% endif %}
+            </small>
+        </li>
+    {% endfor %}
+</ol>

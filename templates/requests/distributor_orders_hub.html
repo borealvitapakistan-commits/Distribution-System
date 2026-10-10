@@ -18,12 +18,17 @@
         <a class="hub-card" href="{% url 'purchase-order-create' %}">
             <span class="hub-card-icon">+</span>
             <span class="hub-card-title">Place Order</span>
-            <span class="hub-card-desc">Ask the Owner for products and quantities.</span>
+            <span class="hub-card-desc">Send the Owner a Request to Quote — products, quantities and the prices you would like.</span>
         </a>
 
         <a class="hub-card" href="{% url 'distributor-purchase-order-list' %}">
             <span class="hub-card-icon">▤</span>
-            <span class="hub-card-title">View Orders</span>
+            <span class="hub-card-title">
+                View Orders
+                {% if order_updates_count %}
+                    <span class="badge badge-pending">{{ order_updates_count }} updated</span>
+                {% endif %}
+            </span>
             <span class="hub-card-desc">See the status of orders you've already placed.</span>
         </a>
     </div>

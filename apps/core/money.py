@@ -1,4 +1,4 @@
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
 PAISA_PER_RUPEE = Decimal("100")
@@ -61,9 +61,12 @@ def format_amount(amount):
     e.g. "1,760,000.00 (17.6 Lakh)". Falls back to the raw value if it
     isn't a number."""
 
+    if amount is None:
+        return "—"
+
     try:
         value = Decimal(str(amount))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, InvalidOperation):
         return amount
 
     grouped = f"{value:,.2f}"

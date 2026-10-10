@@ -1,0 +1,97 @@
+{% comment %}
+The whole back-and-forth on an order, oldest first.
+Expects: purchase_order, timeline, panel ("owner" or "distributor").
+{% endcomment %}
+<section class="panel" id="conversation">
+    <div class="panel-header">
+        <div>
+            <h2>Conversation history</h2>
+            {% if purchase_order.invoiced_at %}
+                <a class="button button-secondary" href="{% url 'purchase-order-record-pdf' purchase_order.pk %}">Download Full Order Record (PDF)</a>
+            {% endif %}
+            <p>
+                Every request, quote, counter-offer, Purchase Order version and the invoice, oldest first.
+                Prices that moved since the step before are <mark class="mo-changed-mark mo-mark-changed">orange</mark>,
+                prices given for the first time are <mark class="mo-changed-mark">yellow</mark>.
+            </p>
+        </div>
+    </div>
+
+    {% if timeline %}
+        <ol class="mo-thread">
+            {% for step in timeline %}
+                {% with revision=step.revision %}
+                <li class="mo-msg {% if panel == 'owner' and revision.by_owner %}mo-msg-us{% elif panel != 'owner' and not revision.by_owner %}mo-msg-us{% else %}mo-msg-them{% endif %}">
+                    <div class="mo-msg-head">
+                        <span class="mo-msg-number">#{{ revision.number }}</span>
+                        <strong>{{ step.label }}</strong>
+                        <span class="badge {% if revision.by_owner %}badge-neutral{% else %}badge-pending{% endif %}">
+                            {% if revision.by_owner %}
+                                {% if panel == "owner" %}You (Owner){% else %}Owner{% endif %}
+                            {% else %}
+                                {% if panel == "owner" %}{{ purchase_order.distributor_profile.name }}{% else %}You{% endif %}
+                            {% endif %}
+                        </span>
+                        <span class="table-secondary">
+                            {{ revision.created_at|date:"M d, Y H:i" }}{% if revision.created_by %} · by {{ revision.created_by }}{% endif %}
+                        </span>
+                    </div>
+
+                    {% if revision.message %}
+                        <p class="mo-msg-text">{{ revision.message|linebreaksbr }}</p>
+                    {% endif %}
+                    {% if revision.attachment %}
+                        <p class="mo-msg-file">
+                            <a href="{{ revision.attachment.url }}" target="_blank" rel="noopener" data-proof-viewer>📎 View attachment</a>
+                        </p>
+                    {% endif %}
+
+                    <div class="table-wrapper">
+                        <table class="mo-items mo-msg-lines">
+                            <thead>
+                                <tr>
+                                    <th>Product</th>
+                                    <th>Qty</th>
+                                    <th>Price</th>
+                                    <th>Line total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for row in step.rows %}
+                                    <tr class="{% if row.line.removed %}mo-row-removed{% elif row.highlight %}mo-row-{{ row.highlight }}{% endif %}">
+                                        <td>
+                                            {{ row.line.product.name }}
+                                            {% if row.line.removed %}<span class="table-secondary">(dropped)</span>{% endif %}
+                                        </td>
+                                        <td>
+                                            {{ row.line.quantity|floatformat:"-4" }}
+                                            {% if row.quantity_changed %}
+                                                <div class="table-secondary">was {{ row.previous.quantity|floatformat:"-4" }}</div>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if row.line.unit_price is not None %}{{ row.line.unit_price }}{% else %}<span class="table-secondary">to quote</span>{% endif %}
+                                            {% if row.highlight == "changed" %}
+                                                <div class="table-secondary">was {{ row.previous.unit_price }}</div>
+                                            {% endif %}
+                                        </td>
+                                        <td>{% if row.line.unit_price is not None and not row.line.removed %}{{ row.line.line_total|floatformat:"2g" }}{% else %}—{% endif %}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                            <tfoot>
+                                <tr>
+                                    <td colspan="3" class="mo-total-label">Subtotal</td>
+                                    <td><strong>{{ revision.total|floatformat:"2g" }}</strong></td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                </li>
+                {% endwith %}
+            {% endfor %}
+        </ol>
+    {% else %}
+        <div class="empty-state">No conversation recorded for this order yet.</div>
+    {% endif %}
+</section>

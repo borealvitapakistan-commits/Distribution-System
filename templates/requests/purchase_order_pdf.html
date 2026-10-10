@@ -3,123 +3,226 @@
 <head>
 <meta charset="UTF-8">
 <style>
-    @page { size: A4; margin: 2cm; }
-    body { font-family: Helvetica, Arial, sans-serif; font-size: 11pt; color: #0f172a; }
-    h1 { font-size: 20pt; color: #2563eb; margin: 0 0 4px 0; }
-    .doc-type { font-size: 13pt; color: #475569; margin: 0 0 20px 0; }
-    table.meta { width: 100%; margin-bottom: 20px; }
-    table.meta td { vertical-align: top; padding: 0; }
-    .label { color: #64748b; font-size: 9pt; text-transform: uppercase; }
-    table.items { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
-    table.items th { background: #f1f5f9; text-align: left; padding: 6px 8px; font-size: 9pt; text-transform: uppercase; color: #475569; }
-    table.items td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
-    table.totals { width: 40%; margin-left: 60%; }
-    table.totals td { padding: 4px 0; }
-    table.totals td.value { text-align: right; }
-    .grand-total { font-size: 13pt; font-weight: bold; border-top: 1px solid #0f172a; }
-    table.payments { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    table.payments th { background: #f1f5f9; text-align: left; padding: 6px 8px; font-size: 9pt; text-transform: uppercase; color: #475569; }
-    table.payments td { padding: 6px 8px; border-bottom: 1px solid #e2e8f0; }
+    @page { size: A4; margin: 1.4cm 1.6cm 1.6cm 1.6cm; }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #374151; }
+    .top-bar { background-color: {{ brand.primary_color }}; height: 6px; font-size: 1pt; }
+    .brand-name { font-size: 20pt; font-weight: bold; color: {{ brand.primary_color }}; }
+    .brand-lines { color: #6b7280; font-size: 8.5pt; line-height: 1.5; }
+    h1 { font-size: 24pt; color: {{ brand.primary_color }}; margin: 14px 0 12px 0; }
+    .label { font-weight: bold; color: #374151; font-size: 10pt; padding-bottom: 2px; }
+    .muted { color: #6b7280; }
+    .party-name { font-weight: bold; color: #4b5563; }
+    table.meta { width: 100%; }
+    table.meta td { vertical-align: top; padding: 0 0 4px 0; }
+    .rule { border-top: 1px solid #d1d5db; height: 1px; font-size: 1pt; margin: 8px 0; }
+    table.items { width: 100%; margin-top: 12px; }
+    table.items th {
+        color: {{ brand.primary_color }}; font-weight: bold; font-size: 9.5pt;
+        padding: 6px 4px; text-align: left; border-bottom: 1.5px solid {{ brand.primary_color }};
+    }
+    table.items td { padding: 5px 4px; font-size: 8.5pt; }
+    table.items .num { text-align: right; }
+    table.items .product { font-weight: bold; color: #4b5563; }
+    tr.stripe td { background-color: #f3f4f6; }
+    tr.changed td { background-color: #fdba74; color: #7c2d12; }
+    tr.new td { background-color: #fff176; color: #5f5300; }
+    table.bottom { width: 100%; margin-top: 10px; }
+    table.bottom td { vertical-align: top; }
+    table.terms { width: 100%; border: 1px solid #374151; }
+    table.terms td { padding: 6px 8px; font-size: 8.5pt; line-height: 1.5; }
+    .terms-title { color: {{ brand.primary_color }}; font-weight: bold; text-decoration: underline; padding-bottom: 3px; }
+    table.totals { width: 100%; }
+    table.totals td { padding: 3px 0; }
+    table.totals .value { text-align: right; font-weight: bold; color: #111827; }
+    table.totals .key { color: {{ brand.primary_color }}; }
+    .grand { font-size: 20pt; font-weight: bold; color: {{ brand.primary_color }}; text-align: right; padding-top: 18px; }
+    .legend { font-size: 8pt; color: #6b7280; margin-top: 6px; }
+    .legend-swatch { background-color: #fff176; padding: 0 6px; }
+    table.payments { width: 100%; margin-top: 16px; }
+    table.payments th { color: {{ brand.primary_color }}; text-align: left; padding: 4px; border-bottom: 1px solid #d1d5db; font-size: 8.5pt; }
+    table.payments td { padding: 4px; font-size: 8.5pt; }
 </style>
 </head>
 <body>
-    <h1>{{ brand.name|default:"—" }}</h1>
-    <p class="doc-type">
-        {% if purchase_order.invoiced_at %}Invoice{% else %}Purchase Order{% endif %}
-        — {{ purchase_order.po_number }}
-    </p>
+    <div class="top-bar">&nbsp;</div>
 
-    <table class="meta">
+    <table class="meta" style="margin-top: 14px;">
         <tr>
-            <td width="50%">
-                <div class="label">Distributor</div>
-                {{ purchase_order.distributor_profile.name }}
-            </td>
-            <td width="50%">
-                <div class="label">Date</div>
-                {{ purchase_order.created_at|date:"Y-m-d" }}
-                <div class="label" style="margin-top:8px;">Status</div>
-                {{ purchase_order.get_status_display }}
+            <td>
+                {% if brand.logo %}
+                    <img src="{{ brand.logo.url }}" style="height: 48px;">
+                {% else %}
+                    <div class="brand-name">{{ brand.name|default:"" }}</div>
+                {% endif %}
+                <div class="brand-lines">
+                    {{ brand.legal_name|default:brand.name }}<br>
+                    {% if brand.address %}{{ brand.address|linebreaksbr }}{% endif %}
+                </div>
             </td>
         </tr>
     </table>
 
-    <table class="items">
+    <h1>{{ purchase_order.document_title }}</h1>
+
+    <table class="meta">
+        <tr>
+            <td width="34%">
+                <div class="label">Date</div>
+                <div class="muted">
+                    {% if purchase_order.invoiced_at %}{{ purchase_order.invoiced_at|date:"m/d/Y" }}{% elif purchase_order.purchase_order_date %}{{ purchase_order.purchase_order_date|date:"m/d/Y" }}{% elif purchase_order.quoted_at %}{{ purchase_order.quoted_at|date:"m/d/Y" }}{% else %}{{ purchase_order.created_at|date:"m/d/Y" }}{% endif %}
+                </div>
+            </td>
+            <td width="33%">
+                <div class="label">{% if purchase_order.invoiced_at %}Invoice no.{% elif purchase_order.purchase_order_date %}P.O. number{% else %}Reference number{% endif %}</div>
+                <div class="muted">{{ purchase_order.invoice_number|default:purchase_order.po_number }}</div>
+            </td>
+            <td width="33%">
+                {% if purchase_order.invoiced_at %}
+                    <div class="label">P.O. number</div>
+                    <div class="muted">{{ purchase_order.po_number }}</div>
+                {% else %}
+                    <div class="label">Status</div>
+                    <div class="muted">{{ purchase_order.get_status_display }}</div>
+                {% endif %}
+            </td>
+        </tr>
+    </table>
+
+    <div class="rule">&nbsp;</div>
+
+    <table class="meta">
+        <tr>
+            <td width="50%">
+                <div class="label">Supplier</div>
+                <div class="party-name">{{ brand.legal_name|default:brand.name }}</div>
+                {% if brand.address %}<div>Address: {{ brand.address|linebreaksbr }}</div>{% endif %}
+                {% if brand.email %}<div class="muted">Mail: {{ brand.email }}</div>{% endif %}
+                {% if brand.phone %}<div class="muted">Phone: {{ brand.phone }}</div>{% endif %}
+            </td>
+            <td width="50%">
+                <div class="label">Distributor (ship to)</div>
+                {% with party=purchase_order.distributor_profile %}
+                    <div class="party-name">{{ party.name }}</div>
+                    {% if party.address %}<div>Address: {{ party.address|linebreaksbr }}</div>{% endif %}
+                    {% if party.email %}<div class="muted">Mail: {{ party.email }}</div>{% endif %}
+                    {% if party.phone %}<div class="muted">Phone: {{ party.phone }}</div>{% endif %}
+                {% endwith %}
+            </td>
+        </tr>
+    </table>
+
+    <div class="rule">&nbsp;</div>
+
+    <table class="items" repeat="1">
         <thead>
             <tr>
+                <th width="6%">Sr#</th>
                 <th>Product</th>
-                <th>Qty</th>
-                <th>List Price</th>
-                <th>Discount</th>
-                <th>Unit Price</th>
-                <th>Total</th>
+                <th width="9%" class="num">Qty</th>
+                <th width="12%" class="num">List price</th>
+                <th width="10%" class="num">Discount</th>
+                <th width="12%" class="num">Unit price</th>
+                <th width="14%" class="num">Total price</th>
             </tr>
         </thead>
         <tbody>
-            {% for item in purchase_order.items.all %}
-                <tr>
+            {% for item in items %}
+                <tr class="{% if highlight_changes and item.price_highlight %}{{ item.price_highlight }}{% elif forloop.counter|divisibleby:2 %}stripe{% endif %}">
+                    <td>{{ forloop.counter }}</td>
                     <td>
-                        {{ item.product.name }} ({{ item.product.sku }})
-                        {% if item.unavailable %}<br><small>Unavailable{% if item.owner_note %}: {{ item.owner_note }}{% endif %}</small>{% endif %}
+                        <span class="product">{{ item.product.name }}</span> <span class="muted">{{ item.product.sku }}</span>
+                        {% if item.unavailable %}<br><span class="muted">Unavailable{% if item.owner_note %}: {{ item.owner_note }}{% endif %}</span>{% endif %}
                     </td>
-                    <td>{{ item.quantity_ordered|floatformat:"-4" }}</td>
-                    <td>{{ item.list_price }}</td>
-                    <td>{{ item.discount_percentage|floatformat:"-2" }}%</td>
-                    <td>{{ item.unit_price }}</td>
-                    <td>{{ item.line_total }}</td>
+                    <td class="num">{% if purchase_order.invoiced_at %}{{ item.quantity_ordered|floatformat:"-4" }}{% else %}{{ item.quantity_requested|floatformat:"-4" }}{% endif %}</td>
+                    <td class="num">{{ item.list_price|floatformat:"2g" }}</td>
+                    <td class="num">{% if item.unit_price is not None %}{{ item.discount_percentage|floatformat:"-2" }}%{% endif %}</td>
+                    <td class="num">{% if item.unit_price is not None %}{{ item.unit_price|floatformat:"2g" }}{% else %}to quote{% endif %}</td>
+                    <td class="num">{% if item.unit_price is not None %}{{ item.line_total|floatformat:"2g" }}{% endif %}</td>
                 </tr>
             {% endfor %}
         </tbody>
     </table>
 
-    <table class="totals">
+    {% if highlight_changes and purchase_order.has_price_changes %}
+        <div class="legend"><span class="legend-swatch" style="background-color: #fdba74;">&nbsp;&nbsp;&nbsp;</span> Price quoted by the Owner differs from what the Distributor asked for.
+            &nbsp; <span class="legend-swatch">&nbsp;&nbsp;&nbsp;</span> Price filled in by the Owner where none was asked for.</div>
+    {% endif %}
+
+    <table class="bottom">
         <tr>
-            <td>Subtotal</td>
-            <td class="value">{{ purchase_order.subtotal }}</td>
-        </tr>
-        <tr>
-            <td>Tax ({{ purchase_order.tax_percentage }}%)</td>
-            <td class="value">{{ purchase_order.tax_amount }}</td>
-        </tr>
-        <tr>
-            <td>Shipping</td>
-            <td class="value">{{ purchase_order.shipping_amount }}</td>
-        </tr>
-        <tr class="grand-total">
-            <td>Grand Total</td>
-            <td class="value">{{ purchase_order.grand_total }}</td>
-        </tr>
-        <tr>
-            <td>Paid</td>
-            <td class="value">{{ purchase_order.total_paid }}</td>
+            <td width="50%">
+                {% if purchase_order.agreement %}
+                    <table class="terms">
+                        <tr><td>
+                            <span class="terms-title">Agreement</span><br>
+                            {{ purchase_order.agreement.agreement_number }} —
+                            {{ purchase_order.agreement.discount_percentage|floatformat:"-2" }}% off list price,
+                            valid {{ purchase_order.agreement.start_date|date:"M d, Y" }} – {{ purchase_order.agreement.end_date|date:"M d, Y" }}.
+                        </td></tr>
+                    </table>
+                {% endif %}
+                {% if purchase_order.owner_comment %}
+                    <p><strong>Note:</strong> {{ purchase_order.owner_comment }}</p>
+                {% endif %}
+            </td>
+            <td width="8%"></td>
+            <td width="42%">
+                <table class="totals">
+                    <tr>
+                        <td class="key">Subtotal</td>
+                        <td class="value">{{ purchase_order.subtotal|floatformat:"2g" }}</td>
+                    </tr>
+                    {% if purchase_order.shipping_amount %}
+                        <tr>
+                            <td class="key">Shipping</td>
+                            <td class="value">{{ purchase_order.shipping_amount|floatformat:"2g" }}</td>
+                        </tr>
+                    {% endif %}
+                    {% if purchase_order.tax_percentage %}
+                        <tr>
+                            <td class="key">Tax ({{ purchase_order.tax_percentage|floatformat:"-2" }}%)</td>
+                            <td class="value">{{ purchase_order.tax_amount|floatformat:"2g" }}</td>
+                        </tr>
+                    {% endif %}
+                    {% if purchase_order.invoiced_at %}
+                        <tr>
+                            <td class="key">Paid</td>
+                            <td class="value">{{ purchase_order.total_paid|floatformat:"2g" }}</td>
+                        </tr>
+                        <tr>
+                            <td class="key">Balance due</td>
+                            <td class="value">{{ purchase_order.remaining_amount|floatformat:"2g" }}</td>
+                        </tr>
+                    {% endif %}
+                </table>
+                <div class="grand">{{ purchase_order.grand_total|floatformat:"2g" }}</div>
+            </td>
         </tr>
     </table>
 
-    {% if purchase_order.payments.all %}
+    {% if purchase_order.invoiced_at and purchase_order.payments.all %}
         <table class="payments">
             <thead>
                 <tr>
+                    <th>Payment</th>
                     <th>Date</th>
-                    <th>Amount</th>
-                    <th>Note</th>
+                    <th class="num">Amount</th>
                     <th>Status</th>
+                    <th>Note</th>
                 </tr>
             </thead>
             <tbody>
                 {% for payment in purchase_order.payments.all %}
                     <tr>
-                        <td>{{ payment.paid_at }}</td>
-                        <td>{{ payment.amount }}</td>
-                        <td>{{ payment.note|default:"—" }}</td>
+                        <td>{{ payment.get_kind_display }}</td>
+                        <td>{{ payment.paid_at|date:"M d, Y" }}</td>
+                        <td class="num">{{ payment.amount|floatformat:"2g" }}</td>
                         <td>{{ payment.get_status_display }}</td>
+                        <td>{{ payment.note|default:"-" }}</td>
                     </tr>
                 {% endfor %}
             </tbody>
         </table>
-    {% endif %}
-
-    {% if purchase_order.owner_comment %}
-        <p><strong>Note:</strong> {{ purchase_order.owner_comment }}</p>
     {% endif %}
 </body>
 </html>
