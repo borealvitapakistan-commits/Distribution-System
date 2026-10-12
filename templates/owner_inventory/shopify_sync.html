@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+
+{% block title %}
+    Shopify Sync
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Inventory</p>
+        <h1>Shopify Sync</h1>
+        <p>
+            One inventory for the software and Shopify. Sync now puts every product
+            you have in stock on Shopify with the total in your active, sellable
+            warehouses. Shopify orders and quantities changed by hand on Shopify
+            come back into that same stock.
+        </p>
+    </div>
+
+    <div>
+        <a class="button button-secondary" href="{% url 'stock-movement-list' %}?channel=SHOPIFY">
+            Shopify Movements
+        </a>
+        {% if configured %}
+            <form method="post" class="inline-form">
+                {% csrf_token %}
+                <button type="submit" class="button button-primary">Sync now</button>
+            </form>
+        {% endif %}
+    </div>
+</div>
+
+{% if not configured %}
+    <div class="alert alert-error">
+        Shopify isn't connected. Add SHOPIFY_STORE_DOMAIN, SHOPIFY_CLIENT_ID and
+        SHOPIFY_CLIENT_SECRET to the .env file.
+    </div>
+{% elif not enabled %}
+    <div class="alert alert-info">
+        Automatic sync is off — Shopify is only updated when you press Sync now.
+        Set SHOPIFY_INVENTORY_SYNC=true in the .env file to update Shopify after
+        every stock change.
+    </div>
+{% endif %}
+
+{% if state.last_error %}
+    <div class="alert alert-error">Last sync failed: {{ state.last_error }}</div>
+{% endif %}
+
+{% if live_error %}
+    <div class="alert alert-error">Couldn't read Shopify's quantities: {{ live_error }}</div>
+{% endif %}
+
+<div class="stats-grid">
+    <article class="stat-card">
+        <span class="stat-label">Shopify location</span>
+        <strong>{{ state.location_name|default:"—" }}</strong>
+        <span class="stat-detail">Where the quantity is set</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Orders imported since</span>
+        <strong>{{ state.orders_since|date:"M d, Y H:i"|default:"Not yet" }}</strong>
+        <span class="stat-detail">Earlier orders are never imported</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Last sync</span>
+        <strong>{{ state.last_pushed_at|date:"M d, Y H:i"|default:"Never" }}</strong>
+        <span class="stat-detail">Orders pulled, then quantities pushed</span>
+    </article>
+</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>On Shopify</h2>
+            <p>Products linked to Shopify. Shopify is set to the number in this system.</p>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Sellable here</th>
+                    <th>On Shopify now</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>
+                            {{ row.product.name }}
+                            <small class="table-secondary">{{ row.product.sku }}</small>
+                        </td>
+                        <td>{{ row.ours }}</td>
+                        <td>{% if row.theirs is None %}—{% else %}{{ row.theirs }}{% endif %}</td>
+                        <td>
+                            {% if not row.product.shopify_inventory_item_id %}
+                                <span class="badge badge-locked">Not synced yet</span>
+                            {% elif row.in_step %}
+                                <span class="badge badge-open">In step</span>
+                            {% else %}
+                                <span class="badge badge-pending">Out of step</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="4" class="empty-table">
+                            No products are on Shopify yet — press Sync now to put them there.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Not on Shopify yet</h2>
+            <p>
+                Products with stock in your warehouses that Shopify doesn't have.
+                Sync now creates each one on Shopify — title, description, price,
+                SKU, barcode, weight, image, type and tags — with this quantity,
+                and puts it on the Online Store. If you already sell it on Shopify
+                under another name, link it instead so it isn't listed twice.
+            </p>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Price</th>
+                    <th>Sellable here</th>
+                    <th>Next sync will</th>
+                    <th>Or link to an existing Shopify product</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in to_publish %}
+                    <tr>
+                        <td>
+                            {{ row.product.name }}
+                            <small class="table-secondary">{{ row.product.sku }}{% if not row.product.image %} · no image{% endif %}</small>
+                        </td>
+                        <td>{{ row.product.base_retail_price }}</td>
+                        <td>{{ row.quantity }}</td>
+                        <td>
+                            {% if row.match %}
+                                <span class="badge badge-progress">Link to "{{ row.match.title }}"</span>
+                            {% else %}
+                                <span class="badge badge-pending">Create on Shopify</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if shopify_products %}
+                                <form method="post" class="inline-form">
+                                    {% csrf_token %}
+                                    <input type="hidden" name="action" value="link">
+                                    <input type="hidden" name="product" value="{{ row.product.pk }}">
+                                    <select name="shopify_product">
+                                        <option value="">— Shopify product —</option>
+                                        {% for item in shopify_products %}
+                                            <option value="{{ item.id }}">{{ item.title }}</option>
+                                        {% endfor %}
+                                    </select>
+                                    <button type="submit" class="button button-secondary button-small">Link</button>
+                                </form>
+                            {% else %}
+                                —
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="5" class="empty-table">Every product with stock is on Shopify.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Changed by hand on Shopify</h2>
+            <p>
+                Quantities typed into Shopify's Inventory screen. Each one is
+                recorded here as a stock adjustment against a batch and warehouse.
+            </p>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Recorded</th>
+                    <th>Product</th>
+                    <th>Change</th>
+                    <th>Batch</th>
+                    <th>Warehouse</th>
+                    <th>Shopify</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for movement in manual_changes %}
+                    <tr>
+                        <td>{{ movement.created_at|date:"M d, Y H:i" }}</td>
+                        <td>{{ movement.product.name }}</td>
+                        <td>{% if movement.to_location %}+{% else %}−{% endif %}{{ movement.quantity|floatformat:"-4" }}</td>
+                        <td>{{ movement.batch.batch_number|default:"No batch number" }}</td>
+                        <td>{% firstof movement.from_location.name movement.to_location.name %}</td>
+                        <td>{{ movement.reference }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="6" class="empty-table">No changes made on Shopify by hand.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<section class="panel">
+    <div class="panel-header">
+        <div>
+            <h2>Shopify orders</h2>
+            <p>Every Shopify sale recorded here, and what it took out of stock.</p>
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Order</th>
+                    <th>Placed</th>
+                    <th>Product</th>
+                    <th>Quantity</th>
+                    <th>Stock</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for order in orders %}
+                    {% for line in order.lines.all %}
+                        <tr>
+                            <td>{{ order.name }}{% if order.cancelled %} <small class="table-secondary">cancelled</small>{% endif %}</td>
+                            <td>{{ order.placed_at|date:"M d, Y H:i" }}</td>
+                            <td>
+                                {% if line.product %}{{ line.product.name }}{% else %}{{ line.title }}{% endif %}
+                            </td>
+                            <td>{{ line.quantity|floatformat:"-4" }}</td>
+                            <td>
+                                {% if line.status == "POSTED" %}
+                                    <span class="badge badge-open">{{ line.get_status_display }}</span>
+                                {% elif line.status == "SKIPPED" %}
+                                    <span class="badge badge-locked">{{ line.get_status_display }}</span>
+                                {% else %}
+                                    <span class="badge badge-closed">{{ line.get_status_display }}</span>
+                                    <small class="table-secondary">{{ line.note }} Retried on every sync.</small>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                {% empty %}
+                    <tr>
+                        <td colspan="5" class="empty-table">No Shopify orders recorded yet.</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

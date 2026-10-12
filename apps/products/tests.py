@@ -343,10 +343,19 @@ class ShopifyImportTests(TestCase):
 
         from apps.products import shopify
 
-        scopes = {"currentAppInstallation": {"accessScopes": [{"handle": "read_products"}, {"handle": "write_products"}]}}
+        scopes = {"currentAppInstallation": {"accessScopes": [{"handle": "read_products"}, {"handle": "write_customers"}]}}
         with mock.patch.object(shopify, "graphql", return_value=scopes):
             with self.assertRaisesMessage(shopify.ShopifyError, "write access"):
-                shopify.require_read_only_access()
+                shopify.require_scopes("read_products")
+
+    def test_inventory_write_scope_is_allowed(self):
+        from unittest import mock
+
+        from apps.products import shopify
+
+        scopes = {"currentAppInstallation": {"accessScopes": [{"handle": "read_products"}, {"handle": "write_inventory"}]}}
+        with mock.patch.object(shopify, "graphql", return_value=scopes):
+            shopify.require_scopes("read_products")
 
     def test_import_page_explains_when_shopify_is_not_connected(self):
         from django.test import override_settings

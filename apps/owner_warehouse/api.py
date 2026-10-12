@@ -44,7 +44,8 @@ class LocationListCreateAPIView(APIView):
         locations = (
             Location.objects
             .for_user(request.user)
-            .select_related("manufacturer")
+            .filter(location_type=Location.LocationType.OWN)
+            .select_related("inventory")
         )
 
         return Response(
@@ -67,6 +68,7 @@ class LocationListCreateAPIView(APIView):
         try:
             location = create_location(
                 actor=request.user,
+                location_type=Location.LocationType.OWN,
                 **serializer.validated_data,
             )
         except (

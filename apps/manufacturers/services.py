@@ -947,6 +947,7 @@ def record_manufacturer_invoice(
     none is given, the unallocated pool to be placed later via
     Inventory > Allocate. Re-editing an already-approved invoice later
     does not create stock again."""
+    from apps.owner_inventory.models import StockMovement
     from apps.owner_inventory.services import (
         get_or_create_unallocated_location,
         receive_stock,
@@ -1045,6 +1046,7 @@ def record_manufacturer_invoice(
                 batch_number=item.batch.code,
                 expiry_date=item.batch.expiry_date,
                 source_batch=item.batch,
+                channel=StockMovement.Channel.MANUFACTURER,
             )
 
     order.stock_created = is_first_approval

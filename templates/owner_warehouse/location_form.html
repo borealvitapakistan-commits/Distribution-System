@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}
-    {% if object %}Edit Location{% else %}New Location{% endif %}
+    {% if object %}Edit Warehouse{% else %}New Warehouse{% endif %}
 {% endblock %}
 
 {% block content %}
@@ -9,9 +9,9 @@
     <div>
         <p class="eyebrow">Warehouse</p>
         <h1>
-            {% if object %}Edit Location{% else %}New Location{% endif %}
+            {% if object %}Edit Warehouse{% else %}New Warehouse{% endif %}
         </h1>
-        <p>New warehouses are sellable by default.</p>
+        <p>Shopify and Distributors are both supplied from your warehouses. New warehouses are sellable by default.</p>
     </div>
 
     <a class="button button-secondary" href="{% url 'location-list' %}">
@@ -48,7 +48,7 @@
         {% endfor %}
 
         <button class="button button-primary">
-            Save Location
+            Save Warehouse
         </button>
     </form>
 </section>

@@ -242,6 +242,23 @@ class Product(AuditedModel):
         db_index=True,
         help_text="Set when the product is imported from Shopify.",
     )
+    shopify_inventory_item_id = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text=(
+            "The Shopify inventory item this product's stock is pushed to. "
+            "Looked up automatically from the Shopify product on sync."
+        ),
+    )
+    shopify_pushed_quantity = models.IntegerField(
+        null=True,
+        blank=True,
+        help_text=(
+            "The quantity last set on Shopify. A different number on Shopify "
+            "that orders don't explain is a change made by hand on Shopify, "
+            "and is recorded here as a stock adjustment."
+        ),
+    )
     shopify_image_url = models.URLField(max_length=1000, blank=True)
     key_benefits = models.TextField(
         blank=True,

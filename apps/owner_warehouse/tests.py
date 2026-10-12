@@ -123,9 +123,9 @@ class WarehouseRulesTests(TestCase):
         with self.assertRaises(ValidationError):
             create_location(
                 actor=self.owner,
-                code="BAD-SHOPIFY",
-                name="Shopify With Region",
-                location_type=Location.LocationType.SHOPIFY,
+                code="BAD-TRANSIT",
+                name="Transit With Region",
+                location_type=Location.LocationType.TRANSIT,
                 inventory=self.inventory,
             )
 
@@ -186,9 +186,9 @@ class LocationFormWiringTests(TestCase):
             actor=self.owner, code="FORM-INV", name="Form Region"
         )
 
-    def test_form_only_offers_own_and_shopify(self):
+    def test_form_only_offers_own_warehouses(self):
         offered = {choice for choice, _ in LocationForm.MANUAL_LOCATION_TYPES}
-        self.assertEqual(offered, {"OWN", "SHOPIFY"})
+        self.assertEqual(offered, {"OWN"})
 
     def test_create_view_does_not_accept_distributor_link(self):
         client = Client()

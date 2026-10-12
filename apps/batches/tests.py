@@ -274,6 +274,7 @@ class BatchTraceTests(TestCase):
                 "received_by_owner": Decimal("100"),
                 "owner_on_hand": Decimal("60"),
                 "in_transit": Decimal("0"),
+                "sold_on_shopify": Decimal("0"),
                 "received_by_distributors": Decimal("40"),
                 "distributor_on_hand": Decimal("25"),
                 "sold_to_sub_distributors": Decimal("15"),
@@ -283,7 +284,7 @@ class BatchTraceTests(TestCase):
         stages = [event.stage for event in trace["events"]]
         self.assertEqual(stages[0], "Owner → Manufacturer (ordered)")
         self.assertEqual(stages[-1], "Distributor → Sub-distributor (sold)")
-        self.assertIn("Manufacturer → Owner (received)", stages)
+        self.assertIn("Manufacturer → Inventory (received)", stages)
         self.assertIn("Owner → Distributor (received)", stages)
 
         sale = trace["events"][-1]

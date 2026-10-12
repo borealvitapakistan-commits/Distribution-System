@@ -9,7 +9,7 @@
     <div>
         <p class="eyebrow">Records</p>
         <h1>Stock Movements</h1>
-        <p>Every transaction — stock received, given to a Distributor, or adjusted.</p>
+        <p>Every transaction — stock received, given to a Distributor, sold on Shopify, or adjusted.</p>
     </div>
 
     <a
@@ -21,6 +21,16 @@
 </div>
 
 <section class="panel">
+    <form method="get" class="inline-form">
+        <label for="channel">Channel</label>
+        <select id="channel" name="channel" onchange="this.form.submit()">
+            <option value="">All channels</option>
+            {% for value, label in channels %}
+                <option value="{{ value }}" {% if value == channel %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </form>
+
     <div class="table-wrapper">
         <table>
             <thead>
@@ -28,6 +38,7 @@
                     <th>Date and Time</th>
                     <th>Product</th>
                     <th>Type</th>
+                    <th>Channel</th>
                     <th>Quantity</th>
                     <th>From</th>
                     <th>To</th>
@@ -56,6 +67,7 @@
                             </span>
                         </td>
 
+                        <td>{{ movement.get_channel_display|default:"—" }}</td>
                         <td>{{ movement.quantity }}</td>
                         <td>{{ movement.from_location.name|default:"—" }}</td>
                         <td>{{ movement.to_location.name|default:"—" }}</td>
@@ -64,7 +76,7 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="8" class="empty-table">
+                        <td colspan="9" class="empty-table">
                             No stock movements recorded yet.
                         </td>
                     </tr>
@@ -77,7 +89,7 @@
         <div class="pagination">
             {% if page_obj.has_previous %}
                 <a
-                    href="?page={{ page_obj.previous_page_number }}"
+                    href="?page={{ page_obj.previous_page_number }}{% if channel %}&channel={{ channel }}{% endif %}"
                     class="button button-secondary button-small"
                 >
                     Previous
@@ -91,7 +103,7 @@
 
             {% if page_obj.has_next %}
                 <a
-                    href="?page={{ page_obj.next_page_number }}"
+                    href="?page={{ page_obj.next_page_number }}{% if channel %}&channel={{ channel }}{% endif %}"
                     class="button button-secondary button-small"
                 >
                     Next

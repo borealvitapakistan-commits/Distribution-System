@@ -191,6 +191,13 @@ def update_location(*, actor, location_id, **data):
         after_data=location_payload(location),
     )
 
+    if (before["is_sellable"], before["active"]) != (location.is_sellable, location.active):
+        # Shopify shows the sellable warehouses' total, so holding a
+        # warehouse back (or releasing it) changes what it can sell.
+        from apps.owner_inventory.shopify_sync import schedule_push
+
+        schedule_push()
+
     return location
 
 

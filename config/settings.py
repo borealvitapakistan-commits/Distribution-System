@@ -188,11 +188,15 @@ LOGIN_REDIRECT_URL = "dashboard"
 LOGOUT_REDIRECT_URL = "login"
 
 
-# Shopify (read-only product import)
+# Shopify: product import, plus inventory sync once SHOPIFY_INVENTORY_SYNC
+# is on. This system holds the stock; Shopify is told the sellable total
+# and its orders are imported as sales.
 SHOPIFY_STORE_DOMAIN = env("SHOPIFY_STORE_DOMAIN", default="")
 SHOPIFY_CLIENT_ID = env("SHOPIFY_CLIENT_ID", default="")
 SHOPIFY_CLIENT_SECRET = env("SHOPIFY_CLIENT_SECRET", default="")
-SHOPIFY_API_VERSION = env("SHOPIFY_API_VERSION", default="2025-10")
+SHOPIFY_API_VERSION = env("SHOPIFY_API_VERSION", default="2026-07")
+SHOPIFY_INVENTORY_SYNC = env.bool("SHOPIFY_INVENTORY_SYNC", default=False)
+SHOPIFY_LOCATION_ID = env("SHOPIFY_LOCATION_ID", default="")
 
 
 # Django REST Framework

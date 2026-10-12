@@ -132,6 +132,7 @@ class TraceEvent:
 @dataclass
 class DistributorTraceTotals:
     name: str
+    shipped: Decimal = Decimal("0")
     received: Decimal = Decimal("0")
     on_hand: Decimal = Decimal("0")
     sold: Decimal = Decimal("0")
@@ -197,36 +198,71 @@ def trace_batch_code(code):
         )
 
     received_by_owner = zero
+    sold_on_shopify = zero
+
+    def place(location):
+        """A warehouse with the Inventory (region) it belongs to."""
+        if location is None:
+            return "—"
+        if location.inventory_id and location.location_type == Location.LocationType.OWN:
+            return f"{location.name} ({location.inventory.name})"
+        return location.name
 
     for movement in (
         StockMovement.objects
         .filter(batch__batch_number__iexact=code)
-        .select_related("from_location", "to_location", "created_by")
+        .select_related(
+            "from_location__inventory",
+            "to_location__inventory",
+            "distributor_profile",
+            "shopify_order",
+            "created_by",
+        )
     ):
         source = movement.from_location
         destination = movement.to_location
+        distributor = movement.distributor_profile
+        from_label = place(source)
+        to_label = place(destination)
 
         if movement.movement_type == StockMovement.MovementType.RECEIVED:
             received_by_owner += movement.quantity
-            stage = "Manufacturer → Owner (received)"
+            stage = "Manufacturer → Inventory (received)"
+            from_label = manufacturer_name
+        elif movement.movement_type == StockMovement.MovementType.SALE:
+            sold_on_shopify += movement.quantity
+            stage = "Inventory → Shopify (sold)"
+            to_label = (
+                f"Shopify order {movement.shopify_order.name}"
+                if movement.shopify_order else "Shopify customer"
+            )
+        elif movement.movement_type == StockMovement.MovementType.ADJUSTMENT:
+            stage = "Inventory (adjustment)"
+            if movement.channel == StockMovement.Channel.SHOPIFY:
+                stage = "Inventory (changed on Shopify)"
+            if destination is None:
+                to_label = "Removed from stock"
         elif destination is None:
             # Leaving the Owner's system entirely — the Distributor's own
-            # RECEIVED row records the same hand-off with the
-            # Distributor's name, so it isn't listed twice.
+            # RECEIVED row records the same hand-off, so it isn't listed
+            # twice.
             continue
         elif destination.location_type == Location.LocationType.TRANSIT:
-            stage = "Owner → Distributor (shipped)"
-        elif movement.movement_type == StockMovement.MovementType.ADJUSTMENT:
-            stage = "Owner (adjustment)"
+            if distributor is not None:
+                distributor_totals(distributor).shipped += movement.quantity
+            stage = "Inventory → Distributor (shipped)"
+            to_label = f"{distributor.name} (in transit)" if distributor else to_label
+        elif destination.location_type == Location.LocationType.OWN:
+            stage = "Inventory → Warehouse (stored)"
         else:
-            stage = "Owner (moved between warehouses)"
+            stage = "Inventory (allocated to a region)"
 
         events.append(
             TraceEvent(
                 at=movement.created_at,
                 stage=stage,
-                from_label=source.name if source else manufacturer_name,
-                to_label=destination.name if destination else "—",
+                from_label=from_label,
+                to_label=to_label,
                 quantity=movement.quantity,
                 reference=movement.reference,
                 by=movement.created_by,
@@ -306,16 +342,19 @@ def trace_batch_code(code):
 
     owner_on_hand = zero
     in_transit = zero
+    where_now = {}
 
     for owner_batch in (
         StockBatch.objects
         .filter(batch_number__iexact=code, quantity_remaining__gt=0)
-        .select_related("location")
+        .select_related("location__inventory")
     ):
         if owner_batch.location.location_type == Location.LocationType.TRANSIT:
             in_transit += owner_batch.quantity_remaining
         else:
             owner_on_hand += owner_batch.quantity_remaining
+            label = place(owner_batch.location)
+            where_now[label] = where_now.get(label, zero) + owner_batch.quantity_remaining
 
     events.sort(key=lambda event: event.at)
     distributors = sorted(by_distributor.values(), key=lambda row: row.name)
@@ -326,11 +365,13 @@ def trace_batch_code(code):
         "found": bool(batch or events),
         "events": events,
         "distributors": distributors,
+        "where_now": sorted(where_now.items()),
         "totals": {
             "ordered": batch.manufacturer_order_item.quantity if batch else None,
             "received_by_owner": received_by_owner,
             "owner_on_hand": owner_on_hand,
             "in_transit": in_transit,
+            "sold_on_shopify": sold_on_shopify,
             "received_by_distributors": sum(
                 (row.received for row in distributors), zero
             ),

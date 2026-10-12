@@ -31,8 +31,12 @@ class LocationSerializer(serializers.ModelSerializer):
             "active",
             "utilization",
         ]
+        # Every warehouse the Owner creates is an owned one — the type and
+        # supplier link are set by the system, never by the caller.
         read_only_fields = [
             "id",
+            "location_type",
+            "manufacturer",
             "location_type_display",
             "inventory_name",
             "manufacturer_name",
@@ -44,12 +48,9 @@ class LocationSerializer(serializers.ModelSerializer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        from apps.manufacturers.models import Manufacturer
-
         from .models import Inventory
 
         self.fields["inventory"].queryset = (Inventory.objects.filter(active=True))
-        self.fields["manufacturer"].queryset = (Manufacturer.objects.filter(active=True))
 
     def get_utilization(self, obj):
         data = location_utilization(obj)

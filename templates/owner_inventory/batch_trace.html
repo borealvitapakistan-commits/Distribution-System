@@ -112,6 +112,12 @@
             </article>
 
             <article class="stat-card">
+                <span class="stat-label">Sold on Shopify</span>
+                <strong>{{ trace.totals.sold_on_shopify }}</strong>
+                <span class="stat-detail">Online orders</span>
+            </article>
+
+            <article class="stat-card">
                 <span class="stat-label">In Transit</span>
                 <strong>{{ trace.totals.in_transit }}</strong>
                 <span class="stat-detail">Shipped, not yet received</span>
@@ -136,6 +142,36 @@
             </article>
         </div>
 
+        {% if trace.where_now %}
+            <section class="panel">
+                <div class="panel-header">
+                    <div>
+                        <h2>Where it is now</h2>
+                        <p>Stock of this batch still in your warehouses, by warehouse and inventory (region).</p>
+                    </div>
+                </div>
+
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Warehouse (inventory)</th>
+                                <th>On hand</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for label, quantity in trace.where_now %}
+                                <tr>
+                                    <td>{{ label }}</td>
+                                    <td>{{ quantity }}</td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        {% endif %}
+
         {% if trace.distributors %}
             <section class="panel">
                 <div class="panel-header">
@@ -149,6 +185,7 @@
                         <thead>
                             <tr>
                                 <th>Distributor</th>
+                                <th>Shipped to them</th>
                                 <th>Received</th>
                                 <th>On Hand</th>
                                 <th>Sold to Sub-Distributors</th>
@@ -159,6 +196,7 @@
                             {% for row in trace.distributors %}
                                 <tr>
                                     <td>{{ row.name }}</td>
+                                    <td>{{ row.shipped }}</td>
                                     <td>{{ row.received }}</td>
                                     <td>{{ row.on_hand }}</td>
                                     <td>{{ row.sold }}</td>

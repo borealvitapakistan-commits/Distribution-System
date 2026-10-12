@@ -78,6 +78,9 @@ def post_stock_movement(
     reference="",
     require_owner_actor=True,
     batch=None,
+    channel="",
+    distributor_profile=None,
+    shopify_order=None,
 ):
     """The single write path for stock. Every other function in this
     module is a thin wrapper around this one — nothing else may touch
@@ -93,6 +96,11 @@ def post_stock_movement(
     its quantity_remaining is decremented alongside the balance. When a
     movement is a RECEIVED movement, batch is the lot it just created,
     attached to the movement for traceability only (no draw-down).
+
+    channel records who the stock went to or came from (Manufacturer,
+    Distributor, Shopify); distributor_profile / shopify_order name the
+    exact Distributor or Shopify order, so a batch trace can say who got it. Once the transaction commits, Shopify is told
+    the new sellable total — see apps.owner_inventory.shopify_sync.
     """
     if require_owner_actor:
         require_owner(actor)
@@ -154,6 +162,9 @@ def post_stock_movement(
         to_location=to_location,
         quantity=quantity,
         movement_type=movement_type,
+        channel=channel,
+        distributor_profile=distributor_profile,
+        shopify_order=shopify_order,
         reference=reference,
         batch=batch,
         created_by=actor,
@@ -170,6 +181,12 @@ def post_stock_movement(
             "product_id": str(product.pk),
             "quantity": str(quantity),
             "movement_type": movement_type,
+            "channel": channel,
+            "batch_number": batch.batch_number if batch is not None else "",
+            "distributor_profile_id": (
+                str(distributor_profile.pk) if distributor_profile else None
+            ),
+            "shopify_order": shopify_order.name if shopify_order else None,
             "from_location_id": (
                 str(from_location.pk) if from_location else None
             ),
@@ -179,6 +196,10 @@ def post_stock_movement(
         },
         reason=reference,
     )
+
+    from .shopify_sync import schedule_push
+
+    schedule_push()
 
     return movement
 
@@ -195,6 +216,7 @@ def receive_stock(
     expiry_date=None,
     batch_number="",
     source_batch=None,
+    channel="",
 ):
     """What the Owner's "Add Inventory" form calls: stock arriving from
     outside the system (e.g. from a Manufacturer) into one of the
@@ -207,12 +229,11 @@ def receive_stock(
 
     if to_location.location_type not in (
         Location.LocationType.OWN,
-        Location.LocationType.SHOPIFY,
         Location.LocationType.UNALLOCATED,
     ):
         raise ValidationError(
             "Inventory can only be received into one of the Owner's own "
-            "warehouses, the Shopify location, or as unallocated stock."
+            "warehouses or as unallocated stock."
         )
 
     quantity = _as_decimal(quantity)
@@ -245,6 +266,7 @@ def receive_stock(
         to_location=to_location,
         reference=reference,
         batch=batch,
+        channel=channel,
     )
 
 
@@ -341,6 +363,7 @@ def reallocate_batch(*, actor, batch, quantity, destination_location, reference=
         to_location=destination_location,
         reference=reference,
         batch=batch,
+        channel=StockMovement.Channel.INTERNAL,
     )
 
     new_batch = StockBatch(
@@ -397,6 +420,8 @@ def give_to_distributor(
         to_location=None,
         reference=reference,
         batch=batch,
+        channel=StockMovement.Channel.DISTRIBUTOR,
+        distributor_profile=distributor_profile,
     )
 
     distributor_receive_stock(
@@ -468,6 +493,10 @@ def ship_stock_to_transit(
         to_location=transit,
         reference=reference,
         batch=batch,
+        channel=StockMovement.Channel.DISTRIBUTOR,
+        distributor_profile=(
+            shipped_for.purchase_order.distributor_profile if shipped_for else None
+        ),
     )
 
     transit_batch = StockBatch(
@@ -541,6 +570,10 @@ def release_stock_from_transit(
             reference=reference,
             batch=batch,
             require_owner_actor=False,
+            channel=StockMovement.Channel.DISTRIBUTOR,
+            distributor_profile=(
+                shipped_for.purchase_order.distributor_profile if shipped_for else None
+            ),
         )
         consumed.append((batch, take))
         remaining -= take

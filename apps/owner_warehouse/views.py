@@ -1,5 +1,6 @@
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Sum
 from django.http import Http404
 from django.shortcuts import redirect, render
 from django.views import View
@@ -222,10 +223,16 @@ class LocationListView(OwnerRequiredMixin, ListView):
     context_object_name = "locations"
 
     def get_queryset(self):
+        # Only real warehouses. Transit and the unallocated pools are the
+        # system's own holding places (unallocated stock is shown on the
+        # Inventory page), and legacy rows of retired types stay hidden.
         return (
             Location.objects
             .for_user(self.request.user)
-            .select_related("inventory", "manufacturer")
+            .filter(location_type=Location.LocationType.OWN)
+            .select_related("inventory")
+            .annotate(on_hand=Sum("stock_balances__quantity"))
+            .order_by("inventory__name", "name")
         )
 
 

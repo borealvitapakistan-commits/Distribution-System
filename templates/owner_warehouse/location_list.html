@@ -8,10 +8,10 @@
 <div class="page-header">
     <div>
         <p class="eyebrow">Warehouse</p>
-        <h1>Locations</h1>
+        <h1>Warehouses</h1>
         <p>
-            Your own warehouses and the Shopify location. Distributor and
-            in-transit locations are created automatically by the system.
+            One set of warehouses for everything. Shopify and Distributors are
+            both supplied from these — you decide which stock goes where.
         </p>
     </div>
 
@@ -20,7 +20,7 @@
             Back to Inventory
         </a>
         <a class="button button-primary" href="{% url 'location-create' %}">
-            New Location
+            New Warehouse
         </a>
     </div>
 </div>
@@ -32,10 +32,9 @@
                 <tr>
                     <th>Code</th>
                     <th>Name</th>
-                    <th>Type</th>
-                    <th>Region</th>
-                    <th>Linked to</th>
-                    <th>Flags</th>
+                    <th>Inventory (region)</th>
+                    <th>On hand</th>
+                    <th>Sellable</th>
                     <th>Capacity</th>
                     <th></th>
                 </tr>
@@ -49,16 +48,12 @@
                         </td>
 
                         <td>{{ location.name }}</td>
-                        <td>{{ location.get_location_type_display }}</td>
                         <td>{{ location.inventory.name|default:"—" }}</td>
+                        <td>{{ location.on_hand|default:0|floatformat:"-4" }}</td>
                         <td>
-                            {% firstof location.manufacturer.name "—" %}
-                        </td>
-
-                        <td>
-                            {% if location.on_book %}Book{% endif %}
-                            {% if location.is_physical %} · Physical{% endif %}
-                            {% if location.is_sellable %} · Sellable{% endif %}
+                            {% if not location.active %}Inactive
+                            {% elif location.is_sellable %}Yes
+                            {% else %}Held back{% endif %}
                         </td>
 
                         <td>{{ location.capacity_units }}</td>
@@ -74,7 +69,7 @@
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="8" class="empty-table">
+                        <td colspan="7" class="empty-table">
                             No locations found.
                         </td>
                     </tr>

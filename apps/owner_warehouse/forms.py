@@ -50,9 +50,12 @@ class AllocateBatchForm(forms.Form):
 
 
 class LocationForm(forms.Form):
+    """A warehouse. There is only one kind the Owner creates — an owned
+    warehouse inside an Inventory (region). Shopify and Distributors draw
+    from these same warehouses, so there's no type to pick."""
+
     MANUAL_LOCATION_TYPES = [
         (Location.LocationType.OWN, Location.LocationType.OWN.label),
-        (Location.LocationType.SHOPIFY, Location.LocationType.SHOPIFY.label),
     ]
     MANUAL_LOCATION_TYPES_SET = {
         choice for choice, _ in MANUAL_LOCATION_TYPES
@@ -61,12 +64,10 @@ class LocationForm(forms.Form):
     code = forms.CharField(max_length=50)
     name = forms.CharField(max_length=200)
 
-    location_type = forms.ChoiceField(choices=MANUAL_LOCATION_TYPES)
     inventory = forms.ModelChoiceField(
         label="Inventory (region)",
         queryset=Inventory.objects.filter(active=True),
-        required=False,
-        help_text="Required for an owned warehouse.",
+        help_text="Which region this warehouse belongs to.",
     )
     is_sellable = forms.BooleanField(
         label="Sellable",
@@ -74,7 +75,8 @@ class LocationForm(forms.Form):
         initial=True,
         help_text=(
             "Untick to hold this warehouse's stock back: nothing can be "
-            "shipped or given to a Distributor from it until it's ticked again."
+            "shipped to a Distributor or sold on Shopify from it until it's "
+            "ticked again."
         ),
     )
     address = forms.CharField(
@@ -115,9 +117,6 @@ class LocationForm(forms.Form):
                 {
                     "code": instance.code,
                     "name": instance.name,
-                    "location_type": (
-                        instance.location_type
-                    ),
                     "inventory": instance.inventory_id,
                     "is_sellable": instance.is_sellable,
                     "address": instance.address,
@@ -135,16 +134,5 @@ class LocationForm(forms.Form):
 
     def clean(self):
         cleaned_data = super().clean()
-        location_type = cleaned_data.get("location_type")
-        inventory = cleaned_data.get("inventory")
-
-        if location_type == Location.LocationType.OWN and not inventory:
-            self.add_error(
-                "inventory", "An owned warehouse must belong to an Inventory."
-            )
-        elif location_type != Location.LocationType.OWN and inventory:
-            self.add_error(
-                "inventory", "Only an owned warehouse can belong to an Inventory."
-            )
-
+        cleaned_data["location_type"] = Location.LocationType.OWN
         return cleaned_data

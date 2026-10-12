@@ -336,14 +336,9 @@ def update_product(
 
 def export_products_csv(queryset):
     """Build a Shopify-import-compatible product CSV in memory."""
-    from apps.owner_inventory.models import StockBalance
-    from apps.owner_warehouse.models import Location
+    from apps.owner_inventory.shopify_sync import sellable_quantities
 
-    shopify_balances = dict(
-        StockBalance.objects
-        .filter(location__location_type=Location.LocationType.SHOPIFY)
-        .values_list("product_id", "quantity")
-    )
+    shopify_balances = sellable_quantities()
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)

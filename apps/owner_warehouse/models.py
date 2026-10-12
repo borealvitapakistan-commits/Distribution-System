@@ -41,15 +41,15 @@ class Location(AuditedModel):
     class LocationType(models.TextChoices):
         OWN = "OWN", "Owned"
         SUPPLIER = "SUPPLIER", "Supplier"
-        SHOPIFY = "SHOPIFY", "Shopify"
         TRANSIT = "TRANSIT", "In Transit"
         UNALLOCATED = "UNALLOCATED", "Unallocated"
 
     # (on_book, is_physical, is_sellable) per type; None means the Owner
-    # chooses it — an owned/Shopify warehouse can be held back from sale.
+    # chooses it — an owned warehouse can be held back from sale. There is
+    # no separate Shopify warehouse: Shopify shows the total of the sellable
+    # owned warehouses (see apps.owner_inventory.shopify_sync).
     FIXED_FLAGS = {
         LocationType.OWN: (True, True, None),
-        LocationType.SHOPIFY: (True, True, None),
         LocationType.TRANSIT: (True, True, False),
         LocationType.UNALLOCATED: (True, True, False),
         LocationType.SUPPLIER: (False, False, False),

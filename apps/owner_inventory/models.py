@@ -13,13 +13,23 @@ from .querysets import StockBalanceQuerySet, StockBatchQuerySet
 
 class StockMovement(AuditedModel):
     """Immutable ledger row. Every stock change — receiving from a
-    Manufacturer, giving to a Distributor, a manual correction — is one
-    row here. Corrections are new rows, never edits."""
+    Manufacturer, giving to a Distributor, a Shopify sale, a manual
+    correction — is one row here. Corrections are new rows, never edits."""
 
     class MovementType(models.TextChoices):
         RECEIVED = "RECEIVED", "Received"
         TRANSFER = "TRANSFER", "Transfer"
+        SALE = "SALE", "Sale"
         ADJUSTMENT = "ADJUSTMENT", "Adjustment"
+
+    class Channel(models.TextChoices):
+        """Where the stock came from or went to, so the one shared
+        inventory can still say how much each channel took."""
+
+        MANUFACTURER = "MANUFACTURER", "Manufacturer"
+        DISTRIBUTOR = "DISTRIBUTOR", "Distributor"
+        SHOPIFY = "SHOPIFY", "Shopify"
+        INTERNAL = "INTERNAL", "Internal"
 
     product = models.ForeignKey(
         "products.Product",
@@ -52,6 +62,30 @@ class StockMovement(AuditedModel):
     movement_type = models.CharField(
         max_length=20,
         choices=MovementType.choices,
+    )
+
+    channel = models.CharField(
+        max_length=20,
+        choices=Channel.choices,
+        blank=True,
+    )
+
+    distributor_profile = models.ForeignKey(
+        "distributors.DistributorProfile",
+        on_delete=models.PROTECT,
+        related_name="owner_stock_movements",
+        null=True,
+        blank=True,
+        help_text="For stock shipped or given to a Distributor: which one.",
+    )
+
+    shopify_order = models.ForeignKey(
+        "ShopifyOrder",
+        on_delete=models.PROTECT,
+        related_name="stock_movements",
+        null=True,
+        blank=True,
+        help_text="For a Shopify sale: the order it was sold on.",
     )
 
     reference = models.CharField(max_length=255, blank=True)
@@ -163,7 +197,7 @@ class StockBatch(AuditedModel):
     Shipping out draws down a specific batch's quantity_remaining (FEFO by
     default), so older/soon-to-expire stock gets suggested first. Batches
     only exist for locations the Owner directly manages (own warehouses,
-    Shopify, Transit) — once stock reaches a Distributor, it's tracked in
+    unallocated pools, Transit) — once stock reaches a Distributor, it's tracked in
     their own, separate DistributorStockBatch instead.
     """
 
@@ -248,13 +282,12 @@ class StockBatch(AuditedModel):
 
         if self.location_id and self.location.location_type not in (
             Location.LocationType.OWN,
-            Location.LocationType.SHOPIFY,
             Location.LocationType.UNALLOCATED,
             Location.LocationType.TRANSIT,
         ):
             raise ValidationError(
                 "Batches can only be tracked in one of the Owner's own "
-                "warehouses, the Shopify location, Transit, or as "
+                "warehouses, Transit, or as "
                 "unallocated stock."
             )
 
@@ -292,3 +325,77 @@ class StockBatch(AuditedModel):
             f"received {self.received_date} "
             f"({self.quantity_remaining} remaining)"
         )
+
+
+class ShopifySyncState(TimeStampedModel):
+    """One row: how far the Shopify order import has got. Orders placed
+    before orders_since are never imported — the first sync sets it to
+    "now", so connecting the store doesn't replay its whole history
+    against stock that was counted after those sales."""
+
+    location_id = models.CharField(max_length=100, blank=True)
+    location_name = models.CharField(max_length=200, blank=True)
+    orders_since = models.DateTimeField(null=True, blank=True)
+    last_pulled_at = models.DateTimeField(null=True, blank=True)
+    last_pushed_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.TextField(blank=True)
+
+    @classmethod
+    def load(cls):
+        state, _ = cls.objects.get_or_create(pk=1)
+        return state
+
+    def __str__(self):
+        return f"Shopify sync ({self.location_name or 'not connected'})"
+
+
+class ShopifyOrder(UUIDModel, TimeStampedModel):
+    """A Shopify order the system has seen, imported once by its Shopify
+    ID. Its lines draw stock out of the shared inventory exactly like a
+    Distributor shipment does, so a Shopify sale is traceable to the
+    batch and warehouse it came from."""
+
+    shopify_order_id = models.CharField(max_length=100, unique=True)
+    name = models.CharField(max_length=50)
+    placed_at = models.DateTimeField()
+    cancelled = models.BooleanField(default=False)
+    financial_status = models.CharField(max_length=50, blank=True)
+
+    class Meta:
+        ordering = ["-placed_at"]
+
+    def __str__(self):
+        return f"Shopify order {self.name}"
+
+
+class ShopifyOrderLine(UUIDModel, TimeStampedModel):
+    class Status(models.TextChoices):
+        POSTED = "POSTED", "Taken from stock"
+        SHORT = "SHORT", "Not enough stock"
+        UNLINKED = "UNLINKED", "Product not linked"
+        SKIPPED = "SKIPPED", "Cancelled order"
+
+    order = models.ForeignKey(
+        ShopifyOrder,
+        on_delete=models.CASCADE,
+        related_name="lines",
+    )
+    shopify_line_id = models.CharField(max_length=100, unique=True)
+    shopify_product_id = models.CharField(max_length=100, blank=True)
+    title = models.CharField(max_length=255)
+    product = models.ForeignKey(
+        "products.Product",
+        on_delete=models.PROTECT,
+        related_name="shopify_order_lines",
+        null=True,
+        blank=True,
+    )
+    quantity = models.DecimalField(max_digits=18, decimal_places=4)
+    status = models.CharField(max_length=20, choices=Status.choices)
+    note = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["order", "title"]
+
+    def __str__(self):
+        return f"{self.order.name} — {self.title} x {self.quantity}"

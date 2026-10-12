@@ -333,11 +333,14 @@ class ShopifyCSVExportTests(TestCase):
             base_retail_price=Decimal("250.00"),
             currency="pkr",
         )
+        # Shopify sells from the owned warehouses — there is no separate
+        # Shopify location any more.
         self.shopify_location = create_location(
             actor=self.owner,
             code="SHOP-1",
-            name="Shopify Stock",
-            location_type=Location.LocationType.SHOPIFY,
+            name="Main Warehouse",
+            location_type=Location.LocationType.OWN,
+            inventory=create_inventory(actor=self.owner, code="CSV-INV", name="CSV Region"),
             is_sellable=True,
         )
 

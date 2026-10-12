@@ -10,7 +10,7 @@
         <p class="eyebrow">Location Detail</p>
         <h1>{{ location.name }}</h1>
         <p>
-            {{ location.code }} · {{ location.get_location_type_display }}
+            {{ location.code }}{% if location.inventory %} · {{ location.inventory.name }}{% else %} · {{ location.get_location_type_display }}{% endif %}
         </p>
     </div>
 
@@ -25,7 +25,7 @@
             </a>
         {% endif %}
 
-        {% if location.location_type == "OWN" or location.location_type == "SHOPIFY" %}
+        {% if location.location_type == "OWN" %}
             <a class="button button-primary" href="{% url 'location-edit' location.pk %}">
                 Edit
             </a>
