@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% load finance_filters %}
+
+{% block title %}
+    Market Research
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Finance</p>
+        <h1>Market Research</h1>
+        <p>
+            What similar products sell for on Pakistani stores. Rows marked "Yes" set each product's
+            market price: their price per capsule × our bottle size.
+        </p>
+    </div>
+
+    {% url 'owner-finance-market-create' as add_url %}
+    {% include "finance/_downloads.html" with add_label="Add Research" %}
+</div>
+
+{% include "finance/_tabs.html" %}
+
+<section class="panel fin-panel">
+    <div class="table-wrapper">
+        <table class="fin-table">
+            <thead>
+                <tr>
+                    <th>Our product</th>
+                    <th>Similar product on market</th>
+                    <th>Store</th>
+                    <th class="num">Pack size</th>
+                    <th>Unit</th>
+                    <th class="num">Market price (Rs)</th>
+                    <th class="num">Price per unit (Rs)</th>
+                    <th>Use for market price?</th>
+                    <th>Note</th>
+                    <th>Checked</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>{{ row.product.name }}</td>
+                        <td>
+                            {% if row.link %}<a href="{{ row.link }}" target="_blank" rel="noopener">{{ row.similar_product }}</a>{% else %}{{ row.similar_product }}{% endif %}
+                        </td>
+                        <td>{{ row.store|default:"—" }}</td>
+                        <td class="num">{{ row.pack_size|qty }}</td>
+                        <td>{{ row.unit }}</td>
+                        <td class="num">{{ row.market_price|num }}</td>
+                        <td class="num">{{ row.price_per_unit|num }}</td>
+                        <td>
+                            {% if row.use_for_market_price %}
+                                <span class="badge badge-open">Yes</span>
+                            {% else %}
+                                <span class="badge badge-locked">No</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.note|default:"—" }}</td>
+                        <td class="nowrap">{{ row.checked_on|date:"d M Y" }}</td>
+                        <td class="table-actions nowrap">
+                            <a class="button button-secondary button-small" href="{% url 'owner-finance-market-edit' row.pk %}">Edit</a>
+                            <form method="post" action="{% url 'owner-finance-market-delete' row.pk %}" class="inline-form" onsubmit="return confirm('Delete this row?');">
+                                {% csrf_token %}
+                                <button type="submit" class="button button-danger button-small">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="11" class="empty-table">No market research yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</section>
+{% endblock %}

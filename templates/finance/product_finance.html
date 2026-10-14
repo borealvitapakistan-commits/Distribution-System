@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+{% load finance_filters %}
+
+{% block title %}
+    Product Finance
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Finance</p>
+        <h1>Product Finance</h1>
+        <p>
+            Every batch ordered from a Manufacturer, priced at retail, with your expenses shared
+            across it: manufacturer price → distributor cut → expenses → profit.
+        </p>
+    </div>
+
+    {% include "finance/_downloads.html" %}
+</div>
+
+{% include "finance/_tabs.html" %}
+
+<section class="panel fin-panel">
+    <form method="get" class="fin-filters" data-autosubmit>
+        <label>
+            Product
+            <select name="product">
+                <option value="">All products</option>
+                {% for product in products %}
+                    <option value="{{ product.pk }}" {% if product.pk|stringformat:"s" == product_id %}selected{% endif %}>{{ product.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+        <label>Orders placed from <input type="date" name="start" value="{{ start|date:'Y-m-d' }}"></label>
+        <label>to <input type="date" name="end" value="{{ end|date:'Y-m-d' }}"></label>
+        <label>
+            One row per
+            <select name="group">
+                <option value="batch" {% if group == "batch" %}selected{% endif %}>Batch</option>
+                <option value="product" {% if group == "product" %}selected{% endif %}>Product &amp; bottle size</option>
+            </select>
+        </label>
+        <label>
+            Batches
+            <select name="pending">
+                <option value="1" {% if include_pending %}selected{% endif %}>Ordered and received</option>
+                <option value="0" {% if not include_pending %}selected{% endif %}>Received only</option>
+            </select>
+        </label>
+        <noscript><button type="submit" class="button button-primary button-small">Show</button></noscript>
+        {% if start or end or product_id or group != "batch" or not include_pending %}
+            <a class="button button-secondary button-small" href="{% url 'owner-finance-product-finance' %}">Clear filters</a>
+        {% endif %}
+    </form>
+
+    <form method="post" class="fin-filters">
+        {% csrf_token %}
+        <label>
+            Distributor cut % of retail
+            <input
+                type="number"
+                name="distributor_cut_percentage"
+                value="{{ settings.distributor_cut_percentage }}"
+                min="0"
+                max="100"
+                step="0.01"
+            >
+        </label>
+        <button type="submit" class="button button-secondary button-small">Save cut</button>
+        <span class="fin-formula">
+            e.g. {{ settings.distributor_cut_percentage|pct:0 }} of Rs 1,200 = Rs {{ example_cut|num:0 }}
+            to the Distributor; we receive Rs {{ example_receive|num:0 }} per unit.
+        </span>
+    </form>
+</section>
+
+<div class="stats-grid">
+    <article class="stat-card">
+        <span class="stat-label">Investment</span>
+        <strong>{{ totals.investment|num:0 }}</strong>
+        <span class="stat-detail">Manufacturer price × quantity, {{ totals.quantity|qty }} units</span>
+    </article>
+    <article class="stat-card">
+        <span class="stat-label">Retail sale value</span>
+        <strong>{{ totals.retail_value|num:0 }}</strong>
+        <span class="stat-detail">Our retail price × quantity</span>
+    </article>
+    <article class="stat-card">
+        <span class="stat-label">Gross profit</span>
+        <strong class="{{ totals.gross_profit|sign_class }}">{{ totals.gross_profit|num:0 }}</strong>
+        <span class="stat-detail">We receive {{ totals.we_receive|num:0 }} − investment</span>
+    </article>
+    <article class="stat-card fin-highlight">
+        <span class="stat-label">Total profit</span>
+        <strong>{{ totals.net_profit|num:0 }}</strong>
+        <span class="stat-detail">Gross profit − {{ totals.expenses|num:0 }} expenses · {{ totals.net_margin|pct }} of retail</span>
+    </article>
+</div>
+
+<section class="panel fin-panel">
+    <div class="table-wrapper">
+        <table class="fin-table">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>{% if group == "batch" %}Batch{% else %}Batches{% endif %}</th>
+                    <th class="num">Price to make / Manufacturer price</th>
+                    {% if has_market %}<th class="num">Market price</th>{% endif %}
+                    <th class="num">Our retail price (Rs)</th>
+                    <th class="num">Quantity</th>
+                    <th class="num">Distributor cut / unit (Rs)</th>
+                    <th class="num">We receive / unit (Rs)</th>
+                    <th class="num">Expense share %</th>
+                    <th class="num">Expense / unit (Rs)</th>
+                    <th class="num">Profit / unit (Rs)</th>
+                    <th class="num">Profit % (of retail)</th>
+                    <th class="num">Total profit (Rs)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>
+                            {{ row.label }}
+                            <small class="table-secondary">{{ row.product.sku }}</small>
+                        </td>
+                        <td>
+                            {% if group == "batch" %}
+                                {% with batch=row.batches.0 %}
+                                    <a href="{% url 'batch-trace' %}?code={{ batch.code|urlencode }}">{{ batch.code }}</a>
+                                    <small class="table-secondary">
+                                        {{ batch.manufacturer_order_item.order.po_number }} · {{ batch.get_status_display }}
+                                    </small>
+                                {% endwith %}
+                            {% else %}
+                                {{ row.batches|length }} batch{{ row.batches|length|pluralize:"es" }}
+                            {% endif %}
+                        </td>
+                        <td class="num fin-input">{{ row.unit_cost|num }}</td>
+                        {% if has_market %}
+                            <td class="num">
+                                {% if row.market_price is not None %}
+                                    {{ row.market_price|num }}
+                                {% else %}
+                                    <a href="{% url 'owner-finance-market-create' %}?product={{ row.product.pk }}">Add</a>
+                                {% endif %}
+                            </td>
+                        {% endif %}
+                        <td class="num fin-input">{{ row.retail_price|num }}</td>
+                        <td class="num fin-input">{{ row.quantity|qty }}</td>
+                        <td class="num">{{ row.distributor_cut|num }}</td>
+                        <td class="num">{{ row.we_receive|num }}</td>
+                        <td class="num">{{ row.expense_share|share }}</td>
+                        <td class="num">{{ row.expense_per_unit|num }}</td>
+                        <td class="num {{ row.profit_per_unit|sign_class }}">{{ row.profit_per_unit|num }}</td>
+                        <td class="num">{{ row.profit_percentage|pct }}</td>
+                        <td class="num fin-result {{ row.total_profit|sign_class }}">{{ row.total_profit|num }}</td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="13" class="empty-table">
+                            No Manufacturer orders with prices yet — place one and its batches appear here.
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+            {% if rows %}
+                <tfoot>
+                    <tr>
+                        <td colspan="2">Totals</td>
+                        <td class="num">{{ totals.investment|num }}</td>
+                        {% if has_market %}<td></td>{% endif %}
+                        <td class="num">{{ totals.retail_value|num }}</td>
+                        <td class="num">{{ totals.quantity|qty }}</td>
+                        <td class="num">{{ totals.distributor_cut|num }}</td>
+                        <td class="num">{{ totals.we_receive|num }}</td>
+                        <td class="num">{{ totals.expense_share|share }}</td>
+                        <td class="num">{{ totals.expenses|num }}</td>
+                        <td></td>
+                        <td class="num">{{ totals.net_margin|pct }}</td>
+                        <td class="num fin-result">{{ totals.net_profit|num }}</td>
+                    </tr>
+                </tfoot>
+            {% endif %}
+        </table>
+    </div>
+    <p class="panel-note">
+        Yellow columns come from your data: the batch's landed cost from its Manufacturer order,
+        the product's retail price for that bottle size, and the quantity ordered.
+        Totals of the money columns are per-unit figures × quantity.
+        {% if product_id %}This product keeps only its own share of expenses, worked out across every batch.{% endif %}
+        {% if not has_market %}The Market price column appears once you add <a href="{% url 'owner-finance-market' %}">Market Research</a>.{% endif %}
+    </p>
+</section>
+
+<section class="panel fin-panel">
+    <div class="panel-header">
+        <div>
+            <h2>How each column is worked out</h2>
+        </div>
+    </div>
+    <ol class="fin-formulas">
+        <li><code>Manufacturer price</code> = the batch's price × (1 + order tax %) + its share of the order's shipping (shared by value)</li>
+        <li><code>Market price</code> = average price per capsule of the Market Research rows marked "use" × our bottle size</li>
+        <li><code>Distributor cut / unit</code> = our retail price × {{ settings.distributor_cut_percentage|num }}%</li>
+        <li><code>We receive / unit</code> = our retail price − distributor cut</li>
+        <li><code>Expense share %</code> = this row's (we receive − manufacturer price) × quantity ÷ the same for all rows</li>
+        <li><code>Expense / unit</code> = expense share % × total expenses ({{ totals.expenses|num }}) ÷ quantity</li>
+        <li><code>Profit / unit</code> = we receive − manufacturer price − expense / unit</li>
+        <li><code>Profit %</code> = profit / unit ÷ our retail price</li>
+        <li><code>Total profit</code> = profit / unit × quantity</li>
+        <li><code>Investment</code> = Σ manufacturer price × quantity · <code>Gross profit</code> = Σ (we receive − manufacturer price) × quantity · <code>Total profit</code> = gross profit − expenses</li>
+    </ol>
+</section>
+{% endblock %}

@@ -1,0 +1,8 @@
+<nav class="finance-tabs" aria-label="Finance sections">
+    <a href="{% url 'owner-finance' %}" class="{% if finance_tab == 'reports' %}active{% endif %}">Reports</a>
+    <a href="{% url 'owner-finance-product-finance' %}" class="{% if finance_tab == 'product-finance' %}active{% endif %}">Product Finance</a>
+    <a href="{% url 'owner-finance-ledger' %}" class="{% if finance_tab == 'ledger' %}active{% endif %}">Sales Ledger</a>
+    <a href="{% url 'owner-finance-expenses' %}" class="{% if finance_tab == 'expenses' %}active{% endif %}">Expenses</a>
+    <a href="{% url 'owner-finance-prices' %}" class="{% if finance_tab == 'prices' %}active{% endif %}">Product Prices</a>
+    <a href="{% url 'owner-finance-market' %}" class="{% if finance_tab == 'market' %}active{% endif %}">Market Research</a>
+</nav>

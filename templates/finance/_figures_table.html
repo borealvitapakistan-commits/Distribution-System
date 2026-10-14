@@ -1,0 +1,47 @@
+{% load finance_filters %}
+<div class="table-wrapper">
+    <table class="fin-table">
+        <thead>
+            <tr>
+                <th>{{ heading }}</th>
+                <th class="num">Units sold</th>
+                <th class="num">Retail value</th>
+                {% if columns.cut %}<th class="num">Distributor cut / discount</th>{% endif %}
+                <th class="num">Revenue</th>
+                <th class="num">Cost of goods</th>
+                <th class="num">Gross profit</th>
+                <th class="num">Margin</th>
+                {% if show_free %}<th class="num">Free / written off (cost)</th>{% endif %}
+                {% if show_net %}{% if columns.expenses %}<th class="num">Expenses</th>{% endif %}<th class="num">Net profit</th>{% endif %}
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+                <tr>
+                    <td>
+                        {{ row.label }}
+                        {% if row.detail %}<small class="table-secondary">{{ row.detail }}</small>{% endif %}
+                    </td>
+                    <td class="num">{{ row.figures.units_sold|qty }}</td>
+                    <td class="num">{{ row.figures.retail_value|num }}</td>
+                    {% if columns.cut %}<td class="num">{{ row.figures.cut|num }}</td>{% endif %}
+                    <td class="num">{{ row.figures.revenue|num }}</td>
+                    <td class="num">{{ row.figures.cogs|num }}</td>
+                    <td class="num {{ row.figures.gross_profit|sign_class }}">{{ row.figures.gross_profit|num }}</td>
+                    <td class="num">{{ row.figures.gross_margin|pct }}</td>
+                    {% if show_free %}
+                        <td class="num">
+                            {% if row.figures.lost_cost %}{{ row.figures.lost_cost|num }}{% else %}—{% endif %}
+                        </td>
+                    {% endif %}
+                    {% if show_net %}
+                        {% if columns.expenses %}<td class="num">{{ row.figures.expenses|num }}</td>{% endif %}
+                        <td class="num {{ row.figures.net_profit|sign_class }}">{{ row.figures.net_profit|num }}</td>
+                    {% endif %}
+                </tr>
+            {% empty %}
+                <tr><td colspan="11" class="empty-table">{{ empty }}</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

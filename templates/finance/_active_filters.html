@@ -1,0 +1,7 @@
+{% if active_filters %}
+    <div class="fin-active-filters">
+        <span>Showing only:</span>
+        {% for label in active_filters %}<span class="badge badge-neutral">{{ label }}</span>{% endfor %}
+        <a href="{{ clear_url }}">Clear filters</a>
+    </div>
+{% endif %}

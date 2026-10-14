@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load finance_filters money_filters %}
 
 {% block title %}
     Finance
@@ -8,14 +9,234 @@
 <div class="page-header">
     <div>
         <p class="eyebrow">Finance</p>
-        <h1>Finance</h1>
-        <p>Commission and earnings records will appear here.</p>
+        <h1>Finance Reports</h1>
+        <p>
+            Profit and loss from every batch sold, given away or written off, less your expenses.
+            Only Owners can see this.
+        </p>
     </div>
+
+    {% include "finance/_downloads.html" %}
 </div>
 
-<section class="panel">
-    <div class="empty-state">
-        Coming soon.
+{% include "finance/_tabs.html" %}
+
+<section class="panel fin-panel">
+    <form method="get" class="fin-filters" data-autosubmit>
+        <label>
+            Report
+            <select name="period">
+                {% for value, label in periods %}
+                    <option value="{{ value }}" {% if value == period %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        {% if period == "custom" %}
+            <label>From <input type="date" name="start" value="{{ report.start|date:'Y-m-d' }}"></label>
+            <label>To <input type="date" name="end" value="{{ report.end|date:'Y-m-d' }}"></label>
+        {% elif period != "all" %}
+            <label>
+                {% if period == "daily" %}Day{% elif period == "weekly" %}Any day in the week{% else %}Any day in the month{% endif %}
+                <input type="date" name="date" value="{{ anchor|date:'Y-m-d' }}">
+            </label>
+        {% endif %}
+
+        {% include "finance/_sale_filters.html" %}
+        <noscript><button type="submit" class="button button-primary button-small">Show</button></noscript>
+    </form>
+
+    <div class="fin-filters">
+        <div class="fin-period-nav">
+            {% if previous %}
+                <a class="button button-secondary button-small" href="?period={{ period }}&date={{ previous|date:'Y-m-d' }}{% if filter_query %}&{{ filter_query }}{% endif %}">‹ Previous</a>
+            {% endif %}
+            <strong>
+                {% if report.start == report.end %}
+                    {{ report.start|date:"D, d M Y" }}
+                {% else %}
+                    {{ report.start|date:"d M Y" }} – {{ report.end|date:"d M Y" }}
+                {% endif %}
+            </strong>
+            {% if following %}
+                <a class="button button-secondary button-small" href="?period={{ period }}&date={{ following|date:'Y-m-d' }}{% if filter_query %}&{{ filter_query }}{% endif %}">Next ›</a>
+            {% endif %}
+            {% if period != "all" and period != "custom" %}
+                <a class="button button-secondary button-small" href="?period={{ period }}&date={{ today|date:'Y-m-d' }}{% if filter_query %}&{{ filter_query }}{% endif %}">Today</a>
+            {% endif %}
+        </div>
     </div>
+
+    {% url 'owner-finance' as finance_url %}
+    {% with clear_url=finance_url|add:"?period="|add:period %}
+        {% include "finance/_active_filters.html" %}
+    {% endwith %}
 </section>
+
+{% if not report.entries %}
+    <div class="fin-notice">
+        No sales {% if active_filters %}match these filters {% endif %}between
+        {{ report.start|date:"d M Y" }} and {{ report.end|date:"d M Y" }}, so sales figures below are 0.
+        {% if latest_sale %}
+            The latest sale was on {{ latest_sale|date:"d M Y" }} —
+            <a href="?period=monthly&date={{ latest_sale|date:'Y-m-d' }}{% if filter_query %}&{{ filter_query }}{% endif %}">show that month</a>
+            or <a href="?period=all{% if filter_query %}&{{ filter_query }}{% endif %}">all time</a>.
+        {% endif %}
+    </div>
+{% elif report.filtered %}
+    <div class="fin-notice">
+        Filtered report: expenses belong to the whole business, so they're not subtracted here —
+        net profit is what this selection contributed before overheads.
+    </div>
+{% endif %}
+
+<div class="stats-grid">
+    <article class="stat-card">
+        <span class="stat-label">Retail sale value</span>
+        <strong>{{ totals.retail_value|num:0 }}</strong>
+        <span class="stat-detail">{{ totals.units_sold|qty }} units sold at retail price</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Revenue (we received)</span>
+        <strong>{{ totals.revenue|num:0 }}</strong>
+        <span class="stat-detail">After {{ totals.cut|num:0 }} distributor cut / discounts</span>
+    </article>
+
+    <article class="stat-card">
+        <span class="stat-label">Gross profit</span>
+        <strong class="{{ totals.gross_profit|sign_class }}">{{ totals.gross_profit|num:0 }}</strong>
+        <span class="stat-detail">Revenue − cost of goods · margin {{ totals.gross_margin|pct }}</span>
+    </article>
+
+    <article class="stat-card fin-highlight">
+        <span class="stat-label">Net profit</span>
+        <strong>{{ totals.net_profit|num:0 }}</strong>
+        <span class="stat-detail">After expenses, free stock and write-offs · {{ totals.net_margin|pct }}</span>
+    </article>
+</div>
+
+<div class="fin-grid-2">
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Profit &amp; loss</h2>
+                <p>All amounts in Rs.</p>
+            </div>
+        </div>
+        <table class="fin-statement">
+            <tbody>
+                <tr><td>Retail sale value <span class="fin-formula">retail price × units sold</span></td><td>{{ totals.retail_value|num }}</td></tr>
+                <tr><td class="fin-indent">− Distributor cut &amp; Shopify discounts</td><td>{{ totals.cut|num }}</td></tr>
+                <tr class="fin-subtotal"><td>Revenue <span class="fin-formula">what we actually received</span></td><td>{{ totals.revenue|num }}</td></tr>
+                <tr><td class="fin-indent">− Cost of goods sold <span class="fin-formula">batch landed cost × units</span></td><td>{{ totals.cogs|num }}</td></tr>
+                <tr class="fin-subtotal"><td>Gross profit</td><td class="{{ totals.gross_profit|sign_class }}">{{ totals.gross_profit|num }}</td></tr>
+                <tr><td class="fin-indent">− Expenses</td><td>{{ totals.expenses|num }}</td></tr>
+                <tr><td class="fin-indent">− Stock given free ({{ totals.free_units|qty }} units, at cost)</td><td>{{ totals.free_cost|num }}</td></tr>
+                <tr><td class="fin-indent">− Stock written off ({{ totals.written_off_units|qty }} units, at cost)</td><td>{{ totals.written_off_cost|num }}</td></tr>
+                <tr class="fin-grand"><td>Net profit</td><td class="{{ totals.net_profit|sign_class }}">{{ totals.net_profit|num }}</td></tr>
+            </tbody>
+        </table>
+        {% if totals.unknown_cost_units %}
+            <p class="panel-note">
+                {{ totals.unknown_cost_units|qty }} units came from stock added by hand with no Manufacturer price,
+                so their cost counts as 0 — add a bottle price on the product to fix future entries.
+            </p>
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Investment &amp; cash</h2>
+                <p>Money spent on stock and money that moved in this period.</p>
+            </div>
+        </div>
+        <table class="fin-statement">
+            <tbody>
+                <tr><td>Stock bought (received) <span class="fin-formula">{{ report.stock_bought_units|qty }} units × landed cost</span></td><td>{{ report.stock_bought|num }}</td></tr>
+                <tr><td>Paid to Manufacturers</td><td>{{ report.paid_to_manufacturers|num }}</td></tr>
+                <tr><td>Received from Distributors (confirmed)</td><td>{{ report.received_from_distributors|num }}</td></tr>
+                <tr><td>Expenses paid</td><td>{{ totals.expenses|num }}</td></tr>
+                <tr class="fin-subtotal"><td>Stock on hand now, at cost <span class="fin-formula">{{ stock.units|qty }} units</span></td><td>{{ stock.cost|num }}</td></tr>
+                <tr><td>Stock on hand now, at retail</td><td>{{ stock.retail|num }}</td></tr>
+            </tbody>
+        </table>
+        {% if report.expenses_by_category %}
+            <table class="fin-statement">
+                <tbody>
+                    <tr class="fin-subtotal"><td>Expenses by category</td><td></td></tr>
+                    {% for name, amount in report.expenses_by_category %}
+                        <tr><td class="fin-indent">{{ name }}</td><td>{{ amount|num }}</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </section>
+</div>
+
+{% if period != "daily" %}
+    <section class="panel fin-panel">
+        <div class="panel-header">
+            <div>
+                <h2>Timeline</h2>
+                <p>Each {{ timeline_unit }} in the period.</p>
+            </div>
+        </div>
+        {% include "finance/_figures_table.html" with rows=report.timeline heading="Date" show_net=True show_free=columns.lost columns=columns empty="Nothing in this period." %}
+    </section>
+{% endif %}
+
+<section class="panel fin-panel">
+    <div class="panel-header">
+        <div>
+            <h2>By channel</h2>
+            <p>Distributor sales, Shopify sales, free stock and write-offs.</p>
+        </div>
+    </div>
+    {% include "finance/_figures_table.html" with rows=report.by_kind heading="Channel" show_free=columns.lost columns=columns empty="No sales in this period." %}
+</section>
+
+<section class="panel fin-panel">
+    <div class="panel-header">
+        <div>
+            <h2>By product</h2>
+            <p>Product and bottle size.</p>
+        </div>
+    </div>
+    {% include "finance/_figures_table.html" with rows=report.by_product heading="Product" show_free=columns.lost columns=columns empty="No sales in this period." %}
+</section>
+
+<section class="panel fin-panel">
+    <div class="panel-header">
+        <div>
+            <h2>By batch</h2>
+            <p>Every batch traced back to the Manufacturer order it came from.</p>
+        </div>
+    </div>
+    {% include "finance/_figures_table.html" with rows=report.by_batch heading="Batch" show_free=columns.lost columns=columns empty="No sales in this period." %}
+</section>
+
+{% if report.by_distributor %}
+    <section class="panel fin-panel">
+        <div class="panel-header">
+            <div>
+                <h2>By Distributor</h2>
+                <p>What each Distributor bought or was given.</p>
+            </div>
+        </div>
+        {% include "finance/_figures_table.html" with rows=report.by_distributor heading="Distributor" show_free=columns.lost columns=columns empty="" %}
+    </section>
+{% endif %}
+
+{% if period == "daily" %}
+    <section class="panel fin-panel">
+        <div class="panel-header">
+            <div>
+                <h2>Entries on this day</h2>
+            </div>
+        </div>
+        {% include "finance/_ledger_table.html" with entries=report.entries %}
+    </section>
+{% endif %}
 {% endblock %}

@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% load finance_filters %}
+
+{% block title %}
+    Product Prices
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Finance</p>
+        <h1>Product Prices</h1>
+        <p>
+            Each product in each pack size from each Manufacturer: their quoted price (the product's
+            package prices), what the latest batch actually cost landed, our retail price and the market
+            price. Prices are edited on the product itself.
+        </p>
+    </div>
+
+    {% include "finance/_downloads.html" %}
+</div>
+
+{% include "finance/_tabs.html" %}
+
+<section class="panel fin-panel">
+    {% if hidden %}
+        <div class="fin-active-filters">
+            <span>{{ hidden }} pack size{{ hidden|pluralize }} with no Manufacturer price yet (never quoted or ordered) {{ hidden|pluralize:"is,are" }} hidden.</span>
+            <a href="?all=1">Show them</a>
+        </div>
+    {% elif show_all %}
+        <div class="fin-active-filters">
+            <span>Showing every pack size, including ones with no Manufacturer price yet.</span>
+            <a href="{% url 'owner-finance-prices' %}">Hide those</a>
+        </div>
+    {% endif %}
+    <div class="table-wrapper">
+        <table class="fin-table">
+            <thead>
+                <tr>
+                    <th>S.No</th>
+                    <th>Product</th>
+                    {% if columns.pack %}<th>Pack size</th>{% endif %}
+                    <th>Manufacturer</th>
+                    <th class="num">Manufacturer price (Rs)</th>
+                    <th class="num">Latest batch cost, landed (Rs)</th>
+                    <th class="num">Our retail price (Rs)</th>
+                    <th class="num">Markup on cost</th>
+                    {% if columns.market %}
+                        <th class="num">Market price (Rs)</th>
+                        <th class="num">Retail vs market</th>
+                    {% endif %}
+                    <th>Dropdown name</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td>{{ forloop.counter }}</td>
+                        <td>{{ row.product.name }} <small class="table-secondary">{{ row.product.sku }}</small></td>
+                        {% if columns.pack %}<td>{{ row.pack_label|default:"—" }}</td>{% endif %}
+                        <td>
+                            {{ row.manufacturer_name|default:"—" }}
+                            {% if row.latest_batch %}
+                                <small class="table-secondary">
+                                    Latest batch
+                                    <a href="{% url 'batch-trace' %}?code={{ row.latest_batch.code|urlencode }}">{{ row.latest_batch.code }}</a>
+                                </small>
+                            {% endif %}
+                        </td>
+                        <td class="num fin-input">
+                            {{ row.manufacturer_price|num }}
+                            {% if row.price_source %}<small class="table-secondary">{{ row.price_source }}</small>{% endif %}
+                        </td>
+                        <td class="num">{{ row.latest_batch_cost|num }}</td>
+                        <td class="num fin-input">{{ row.retail_price|num }}</td>
+                        <td class="num">{{ row.markup_percentage|pct }}</td>
+                        {% if columns.market %}
+                            <td class="num">
+                                {% if row.market_price is not None %}
+                                    {{ row.market_price|num }}
+                                {% else %}
+                                    <a href="{% url 'owner-finance-market-create' %}?product={{ row.product.pk }}">Add</a>
+                                {% endif %}
+                            </td>
+                            <td class="num {{ row.vs_market_percentage|sign_class }}">{{ row.vs_market_percentage|pct }}</td>
+                        {% endif %}
+                        <td>{{ row.dropdown_name }}</td>
+                        <td><a class="button button-secondary button-small" href="{% url 'product-detail' row.product.pk %}">Edit prices</a></td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="12" class="empty-table">No active products.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="panel-note">
+        Markup on cost = (retail − cost) ÷ cost, using the latest batch's landed cost, or the Manufacturer's price when nothing has been ordered yet.
+        {% if columns.market %}Retail vs market above 0% means we're dearer than the market.{% else %}Market price columns appear once you add <a href="{% url 'owner-finance-market' %}">Market Research</a>.{% endif %}
+        Manufacturer price comes from the product's package prices, or else the price on its latest order.
+    </p>
+</section>
+{% endblock %}

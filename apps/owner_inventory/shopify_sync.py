@@ -64,6 +64,10 @@ _local = threading.local()
 ORDER_OVERLAP = timedelta(hours=1)
 
 
+def _price(amount):
+    return Decimal(str(amount)).quantize(Decimal("0.01")) if amount not in (None, "") else None
+
+
 def is_enabled():
     return settings.SHOPIFY_INVENTORY_SYNC and shopify.is_configured()
 
@@ -233,6 +237,8 @@ def import_order(*, actor, data, summary):
             title=line_data["title"][:255],
             product=product,
             quantity=Decimal(line_data["quantity"]),
+            original_unit_price=_price(line_data.get("original_unit_price")),
+            unit_price=_price(line_data.get("unit_price")),
             status=(
                 ShopifyOrderLine.Status.SKIPPED if order.cancelled
                 else ShopifyOrderLine.Status.UNLINKED
@@ -287,6 +293,8 @@ def retry_open_lines(*, actor, summary):
 def post_line(*, actor, line, summary):
     """Takes one Shopify order line out of stock — all of it, or none,
     so a line is never half-posted."""
+    from apps.finance.services import record_sale
+
     from .services import post_stock_movement, shippable_batches_fefo
 
     if line.product_id is None:
@@ -317,7 +325,7 @@ def post_line(*, actor, line, summary):
             break
 
         take = min(remaining, batch.quantity_remaining)
-        post_stock_movement(
+        movement = post_stock_movement(
             actor=actor,
             product=line.product,
             quantity=take,
@@ -329,6 +337,7 @@ def post_line(*, actor, line, summary):
             batch=batch,
             shopify_order=line.order,
         )
+        record_sale(actor=actor, movement=movement, shopify_order_line=line)
         remaining -= take
 
     line.status = ShopifyOrderLine.Status.POSTED
@@ -380,6 +389,8 @@ def take_from_stock(*, actor, product, quantity, movement_type, reference, shopi
     """Draws quantity out of sellable warehouses, soonest-expiry batch
     first, as one movement per batch. Takes what there is when there
     isn't enough; returns how much it took."""
+    from apps.finance.services import record_sale
+
     from .services import post_stock_movement, shippable_batches_fefo
 
     batches = (
@@ -393,7 +404,7 @@ def take_from_stock(*, actor, product, quantity, movement_type, reference, shopi
         if remaining <= 0:
             break
         take = min(remaining, batch.quantity_remaining)
-        post_stock_movement(
+        movement = post_stock_movement(
             actor=actor,
             product=product,
             quantity=take,
@@ -405,6 +416,7 @@ def take_from_stock(*, actor, product, quantity, movement_type, reference, shopi
             batch=batch,
             shopify_order=shopify_order,
         )
+        record_sale(actor=actor, movement=movement)
         remaining -= take
     return Decimal(quantity) - remaining
 

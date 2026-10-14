@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}{% if expense %}Edit{% else %}Add{% endif %} Expense{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Finance</p>
+        <h1>{% if expense %}Edit{% else %}Add{% endif %} Expense</h1>
+        <p>Rent, salaries, marketing, courier charges — anything that isn't the stock itself.</p>
+    </div>
+
+    <a href="{% url 'owner-finance-expenses' %}" class="button button-secondary">Back</a>
+</div>
+
+<section class="panel form-panel">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+        {% include "finance/_form_fields.html" %}
+        <div class="form-actions">
+            <button type="submit" class="button button-primary">Save Expense</button>
+        </div>
+    </form>
+</section>
+{% endblock %}

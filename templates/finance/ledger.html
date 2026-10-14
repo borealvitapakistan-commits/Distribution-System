@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% load finance_filters %}
+
+{% block title %}
+    Sales Ledger
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Finance</p>
+        <h1>Sales Ledger</h1>
+        <p>
+            One line for every stock movement that left your hands — with the batch cost and the
+            prices frozen at that moment. Filter it, then download exactly what you see.
+        </p>
+    </div>
+
+    {% include "finance/_downloads.html" %}
+</div>
+
+{% include "finance/_tabs.html" %}
+
+<section class="panel fin-panel">
+    <form method="get" class="fin-filters" data-autosubmit>
+        {% include "finance/_sale_filters.html" %}
+        <label>From <input type="date" name="start" value="{{ start|date:'Y-m-d' }}"></label>
+        <label>To <input type="date" name="end" value="{{ end|date:'Y-m-d' }}"></label>
+        <noscript><button type="submit" class="button button-primary button-small">Filter</button></noscript>
+        {% if active_filters or start or end %}
+            <a class="button button-secondary button-small" href="{% url 'owner-finance-ledger' %}">Clear filters</a>
+        {% endif %}
+    </form>
+
+    {% url 'owner-finance-ledger' as clear_url %}
+    {% include "finance/_active_filters.html" %}
+
+    <div class="fin-summary">
+        <div><span>Entries</span><strong>{{ page_obj.paginator.count }}</strong></div>
+        <div><span>Units sold</span><strong>{{ summary.units_sold|qty }}</strong></div>
+        <div><span>Retail value</span><strong>{{ summary.retail_value|num }}</strong></div>
+        <div><span>Revenue</span><strong>{{ summary.revenue|num }}</strong></div>
+        <div><span>Cost of goods</span><strong>{{ summary.cogs|num }}</strong></div>
+        <div><span>Gross profit</span><strong class="{{ summary.gross_profit|sign_class }}">{{ summary.gross_profit|num }}</strong></div>
+        {% if summary.lost_cost %}
+            <div><span>Free / written off (cost)</span><strong>{{ summary.lost_cost|num }}</strong></div>
+        {% endif %}
+    </div>
+
+    {% if entries %}
+        {% include "finance/_ledger_table.html" with entries=entries %}
+    {% else %}
+        <div class="empty-state">
+            No ledger entries match these filters{% if start or end %} in this date range{% endif %}.
+            <a href="{% url 'owner-finance-ledger' %}">Show everything</a>
+        </div>
+    {% endif %}
+
+    {% if page_obj.paginator.num_pages > 1 %}
+        <div class="pagination">
+            {% if page_obj.has_previous %}
+                <a href="?{{ export_query }}{% if export_query %}&{% endif %}page={{ page_obj.previous_page_number }}" class="button button-secondary button-small">Previous</a>
+            {% endif %}
+            <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+            {% if page_obj.has_next %}
+                <a href="?{{ export_query }}{% if export_query %}&{% endif %}page={{ page_obj.next_page_number }}" class="button button-secondary button-small">Next</a>
+            {% endif %}
+        </div>
+    {% endif %}
+</section>
+{% endblock %}

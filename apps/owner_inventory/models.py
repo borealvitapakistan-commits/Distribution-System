@@ -391,6 +391,20 @@ class ShopifyOrderLine(UUIDModel, TimeStampedModel):
         blank=True,
     )
     quantity = models.DecimalField(max_digits=18, decimal_places=4)
+    original_unit_price = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Shopify's price for one unit before discounts. Blank on lines imported before prices were.",
+    )
+    unit_price = models.DecimalField(
+        max_digits=18,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="What the customer paid for one unit, after discounts.",
+    )
     status = models.CharField(max_length=20, choices=Status.choices)
     note = models.CharField(max_length=255, blank=True)
 

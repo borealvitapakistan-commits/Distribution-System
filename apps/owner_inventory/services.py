@@ -424,6 +424,10 @@ def give_to_distributor(
         distributor_profile=distributor_profile,
     )
 
+    from apps.finance.services import record_sale
+
+    record_sale(actor=actor, movement=movement)
+
     distributor_receive_stock(
         actor=actor,
         distributor_profile=distributor_profile,

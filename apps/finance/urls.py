@@ -1,6 +1,17 @@
 from django.urls import path
 
-from .views import OwnerFinanceView
+from .views import (
+    ExpenseDeleteView,
+    ExpenseFormView,
+    ExpenseListView,
+    MarketResearchDeleteView,
+    MarketResearchFormView,
+    MarketResearchListView,
+    OwnerFinanceView,
+    ProductFinanceView,
+    ProductPricesView,
+    SalesLedgerView,
+)
 
 
 urlpatterns = [
@@ -8,5 +19,60 @@ urlpatterns = [
         "owner/finance/",
         OwnerFinanceView.as_view(),
         name="owner-finance",
+    ),
+    path(
+        "owner/finance/product-finance/",
+        ProductFinanceView.as_view(),
+        name="owner-finance-product-finance",
+    ),
+    path(
+        "owner/finance/ledger/",
+        SalesLedgerView.as_view(),
+        name="owner-finance-ledger",
+    ),
+    path(
+        "owner/finance/expenses/",
+        ExpenseListView.as_view(),
+        name="owner-finance-expenses",
+    ),
+    path(
+        "owner/finance/expenses/new/",
+        ExpenseFormView.as_view(),
+        name="owner-finance-expense-create",
+    ),
+    path(
+        "owner/finance/expenses/<uuid:pk>/edit/",
+        ExpenseFormView.as_view(),
+        name="owner-finance-expense-edit",
+    ),
+    path(
+        "owner/finance/expenses/<uuid:pk>/delete/",
+        ExpenseDeleteView.as_view(),
+        name="owner-finance-expense-delete",
+    ),
+    path(
+        "owner/finance/product-prices/",
+        ProductPricesView.as_view(),
+        name="owner-finance-prices",
+    ),
+    path(
+        "owner/finance/market-research/",
+        MarketResearchListView.as_view(),
+        name="owner-finance-market",
+    ),
+    path(
+        "owner/finance/market-research/new/",
+        MarketResearchFormView.as_view(),
+        name="owner-finance-market-create",
+    ),
+    path(
+        "owner/finance/market-research/<uuid:pk>/edit/",
+        MarketResearchFormView.as_view(),
+        name="owner-finance-market-edit",
+    ),
+    path(
+        "owner/finance/market-research/<uuid:pk>/delete/",
+        MarketResearchDeleteView.as_view(),
+        name="owner-finance-market-delete",
     ),
 ]

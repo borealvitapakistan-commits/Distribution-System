@@ -103,7 +103,7 @@
 
                     <a
                         href="{% url 'owner-finance' %}"
-                        class="{% if request.resolver_match.url_name == 'owner-finance' %}active{% endif %}"
+                        class="{% if 'owner-finance' in request.resolver_match.url_name %}active{% endif %}"
                     >
                         <span class="nav-icon">$</span>
                         Finance

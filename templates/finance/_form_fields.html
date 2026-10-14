@@ -1,0 +1,23 @@
+{% if form.non_field_errors or service_error %}
+    <div class="form-errors">
+        {{ form.non_field_errors }}
+        {{ service_error }}
+    </div>
+{% endif %}
+
+<div class="form-grid">
+    {% for field in form %}
+        <div class="form-group{% if field.name == 'comments' or field.name == 'note' or field.name == 'link' %} form-group-wide{% endif %}">
+            {% if field.widget_type == "checkbox" %}
+                <label class="checkbox-label">{{ field }} {{ field.label }}</label>
+            {% else %}
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field }}
+            {% endif %}
+            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+            {% for error in field.errors %}
+                <span class="field-error">{{ error }}</span>
+            {% endfor %}
+        </div>
+    {% endfor %}
+</div>

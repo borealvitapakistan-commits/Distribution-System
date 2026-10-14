@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+    @page {
+        size: A4{% if wide %} landscape{% endif %};
+        margin: 1.2cm 1.2cm 1.6cm 1.2cm;
+        @frame footer { -pdf-frame-content: footer; bottom: 0.6cm; margin-left: 1.2cm; margin-right: 1.2cm; height: 0.6cm; }
+    }
+    body { font-family: Helvetica, Arial, sans-serif; font-size: 8pt; color: #374151; }
+    .top-bar { background-color: {{ brand.primary_color|default:"#1f7a4d" }}; height: 5px; font-size: 1pt; }
+    .brand-name { font-size: 14pt; font-weight: bold; color: {{ brand.primary_color|default:"#1f7a4d" }}; }
+    h1 { font-size: 17pt; color: #111827; margin: 8px 0 2px 0; }
+    h2 {
+        font-size: 10.5pt; color: {{ brand.primary_color|default:"#1f7a4d" }}; margin: 14px 0 4px 0;
+        padding-bottom: 2px; border-bottom: 1px solid {{ brand.primary_color|default:"#1f7a4d" }};
+    }
+    .muted { color: #6b7280; }
+    table.grid { width: 100%; }
+    table.grid th {
+        color: #ffffff; background-color: #1e3a5f; font-weight: bold; font-size: 7pt;
+        padding: 3px; text-align: left; vertical-align: bottom;
+    }
+    table.grid td { padding: 3px; font-size: 7pt; border-bottom: 0.5px solid #e5e7eb; vertical-align: top; }
+    table.grid .num { text-align: right; }
+    table.grid tr.total td { font-weight: bold; color: #111827; background-color: #eef2f7; border-top: 1px solid #9ca3af; }
+    .note { font-size: 7pt; color: #6b7280; margin-top: 3px; }
+</style>
+</head>
+<body>
+    <div class="top-bar">&nbsp;</div>
+    <div class="brand-name">{{ brand.name|default:"Finance" }}</div>
+    <h1>{{ document.title }}</h1>
+    {% if document.subtitle %}<div class="muted">{{ document.subtitle }}</div>{% endif %}
+    <div class="muted">Owner only · downloaded {{ downloaded_at|date:"d M Y H:i" }} · amounts in Rs</div>
+
+    {% for section in sections %}
+        <h2>{{ section.heading }}</h2>
+        <table class="grid" repeat="1">
+            <thead>
+                <tr>
+                    {% for column in section.columns %}
+                        <th{% if column.numeric %} class="num"{% endif %}>{{ column.label }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in section.rows %}
+                    <tr>
+                        {% for cell in row %}
+                            <td{% if cell.numeric %} class="num"{% endif %}>{{ cell.text }}</td>
+                        {% endfor %}
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="{{ section.columns|length }}" class="muted">Nothing to show.</td></tr>
+                {% endfor %}
+                {% if section.footer %}
+                    <tr class="total">
+                        {% for cell in section.footer %}
+                            <td{% if cell.numeric %} class="num"{% endif %}>{{ cell.text }}</td>
+                        {% endfor %}
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+        {% if section.note %}<div class="note">{{ section.note }}</div>{% endif %}
+    {% endfor %}
+
+    <div id="footer" class="muted">
+        {{ document.title }} — page <pdf:pagenumber> of <pdf:pagecount>
+    </div>
+</body>
+</html>

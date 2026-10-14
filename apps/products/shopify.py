@@ -272,7 +272,11 @@ query Orders($cursor: String, $query: String) {
       cancelledAt
       displayFinancialStatus
       lineItems(first: 100) {
-        nodes { id title quantity product { id } }
+        nodes {
+          id title quantity product { id }
+          originalUnitPriceSet { shopMoney { amount } }
+          discountedUnitPriceAfterAllDiscountsSet { shopMoney { amount } }
+        }
       }
     }
   }
@@ -303,6 +307,12 @@ def _gid(kind, value):
 
 def _numeric_id(gid):
     return gid.rsplit("/", 1)[-1] if gid else ""
+
+
+def _money_amount(money_set):
+    """The shop-currency amount of a Shopify MoneyBag, as a string, or
+    None when Shopify didn't send one."""
+    return ((money_set or {}).get("shopMoney") or {}).get("amount")
 
 
 def _raise_user_errors(errors):
@@ -431,6 +441,12 @@ def fetch_orders(created_after):
                             "quantity": line["quantity"],
                             "product_id": _numeric_id(
                                 (line.get("product") or {}).get("id")
+                            ),
+                            "original_unit_price": _money_amount(
+                                line.get("originalUnitPriceSet")
+                            ),
+                            "unit_price": _money_amount(
+                                line.get("discountedUnitPriceAfterAllDiscountsSet")
                             ),
                         }
                         for line in node["lineItems"]["nodes"]

@@ -1,0 +1,5 @@
+<div class="fin-downloads">
+    <a class="button button-secondary" href="?{{ export_query }}{% if export_query %}&{% endif %}format=csv">Download Excel (CSV)</a>
+    <a class="button button-secondary" href="?{{ export_query }}{% if export_query %}&{% endif %}format=pdf">Download PDF</a>
+    {% if add_url %}<a class="button button-primary" href="{{ add_url }}">{{ add_label }}</a>{% endif %}
+</div>

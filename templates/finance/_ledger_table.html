@@ -1,0 +1,54 @@
+{% load finance_filters %}
+<div class="table-wrapper">
+    <table class="fin-table">
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th>Type</th>
+                <th>Product</th>
+                <th>Batch</th>
+                <th>Distributor / order</th>
+                <th class="num">Qty</th>
+                <th class="num">Cost / unit</th>
+                <th class="num">Retail / unit</th>
+                <th class="num">We receive / unit</th>
+                <th class="num">Revenue</th>
+                <th class="num">Cost</th>
+                <th class="num">Profit</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for entry in entries %}
+                <tr>
+                    <td class="nowrap">{{ entry.occurred_at|date:"d M Y H:i" }}</td>
+                    <td><span class="badge badge-neutral">{{ entry.get_kind_display }}</span></td>
+                    <td>
+                        {{ entry.product.name }}{% if entry.bottle_size %} ({{ entry.bottle_size }} caps){% endif %}
+                        <small class="table-secondary">{{ entry.product.sku }}</small>
+                    </td>
+                    <td>
+                        {% if entry.batch_number %}
+                            <a href="{% url 'batch-trace' %}?code={{ entry.batch_number|urlencode }}">{{ entry.batch_number }}</a>
+                        {% else %}—{% endif %}
+                    </td>
+                    <td>
+                        {{ entry.distributor_profile.name|default:"" }}
+                        <small class="table-secondary">{{ entry.reference|default:"—" }}</small>
+                    </td>
+                    <td class="num">{{ entry.quantity|qty }}</td>
+                    <td class="num">
+                        {{ entry.unit_cost|num }}
+                        {% if entry.cost_source != "BATCH" %}<small class="table-secondary">{{ entry.get_cost_source_display }}</small>{% endif %}
+                    </td>
+                    <td class="num">{{ entry.retail_unit_price|num }}</td>
+                    <td class="num">{{ entry.net_unit_price|num }}</td>
+                    <td class="num">{{ entry.revenue|num }}</td>
+                    <td class="num">{{ entry.cost|num }}</td>
+                    <td class="num {{ entry.profit|sign_class }}">{{ entry.profit|num }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="12" class="empty-table">No entries.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

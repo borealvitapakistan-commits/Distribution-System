@@ -1128,8 +1128,10 @@ def ship_purchase_order_item(
             f"Only {item.quantity_to_ship_remaining} remaining to ship on this line."
         )
 
+    from apps.finance.services import record_sale
+
     for batch, quantity in allocations:
-        ship_stock_to_transit(
+        movement = ship_stock_to_transit(
             actor=actor,
             product=item.product,
             quantity=quantity,
@@ -1138,6 +1140,7 @@ def ship_purchase_order_item(
             reference=f"Purchase order {purchase_order.po_number} shipped",
             shipped_for=item,
         )
+        record_sale(actor=actor, movement=movement, purchase_order_item=item)
 
     item.quantity_shipped += total_quantity
     item.updated_by = actor

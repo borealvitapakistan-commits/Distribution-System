@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% load finance_filters %}
+
+{% block title %}
+    Expenses
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Finance</p>
+        <h1>Expenses</h1>
+        <p>Every business expense. The total is shared across products on the Product Finance sheet.</p>
+    </div>
+
+    {% url 'owner-finance-expense-create' as add_url %}
+    {% include "finance/_downloads.html" with add_label="Add Expense" %}
+</div>
+
+{% include "finance/_tabs.html" %}
+
+<section class="panel fin-panel">
+    <form method="get" class="fin-filters" data-autosubmit>
+        <label>From <input type="date" name="start" value="{{ start|date:'Y-m-d' }}"></label>
+        <label>To <input type="date" name="end" value="{{ end|date:'Y-m-d' }}"></label>
+        <button type="submit" class="button button-primary button-small">Filter</button>
+    </form>
+
+    <div class="table-wrapper">
+        <table class="fin-table">
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Expense name</th>
+                    <th>Category</th>
+                    <th class="num">Amount (Rs)</th>
+                    <th>Comments</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for expense in expenses %}
+                    <tr>
+                        <td class="nowrap">{{ expense.date|date:"d M Y" }}</td>
+                        <td>{{ expense.name }}</td>
+                        <td>{{ expense.get_category_display }}</td>
+                        <td class="num">{{ expense.amount|num }}</td>
+                        <td>{{ expense.comments|default:"—"|linebreaksbr }}</td>
+                        <td class="table-actions nowrap">
+                            <a class="button button-secondary button-small" href="{% url 'owner-finance-expense-edit' expense.pk %}">Edit</a>
+                            <form method="post" action="{% url 'owner-finance-expense-delete' expense.pk %}" class="inline-form" onsubmit="return confirm('Delete this expense?');">
+                                {% csrf_token %}
+                                <button type="submit" class="button button-danger button-small">Delete</button>
+                            </form>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="6" class="empty-table">No expenses recorded{% if start or end %} in this range{% endif %}.</td></tr>
+                {% endfor %}
+            </tbody>
+            {% if expenses %}
+                <tfoot>
+                    <tr>
+                        <td colspan="3">Total expenses</td>
+                        <td class="num">{{ total|num }}</td>
+                        <td colspan="2"></td>
+                    </tr>
+                </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</section>
+{% endblock %}

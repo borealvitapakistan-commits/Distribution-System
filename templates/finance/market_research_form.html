@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}{% if research %}Edit{% else %}Add{% endif %} Market Research{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Finance</p>
+        <h1>{% if research %}Edit{% else %}Add{% endif %} Market Research</h1>
+        <p>What a similar product sells for on another store. Prices change — re-check before launch.</p>
+    </div>
+
+    <a href="{% url 'owner-finance-market' %}" class="button button-secondary">Back</a>
+</div>
+
+<section class="panel form-panel">
+    <form method="post" class="form-layout">
+        {% csrf_token %}
+        {% include "finance/_form_fields.html" %}
+        <div class="form-actions">
+            <button type="submit" class="button button-primary">Save</button>
+        </div>
+    </form>
+</section>
+{% endblock %}
