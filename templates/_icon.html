@@ -1,0 +1,24 @@
+{# A simple line icon. name: home | box | warehouse | layers | search | cart | handshake | wallet | user | chart | factory #}
+<svg class="icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    {% if name == "home" %}
+        <path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>
+    {% elif name == "box" %}
+        <path d="M21 8 12 3 3 8v8l9 5 9-5V8Z"/><path d="m3 8 9 5 9-5"/><path d="M12 13v8"/>
+    {% elif name == "warehouse" %}
+        <path d="M3 21V9l9-6 9 6v12"/><path d="M7 21v-8h10v8"/><path d="M7 17h10"/>
+    {% elif name == "layers" %}
+        <path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 13 9 5 9-5"/>
+    {% elif name == "search" %}
+        <circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>
+    {% elif name == "cart" %}
+        <path d="M3 4h2l2.4 11.2a1 1 0 0 0 1 .8h8.9a1 1 0 0 0 1-.8L20 8H6"/><circle cx="9" cy="20" r="1.3"/><circle cx="17" cy="20" r="1.3"/>
+    {% elif name == "handshake" %}
+        <path d="M4 4h12l4 4v12H4z"/><path d="M8 12h8M8 16h5M8 8h4"/>
+    {% elif name == "wallet" %}
+        <rect x="3" y="6" width="18" height="14" rx="2"/><path d="M3 10h18"/><path d="M16 15h2"/>
+    {% elif name == "user" %}
+        <circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>
+    {% elif name == "chart" %}
+        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
+    {% endif %}
+</svg>

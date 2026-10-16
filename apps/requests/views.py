@@ -156,6 +156,71 @@ def _latest_lines(purchase_order):
     }
 
 
+def whose_turn(purchase_order):
+    """"owner", "distributor" or "" — who has to do the next thing on
+    this order, so each panel can say "Your turn" or who it's waiting
+    for."""
+    po = purchase_order
+    if po.status == PurchaseOrder.Status.DECLINED:
+        return ""
+    if po.is_quote:
+        if awaiting_distributor_reply(po):
+            return "distributor"
+        return "owner"
+
+    payment_to_confirm = any(
+        payment.status == PurchaseOrderPayment.Status.PENDING for payment in po.payments.all()
+    )
+    if payment_to_confirm:
+        return "owner"
+    if not po.is_invoiced:
+        if po.status == PurchaseOrder.Status.PENDING and po.pays_advance is None:
+            return "distributor"
+        if po.awaiting_receipt:
+            return "distributor"
+        if not po.upfront_amount_satisfied:
+            return "distributor"
+        return "owner"
+    return "distributor" if po.remaining_amount > 0 else ""
+
+
+def owner_list_status(purchase_order):
+    """(stage 1-5, short "what's next" text, whose turn) for a row on the
+    Owner's list of Distributor orders. Follows the same order of checks
+    as whose_turn, so the list and the order page always agree."""
+    po = purchase_order
+    turn = whose_turn(po)
+    name = po.distributor_profile.name
+
+    if po.status == PurchaseOrder.Status.DECLINED:
+        return 0, "Declined", turn
+    if po.is_quote:
+        if po.quoted_at is None:
+            return 1, "Send your quote", turn
+        if turn == "distributor":
+            return 2, f"Waiting for {name} to accept or counter", turn
+        return 2, "Answer their counter-offer", turn
+    if turn == "owner" and any(
+        payment.status == PurchaseOrderPayment.Status.PENDING for payment in po.payments.all()
+    ):
+        return (5 if po.is_invoiced else 3), "Confirm their payment", turn
+    if not po.is_invoiced:
+        if po.status == PurchaseOrder.Status.PENDING and po.pays_advance is None:
+            return 3, f"Waiting for {name} to answer about the advance", turn
+        if po.awaiting_receipt:
+            return 3, f"Waiting for {name} to confirm delivery", turn
+        if not po.upfront_amount_satisfied:
+            return 3, f"Waiting for {name}'s advance payment", turn
+        if po.can_issue_invoice:
+            return 4, "Issue the invoice", turn
+        if po.status == PurchaseOrder.Status.PARTIALLY_SHIPPED:
+            return 3, "Ship the rest", turn
+        return 3, "Ship the order", turn
+    if turn == "distributor":
+        return 5, f"Waiting for {name}'s final payment", turn
+    return 5, "Complete", turn
+
+
 def _order_context(purchase_order):
     """What both panels' order pages show: the four-stage tracker, the
     lines with their highlights and — while still negotiating, or once
@@ -173,6 +238,7 @@ def _order_context(purchase_order):
         "new_price_count": sum(1 for item in items if item.price_highlight == "new"),
         "awaiting_owner": awaiting_owner_reply(purchase_order),
         "awaiting_distributor": awaiting_distributor_reply(purchase_order),
+        "turn": whose_turn(purchase_order),
         "show_conversation": show_conversation,
         "timeline": revision_timeline(purchase_order) if show_conversation else [],
         "doc_brand": _brand(),
@@ -391,26 +457,82 @@ class DistributorPurchaseOrderDetailView(DistributorRequiredMixin, DetailView):
 
 
 class OwnerPurchaseOrdersHubView(OwnerRequiredMixin, TemplateView):
+    """The two kinds of order, each with how many are waiting for the
+    Owner — so the first screen says where to go."""
+
     template_name = "requests/owner_purchase_orders_hub.html"
+
+    def get_context_data(self, **kwargs):
+        from apps.manufacturers.guide import YOU, list_status
+        from apps.manufacturers.models import ManufacturerOrder
+
+        context = super().get_context_data(**kwargs)
+        distributor_orders = (
+            PurchaseOrder.objects.for_user(self.request.user)
+            .select_related("distributor_profile")
+            .prefetch_related("payments")
+        )
+        context["distributor_needs_you"] = sum(
+            1 for order in distributor_orders if whose_turn(order) == "owner"
+        )
+        context["manufacturer_needs_you"] = sum(
+            1 for order in ManufacturerOrder.objects.for_user(self.request.user)
+            .select_related("manufacturer")
+            if list_status(order)[2] == YOU
+        )
+        return context
 
 
 class OwnerPurchaseOrderListView(OwnerRequiredMixin, ListView):
     template_name = "requests/owner_purchase_order_list.html"
     context_object_name = "purchase_orders"
 
+    TABS = [
+        ("owner", "Needs you"),
+        ("distributor", "Waiting for Distributor"),
+        ("done", "Completed"),
+        ("", "All orders"),
+    ]
+
+    def current_tab(self):
+        tab = self.request.GET.get("show", "")
+        return tab if tab in dict(self.TABS) else ""
+
     def get_queryset(self):
-        return with_latest_stage(
+        orders = list(with_latest_stage(
             PurchaseOrder.objects
             .for_user(self.request.user)
             .select_related("distributor_profile")
-            .prefetch_related("items")
-        )
+            .prefetch_related("items", "payments")
+        ))
+        for order in orders:
+            order.stage_number, order.next_text, order.waiting_on = owner_list_status(order)
+
+        self.tab_counts = {
+            "owner": sum(1 for order in orders if order.waiting_on == "owner"),
+            "distributor": sum(1 for order in orders if order.waiting_on == "distributor"),
+            "done": sum(1 for order in orders if not order.waiting_on),
+            "": len(orders),
+        }
+
+        tab = self.current_tab()
+        if tab == "done":
+            return [order for order in orders if not order.waiting_on]
+        if tab:
+            return [order for order in orders if order.waiting_on == tab]
+        return orders
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["updated_ids"] = set(
             PurchaseOrder.objects.with_updates_for_owner().values_list("pk", flat=True)
         )
+        context["tabs"] = [
+            {"value": value, "label": label, "count": self.tab_counts[value]}
+            for value, label in self.TABS
+        ]
+        context["current_tab"] = self.current_tab()
+        context["tab_query"] = ""
         return context
 
 

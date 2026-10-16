@@ -3452,3 +3452,786 @@ input[type="checkbox"] {
 .fin-notice a {
     font-weight: 700;
 }
+
+/* Order flow: stage tracker, "What to do now" card ---------------------- */
+
+.flow-tracker {
+    margin-bottom: 1.375rem;
+    padding: 1.25rem 1.375rem 0.75rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: var(--radius);
+    background: var(--white);
+    box-shadow: var(--shadow);
+}
+
+.flow-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.flow-step {
+    position: relative;
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 0.75rem;
+    border-radius: 0.75rem;
+}
+
+.flow-step-current {
+    background: #eff6ff;
+    box-shadow: inset 0 0 0 0.125rem var(--blue-600);
+}
+
+.flow-dot {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 2.25rem;
+    height: 2.25rem;
+    border: 0.125rem solid var(--slate-300);
+    border-radius: 50%;
+    background: var(--white);
+    color: var(--slate-500);
+    font-weight: 800;
+}
+
+.flow-step-done .flow-dot {
+    border-color: var(--green-600);
+    background: var(--green-600);
+    color: var(--white);
+}
+
+.flow-step-current .flow-dot {
+    border-color: var(--blue-600);
+    background: var(--blue-600);
+    color: var(--white);
+}
+
+.flow-text {
+    display: grid;
+    gap: 0.1875rem;
+    min-width: 0;
+}
+
+.flow-text strong {
+    font-size: 0.9375rem;
+}
+
+.flow-step-upcoming .flow-text strong {
+    color: var(--slate-500);
+}
+
+.flow-plain {
+    color: var(--slate-600);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+}
+
+.flow-here {
+    justify-self: start;
+    padding: 0.125rem 0.5rem;
+    border-radius: 999px;
+    background: var(--blue-600);
+    color: var(--white);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.flow-when {
+    color: var(--green-600);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.flow-help {
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    color: var(--slate-600);
+    font-size: 0.8125rem;
+}
+
+.flow-help summary {
+    cursor: pointer;
+    color: var(--blue-700);
+    font-weight: 600;
+}
+
+.flow-help dl {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.75rem 1.5rem;
+    margin: 0.75rem 0 0.25rem;
+}
+
+.flow-help dt {
+    color: var(--slate-950);
+    font-weight: 700;
+}
+
+.flow-help dd {
+    margin: 0.125rem 0 0;
+    line-height: 1.5;
+}
+
+.flow-tracker-compact {
+    padding: 0.625rem 0.875rem;
+}
+
+.flow-tracker-compact .flow-step {
+    align-items: center;
+    padding: 0.5rem;
+}
+
+.flow-tracker-compact .flow-dot {
+    width: 1.75rem;
+    height: 1.75rem;
+    font-size: 0.8125rem;
+}
+
+.flow-tracker-compact .flow-text strong {
+    font-size: 0.8125rem;
+}
+
+.flow-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+    gap: 1.25rem;
+    margin-bottom: 1.375rem;
+}
+
+.flow-layout > .panel {
+    margin: 0;
+}
+
+.flow-card {
+    border-top: 0.25rem solid var(--blue-600);
+}
+
+.flow-card-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+    padding: 1.25rem 1.5rem 0;
+}
+
+.flow-card-head .eyebrow {
+    flex-basis: 100%;
+    margin: 0;
+}
+
+.flow-card-head h2 {
+    margin: 0;
+    font-size: 1.375rem;
+}
+
+.flow-turn {
+    padding: 0.25rem 0.625rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 700;
+}
+
+.flow-turn-you {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.flow-turn-them {
+    background: var(--slate-100);
+    color: var(--slate-600);
+}
+
+.flow-card-body {
+    padding: 0.75rem 1.5rem 1.5rem;
+}
+
+.flow-summary {
+    margin: 0 0 1rem;
+    color: var(--slate-700);
+    font-size: 0.9375rem;
+    line-height: 1.6;
+}
+
+.flow-checklist {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0 0 1.25rem;
+    padding: 0;
+    list-style: none;
+}
+
+.flow-checklist li {
+    display: flex;
+    gap: 0.625rem;
+    align-items: center;
+    color: var(--slate-500);
+    font-size: 0.875rem;
+}
+
+.flow-check {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 1.375rem;
+    height: 1.375rem;
+    border: 0.125rem solid var(--slate-300);
+    border-radius: 50%;
+    color: var(--white);
+    font-size: 0.75rem;
+    font-weight: 800;
+}
+
+.flow-checklist li.is-done {
+    color: var(--slate-600);
+    text-decoration: line-through;
+    text-decoration-color: var(--slate-300);
+}
+
+.flow-checklist li.is-done .flow-check {
+    border-color: var(--green-600);
+    background: var(--green-600);
+}
+
+.flow-checklist li.is-next {
+    color: var(--slate-950);
+    font-weight: 700;
+}
+
+.flow-checklist li.is-next .flow-check {
+    border-color: var(--blue-600);
+    box-shadow: 0 0 0 0.1875rem #dbeafe;
+}
+
+.flow-contact {
+    margin: -0.5rem 0 1.25rem;
+    color: var(--slate-600);
+    font-size: 0.8125rem;
+}
+
+.flow-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+    align-items: center;
+}
+
+.flow-primary {
+    padding-inline: 1.5rem;
+    font-size: 0.9375rem;
+}
+
+.flow-choices {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.875rem;
+    margin-bottom: 1rem;
+}
+
+.flow-choice {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 1rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: 0.75rem;
+}
+
+.flow-choice p {
+    flex: 1;
+    margin: 0;
+    color: var(--slate-600);
+    font-size: 0.8125rem;
+    line-height: 1.5;
+}
+
+.flow-choice-main {
+    grid-column: 1 / -1;
+    border-color: var(--blue-600);
+    background: #f8fbff;
+}
+
+.flow-choice-main form {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.flow-choice-main label {
+    color: var(--slate-600);
+    font-size: 0.8125rem;
+}
+
+.flow-choice-main button {
+    justify-self: start;
+}
+
+.flow-choice .button {
+    align-self: flex-start;
+}
+
+.flow-facts {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0 1.375rem;
+}
+
+.flow-facts div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.5625rem 0;
+    border-bottom: 0.0625rem solid var(--slate-100);
+    font-size: 0.875rem;
+}
+
+.flow-facts dt {
+    color: var(--slate-500);
+}
+
+.flow-facts dd {
+    margin: 0;
+    text-align: right;
+}
+
+.flow-subhead {
+    margin: 1.125rem 1.375rem 0.25rem;
+    color: var(--slate-500);
+    font-size: 0.75rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.flow-dates {
+    margin: 0;
+    padding: 0 1.375rem 0.75rem;
+    list-style: none;
+}
+
+.flow-dates li {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 0.4375rem 0;
+    font-size: 0.8125rem;
+}
+
+.flow-dates li span:first-child {
+    color: var(--slate-600);
+}
+
+.flow-section-title {
+    margin: 0 0 0.75rem;
+    font-size: 1.125rem;
+}
+
+.flow-next-cell {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.flow-mini {
+    display: inline-flex;
+    gap: 0.1875rem;
+    vertical-align: middle;
+}
+
+.flow-mini span {
+    width: 1.375rem;
+    height: 0.3125rem;
+    border-radius: 999px;
+    background: var(--slate-200);
+}
+
+.flow-mini span.is-done {
+    background: var(--green-600);
+}
+
+.flow-mini span.is-current {
+    background: var(--blue-600);
+}
+
+@media (max-width: 68.75em) {
+    .flow-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .flow-choices {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 53.125em) {
+    .flow-steps {
+        grid-template-columns: 1fr;
+        gap: 0.25rem;
+    }
+
+    .flow-tracker-compact .flow-steps {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .flow-tracker-compact .flow-text strong {
+        display: none;
+    }
+
+    .flow-tracker-compact .flow-step-current .flow-text strong {
+        display: block;
+    }
+
+    .flow-help dl,
+    .flow-choices {
+        grid-template-columns: 1fr;
+    }
+
+    .flow-card-head,
+    .flow-card-body {
+        padding-inline: 1rem;
+    }
+}
+
+/* Sidebar: items keep their own height instead of stretching to fill
+   the column, grouped under small headings. */
+
+.sidebar-nav {
+    align-content: start;
+    gap: 0.125rem;
+}
+
+.sidebar-nav a {
+    padding: 0.625rem 0.875rem;
+}
+
+.sidebar-nav a.active {
+    color: var(--white);
+    background: var(--blue-600);
+    box-shadow: 0 0.25rem 0.75rem rgba(37, 99, 235, 0.35);
+}
+
+.sidebar-nav .icon {
+    flex: 0 0 auto;
+    opacity: 0.85;
+}
+
+.sidebar-nav a.active .icon {
+    opacity: 1;
+}
+
+.nav-badge {
+    margin-left: auto;
+}
+
+.nav-group {
+    display: block;
+    margin: 1rem 0.875rem 0.375rem;
+    color: var(--slate-500);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+a.brand {
+    color: var(--white);
+    text-decoration: none;
+}
+
+.brand-logo {
+    width: 2.75rem;
+    height: 2.75rem;
+    flex: 0 0 auto;
+    border-radius: 0.75rem;
+    background: var(--white);
+    object-fit: contain;
+    padding: 0.25rem;
+}
+
+/* The sidebar already names the brand; the top bar repeats it only on
+   small screens, where the sidebar is hidden. */
+@media (min-width: 53.1875em) {
+    .topbar-company {
+        visibility: hidden;
+    }
+}
+
+/* Data-entry pages: numbered steps, "who" fields and a bottom action bar */
+
+.entry-steps {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.75rem;
+    margin: 0 0 1.25rem;
+    padding: 0;
+    list-style: none;
+}
+
+.entry-steps li {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    padding: 0.875rem 1rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: var(--radius);
+    background: var(--white);
+}
+
+.entry-steps li > span {
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 50%;
+    background: var(--blue-600);
+    color: var(--white);
+    font-size: 0.8125rem;
+    font-weight: 800;
+}
+
+.entry-steps strong {
+    display: block;
+    font-size: 0.875rem;
+}
+
+.entry-steps small {
+    display: block;
+    margin-top: 0.125rem;
+    color: var(--slate-600);
+    font-size: 0.8125rem;
+    line-height: 1.45;
+}
+
+.entry-who {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    gap: 1rem 1.5rem;
+    margin-bottom: 1.25rem;
+    padding: 1.25rem 1.375rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: var(--radius);
+    background: var(--white);
+    box-shadow: var(--shadow);
+}
+
+.entry-who .form-group {
+    margin: 0;
+}
+
+.entry-who label {
+    font-weight: 700;
+}
+
+.entry-who small {
+    color: var(--slate-500);
+}
+
+.entry-lines-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin: 0 0 0.75rem;
+}
+
+.entry-lines-head h2 {
+    margin: 0;
+    font-size: 1.0625rem;
+}
+
+.entry-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem 1.5rem;
+    margin: 1.25rem -0.25rem 0;
+    padding: 0.875rem 1.25rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: var(--radius) var(--radius) 0 0;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 -0.5rem 1.5rem rgba(15, 23, 42, 0.08);
+}
+
+.entry-bar-summary > strong,
+.entry-bar-summary > span {
+    display: block;
+}
+
+.entry-bar-summary > strong {
+    font-size: 1rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.entry-bar-summary > span {
+    color: var(--slate-500);
+    font-size: 0.8125rem;
+}
+
+.entry-bar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+}
+
+.entry-bar-actions .button-primary {
+    padding-inline: 1.75rem;
+}
+
+@media (max-width: 53.125em) {
+    .entry-steps,
+    .entry-who {
+        grid-template-columns: 1fr;
+    }
+
+    .entry-bar-actions,
+    .entry-bar-actions .button {
+        width: 100%;
+    }
+}
+
+.list-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin-bottom: 1rem;
+}
+
+.list-tabs a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5625rem 1rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: 999px;
+    background: var(--white);
+    color: var(--slate-600);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+.list-tabs a span {
+    min-width: 1.5rem;
+    padding: 0.0625rem 0.4375rem;
+    border-radius: 999px;
+    background: var(--slate-100);
+    color: var(--slate-600);
+    font-size: 0.75rem;
+    text-align: center;
+}
+
+.list-tabs a.has-attention span {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.list-tabs a.active {
+    border-color: var(--navy-900);
+    background: var(--navy-900);
+    color: var(--white);
+}
+
+.list-tabs a.active span {
+    background: rgba(255, 255, 255, 0.18);
+    color: var(--white);
+}
+
+/* Filter bars use the same field style as forms. */
+.mo-filters input:not([type="checkbox"]):not([type="hidden"]),
+.mo-filters select,
+.fin-filters input:not([type="checkbox"]),
+.fin-filters select {
+    min-height: 2.5rem;
+    padding: 0.5rem 0.75rem;
+    color: var(--slate-950);
+    border: 0.0625rem solid var(--slate-300);
+    border-radius: 0.5625rem;
+    outline: none;
+    background: var(--white);
+}
+
+.mo-filters input:focus,
+.mo-filters select:focus,
+.fin-filters input:focus,
+.fin-filters select:focus {
+    border-color: var(--blue-600);
+    box-shadow: 0 0 0 0.1875rem rgba(37, 99, 235, 0.13);
+}
+
+.hub-choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+}
+
+.hub-choice {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 1rem 1.125rem;
+    align-items: start;
+    padding: 1.5rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: var(--radius);
+    background: var(--white);
+    box-shadow: var(--shadow);
+    color: var(--slate-950);
+    text-decoration: none;
+    transition: border-color 150ms ease, transform 150ms ease;
+}
+
+.hub-choice:hover {
+    border-color: var(--blue-600);
+    transform: translateY(-0.125rem);
+}
+
+.hub-choice-icon {
+    display: grid;
+    place-items: center;
+    width: 3rem;
+    height: 3rem;
+    border-radius: 0.875rem;
+    background: #eff6ff;
+    color: var(--blue-600);
+}
+
+.hub-choice-icon .icon {
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
+.hub-choice-text strong {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    font-size: 1.125rem;
+}
+
+.hub-choice-text > span {
+    display: block;
+    margin-top: 0.375rem;
+    color: var(--slate-600);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.hub-choice > .flow-turn {
+    grid-column: 2;
+    justify-self: start;
+}
+
+@media (max-width: 53.125em) {
+    .hub-choices {
+        grid-template-columns: 1fr;
+    }
+}

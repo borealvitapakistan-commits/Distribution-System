@@ -1,36 +1,56 @@
 {% extends "base.html" %}
+{% load order_flow %}
 
 {% block title %}
-    Purchase Order — {{ order.po_number }}
+    Record Manufacturer's Reply — {{ order.po_number }}
 {% endblock %}
 
 {% block content %}
+{% order_stage_bar order current=2 %}
+
 <form method="post" enctype="multipart/form-data" id="quoteForm" novalidate>
     {% csrf_token %}
 
-    <div class="doc-toolbar">
-        <div class="doc-toolbar-title">
-            <h1>Purchase Order {{ order.po_number }}</h1>
-            <a class="mo-back-link" href="{% url 'manufacturer-order-detail' order.pk %}">← Back to order</a>
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">Stage 2 of 4 · Quote · {{ order.po_number }}</p>
+            <h1>Record the reply from {{ order.manufacturer.name }}</h1>
+            <p>Copy their prices from the quote they sent you. You'll check them and decide what to do on the next page.</p>
         </div>
-
-        <div class="doc-toolbar-actions">
-            <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team" target="_blank">Print PDF</a>
-            <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team&download=1">Download PDF</a>
+        <div class="fin-downloads">
+            <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">Cancel</a>
+            <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team" target="_blank">Print our request</a>
         </div>
     </div>
 
-    <div class="doc-toolbar">
-        <span class="stat-detail">
-            Type the real prices that came back from the manufacturer. A price that differs from
-            what you requested turns the row <mark class="mo-changed-mark mo-mark-changed">orange</mark>;
-            a price added where you left it empty turns it <mark class="mo-changed-mark">yellow</mark>;
-            a matching price stays white —
-            <strong><span id="quoteChangedCount">0</span></strong> changed so far.
-        </span>
-        <div class="doc-toolbar-actions">
-            <span class="stat-detail">Brand: <strong>{{ brand.name|default:"—" }}</strong></span>
-            <button type="submit" class="button button-doc" style="--doc-color: {{ brand.primary_color }};">Save Prices</button>
+    <ol class="entry-steps">
+        <li><span>1</span><div><strong>Attach what they sent</strong><small>A photo, PDF or screenshot of their quote.</small></div></li>
+        <li><span>2</span><div><strong>Type their price for each product</strong><small>Different from yours turns <mark class="mo-changed-mark mo-mark-changed">orange</mark>; one they priced for you turns <mark class="mo-changed-mark">yellow</mark>.</small></div></li>
+        <li><span>3</span><div><strong>Save</strong><small>Can't supply something? Remove it with the bin icon.</small></div></li>
+    </ol>
+
+    <div class="entry-who">
+        <div class="form-group">
+            <label for="{{ form.quote_file.id_for_label }}">
+                Their quote document
+                {% if form.quote_file.field.required %}<span class="required">*</span>{% endif %}
+            </label>
+            {{ form.quote_file }}
+            {% if order.quote_file %}
+                <small>
+                    Already attached:
+                    <a href="{{ order.quote_file.url }}" target="_blank" rel="noopener" data-proof-viewer>view it</a>
+                    — choose a new file only to replace it.
+                </small>
+            {% else %}
+                <small>{{ form.quote_file.help_text }}</small>
+            {% endif %}
+            {% for error in form.quote_file.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+        </div>
+        <div class="form-group">
+            <label for="{{ form.message.id_for_label }}">What they said <small>(optional)</small></label>
+            {{ form.message }}
+            <small>{{ form.message.help_text }}</small>
         </div>
     </div>
 
@@ -45,31 +65,7 @@
         class="doc-sheet"
         style="--doc-color: {{ brand.primary_color }}; --doc-soft: {{ brand.primary_color_soft }};"
     >
-        {% include "manufacturers/_doc_head.html" with doc_title="Purchase Order" doc_chip="Draft" doc_number=order.po_number doc_date=order.created_at number_label="P.O. number" %}
-
-        <div class="doc-field" style="max-width: none;">
-            <label for="{{ form.quote_file.id_for_label }}">
-                Document with the real prices
-                {% if form.quote_file.field.required %}<span class="required">*</span>{% endif %}
-            </label>
-            {{ form.quote_file }}
-            {% if order.quote_file %}
-                <div class="doc-hint">
-                    Already uploaded:
-                    <a href="{{ order.quote_file.url }}" target="_blank" rel="noopener" data-proof-viewer>view current document</a>
-                    — choose a new file only to replace it.
-                </div>
-            {% else %}
-                <div class="doc-hint">{{ form.quote_file.help_text }}</div>
-            {% endif %}
-            {% for error in form.quote_file.errors %}<div class="doc-errors">{{ error }}</div>{% endfor %}
-        </div>
-
-        <div class="doc-field" style="max-width: none;">
-            <label for="{{ form.message.id_for_label }}">{{ form.message.label }}</label>
-            {{ form.message }}
-            <div class="doc-hint">{{ form.message.help_text }}</div>
-        </div>
+        {% include "manufacturers/_doc_head.html" with doc_title="Manufacturer's Quote" doc_number=order.po_number doc_date=order.created_at %}
 
         <div class="doc-parties">
             <div>
@@ -90,12 +86,15 @@
         </div>
 
         <div class="doc-lines">
+            <div class="entry-lines-head">
+                <h2>Their prices</h2>
+            </div>
             <div class="doc-row doc-row-head">
-                <span>Sr#</span>
-                <span>Description</span>
-                <span>Qty</span>
-                <span>Unit price</span>
-                <span>Total price</span>
+                <span>#</span>
+                <span>Product</span>
+                <span>Bottles</span>
+                <span>Their price per bottle</span>
+                <span>Line total</span>
                 <span></span>
             </div>
 
@@ -126,7 +125,7 @@
                         <span class="doc-cell-label">Unit price</span>
                         {{ row.price }}
                         <span class="doc-requested">
-                            Requested: {% if row.item.requested_price_given %}{{ row.item.requested_unit_price }}{% else %}to quote{% endif %}
+                            {% if row.item.requested_price_given %}You asked: {{ row.item.requested_unit_price }}{% else %}You asked them to price it{% endif %}
                         </span>
                         {% for error in row.price.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
                     </div>
@@ -162,6 +161,17 @@
             </div>
         </div>
     </section>
+
+    <div class="entry-bar">
+        <div class="entry-bar-summary">
+            <strong>Rs <span id="quoteBarTotal">0.00</span></strong>
+            <span><span id="quoteChangedCount">0</span> price(s) different from what you asked</span>
+        </div>
+        <div class="entry-bar-actions">
+            <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">Cancel</a>
+            <button type="submit" class="button button-primary">Save Their Prices</button>
+        </div>
+    </div>
 
     <dialog class="modal" id="savePricesModal">
         <div class="proof-modal-body">
@@ -262,6 +272,7 @@
         document.getElementById("quoteChangedCount").textContent = changed;
         document.getElementById("quoteSubtotal").textContent = money(subtotal);
         document.getElementById("quoteGrand").textContent = money(subtotal);
+        document.getElementById("quoteBarTotal").textContent = money(subtotal);
     }
 
     // Lines worth offering to save: a bottle size is set, not dropped, and

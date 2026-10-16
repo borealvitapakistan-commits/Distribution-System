@@ -990,7 +990,7 @@ def order_steps(purchase_order):
     # Older orders went straight to a Purchase Order, with no quote at all.
     skipped_quote = not po.is_quote and not po.declined_as_quote and po.quoted_at is None
 
-    return [
+    steps = [
         {
             "number": 1,
             "title": "Request to Quote",
@@ -1024,6 +1024,62 @@ def order_steps(purchase_order):
             "done_note": "",
         },
     ]
+    for step, words in zip(steps, STAGE_WORDS):
+        step.update(words)
+    return steps
+
+
+# What each stage means in plain words, as the Owner and as the
+# Distributor read it — the stage tracker picks the side it's shown on.
+STAGE_WORDS = [
+    {
+        "plain_owner": "The Distributor asks you for prices",
+        "plain_distributor": "You ask for prices",
+        "help_owner": (
+            "The Distributor lists the products they want, with the prices they'd "
+            "like. Nothing is ordered or paid yet."
+        ),
+        "help_distributor": (
+            "You list the products you want, with the prices you'd like. Nothing is "
+            "ordered or paid yet."
+        ),
+    },
+    {
+        "plain_owner": "You agree on the prices",
+        "plain_distributor": "You agree on the prices",
+        "help_owner": (
+            "You reply with your prices. The Distributor can accept or send a "
+            "counter-offer, and you can answer again."
+        ),
+        "help_distributor": (
+            "You get prices back. Accept them, or send a counter-offer with the "
+            "prices you'd like instead."
+        ),
+    },
+    {
+        "plain_owner": "You ship the order",
+        "plain_distributor": "The order is shipped to you",
+        "help_owner": (
+            "The Distributor accepted, so it's now their order. Confirm any advance "
+            "payment, then ship each product from your warehouses."
+        ),
+        "help_distributor": (
+            "Your confirmed order. Pay any advance, then confirm each delivery when "
+            "it reaches you."
+        ),
+    },
+    {
+        "plain_owner": "You bill the Distributor",
+        "plain_distributor": "You receive the bill and pay",
+        "help_owner": (
+            "Once everything has shipped, issue the invoice for what was actually "
+            "supplied, then confirm the Distributor's final payment."
+        ),
+        "help_distributor": (
+            "The bill for what was actually supplied. Pay whatever is left on it."
+        ),
+    },
+]
 
 
 def _recompute_status(purchase_order):

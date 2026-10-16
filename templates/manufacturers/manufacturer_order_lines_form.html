@@ -1,15 +1,20 @@
 {% extends "base.html" %}
-{% load money_filters %}
+{% load money_filters order_flow %}
 
 {% block title %}
     {{ page_title }} — {{ order.po_number }}
 {% endblock %}
 
 {% block content %}
+{% order_stage_bar order %}
+
 <div class="page-header">
     <div>
-        <p class="eyebrow">{{ page_title }}</p>
-        <h1>{{ order.po_number }} — {{ order.manufacturer.name }}</h1>
+        <p class="eyebrow">
+            {% if order.is_quote %}Stage 2 of 4 · Quote{% else %}Stage 3 of 4 · Purchase Order{% endif %}
+            · {{ order.po_number }}
+        </p>
+        <h1>{{ page_title }} — {{ order.manufacturer.name }}</h1>
         <p>{{ intro }}</p>
     </div>
 

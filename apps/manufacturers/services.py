@@ -1031,6 +1031,11 @@ def record_manufacturer_invoice(
     if is_first_approval:
         destination = to_location or get_or_create_unallocated_location(actor=actor)
 
+        # Orders placed before batches existed have lines without one.
+        without_batch = [item for item in order.items.all() if not hasattr(item, "batch")]
+        if without_batch:
+            create_batches_for_order(actor=actor, order=order, items=without_batch)
+
         for item in order.items.select_related("product", "batch"):
             update = (item_prices or {}).get(str(item.pk)) or {}
             expiry_date = update.get("expiry_date")

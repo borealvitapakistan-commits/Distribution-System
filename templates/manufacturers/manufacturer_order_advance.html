@@ -1,19 +1,21 @@
 {% extends "base.html" %}
-{% load money_filters %}
+{% load money_filters order_flow %}
 
 {% block title %}
     Advance Payment — {{ order.po_number }}
 {% endblock %}
 
 {% block content %}
+{% order_stage_bar order current=3 %}
+
 <div class="page-header">
     <div>
-        <p class="eyebrow">Step 2 of 3 · Upload payment proof</p>
-        <h1>{{ order.po_number }} — {{ order.manufacturer.name }}</h1>
+        <p class="eyebrow">Stage 3 of 4 · Purchase Order · {{ order.po_number }}</p>
+        <h1>Did you pay {{ order.manufacturer.name }} in advance?</h1>
         <p>
-            Purchase Order placed. Did you pay an advance? Choose <strong>Advance</strong>
-            and upload the proof, or <strong>No advance</strong>. Recording the invoice and
-            receiving the goods unlocks once this is answered.
+            Choose <strong>Advance</strong> and upload the bank slip or screenshot, or choose
+            <strong>No advance</strong> if you'll pay everything when the goods arrive.
+            Once this is answered you can record the goods when they come.
         </p>
     </div>
 

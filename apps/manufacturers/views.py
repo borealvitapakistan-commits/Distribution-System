@@ -30,6 +30,7 @@ from .forms import (
     PurchaseOrderEditForm,
 )
 from .models import Manufacturer, ManufacturerOrder, OrderRevision
+from .guide import STAGES, list_status, next_step_guide
 from .services import (
     awaiting_manufacturer_reply,
     confirm_purchase_order,
@@ -190,6 +191,14 @@ class ManufacturerOrderListView(OwnerRequiredMixin, ListView):
         ("365", "Last 12 months"),
     ]
 
+    # The tabs above the list: which orders each one shows, by whose turn.
+    TABS = [
+        ("you", "Needs you"),
+        ("manufacturer", "Waiting for manufacturer"),
+        ("done", "Completed"),
+        ("", "All orders"),
+    ]
+
     def get_queryset(self):
         queryset = (
             ManufacturerOrder.objects
@@ -207,29 +216,53 @@ class ManufacturerOrderListView(OwnerRequiredMixin, ListView):
                 | Q(items__product__name__icontains=query)
             ).distinct()
 
-        status = self.request.GET.get("status", "")
-        if status in ManufacturerOrder.Status.values:
-            queryset = queryset.filter(status=status)
-
         days = self.request.GET.get("days", "")
         if days.isdigit():
             queryset = queryset.filter(
                 created_at__gte=timezone.now() - timedelta(days=int(days))
             )
 
-        return queryset
+        # Whose turn it is depends on the conversation and the stock, not
+        # just a column, so it's worked out per order.
+        orders = list(queryset)
+        for order in orders:
+            order.stage_number, order.next_text, order.waiting_on = list_status(order)
+
+        self.tab_counts = {
+            "you": sum(1 for order in orders if order.waiting_on == "you"),
+            "manufacturer": sum(1 for order in orders if order.waiting_on == "manufacturer"),
+            "done": sum(1 for order in orders if not order.waiting_on),
+            "": len(orders),
+        }
+
+        tab = self.current_tab()
+        if tab == "done":
+            return [order for order in orders if not order.waiting_on]
+        if tab:
+            return [order for order in orders if order.waiting_on == tab]
+        return orders
+
+    def current_tab(self):
+        tab = self.request.GET.get("show", "")
+        return tab if tab in dict(self.TABS) else ""
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         params = self.request.GET.copy()
         params.pop("page", None)
+        tab_params = params.copy()
+        tab_params.pop("show", None)
         context.update(
             {
-                "status_choices": ManufacturerOrder.Status.choices,
+                "tabs": [
+                    {"value": value, "label": label, "count": self.tab_counts[value]}
+                    for value, label in self.TABS
+                ],
+                "current_tab": self.current_tab(),
+                "tab_query": tab_params.urlencode(),
                 "date_ranges": self.DATE_RANGES,
                 "filters": {
                     "q": self.request.GET.get("q", ""),
-                    "status": self.request.GET.get("status", ""),
                     "days": self.request.GET.get("days", ""),
                 },
                 "filter_query": params.urlencode(),
@@ -715,8 +748,11 @@ def order_steps(order):
         states = ["current", "upcoming", "upcoming", "upcoming"]
     elif order.is_quote:
         states = ["done", "current", "upcoming", "upcoming"]
-    elif not invoiced:
+    elif not invoiced and order.status == ManufacturerOrder.Status.SENT:
         states = ["done", "done", "current", "upcoming"]
+    elif not invoiced:
+        # Goods in, invoice still to record.
+        states = ["done", "done", "done", "current"]
     else:
         states = ["done", "done", "done", "done"]
 
@@ -736,7 +772,7 @@ def order_steps(order):
     # Older orders went straight to a Purchase Order, with no quote at all.
     skipped_quote = not order.is_quote and order.quoted_at is None
 
-    return [
+    steps = [
         {
             "number": 1,
             "title": "Request to Quote",
@@ -767,6 +803,10 @@ def order_steps(order):
             "note": "Upcoming",
         },
     ]
+    for step, meta in zip(steps, STAGES):
+        step["plain"] = meta["plain"]
+        step["help"] = meta["help"]
+    return steps
 
 
 class ManufacturerOrderConversationView(OwnerRequiredMixin, View):
@@ -831,6 +871,11 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
         )
         context["can_edit_po"] = ManufacturerPurchaseOrderEditView().allowed(self.object)
         context["brand"] = _order_brand(self.object)
+        context["guide"] = next_step_guide(
+            self.object,
+            can_edit_quote=context["can_edit_quote"],
+            can_edit_po=context["can_edit_po"],
+        )
         return context
 
 
@@ -1016,7 +1061,6 @@ class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
                 supplier_invoice_ref=(
                     invoice_form.cleaned_data["supplier_invoice_ref"] if invoice_form else ""
                 ),
-                to_location=invoice_form.cleaned_data["warehouse"] if invoice_form else None,
                 invoice_file=invoice_form.cleaned_data["invoice_file"] if invoice_form else None,
                 shipping_amount=(
                     invoice_form.charges(order)[1] if invoice_form else None
@@ -1035,13 +1079,14 @@ class ManufacturerOrderReceiveView(OwnerRequiredMixin, View):
             return self._render(request, order, form, invoice_form)
 
         if order.stock_created:
-            warehouse = invoice_form.cleaned_data["warehouse"]
             messages.success(
                 request,
                 f"{order.po_number} received, paid in full and invoiced as "
-                f"{order.invoice_number}. The stock is now in {warehouse.name}.",
+                f"{order.invoice_number}. Its batches are waiting below under "
+                "\"Not allocated to any region\" — split each one across your "
+                "regions, then into their warehouses.",
             )
-            return redirect("manufacturer-order-detail", pk=order.pk)
+            return redirect("inventory-list")
 
         messages.success(request, f"{order.po_number} marked received.")
         return redirect("manufacturer-order-detail", pk=order.pk)

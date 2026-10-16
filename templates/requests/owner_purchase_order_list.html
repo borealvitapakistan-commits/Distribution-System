@@ -2,80 +2,104 @@
 {% load money_filters %}
 
 {% block title %}
-    Purchase Orders
+    Distributor Orders
 {% endblock %}
 
 {% block content %}
+<a class="mo-back-link" href="{% url 'owner-purchase-orders-hub' %}">← Purchase Orders</a>
+
 <div class="page-header">
     <div>
-        <p class="eyebrow">Purchase Orders</p>
-        <h1>Distributor's Purchase Orders</h1>
+        <p class="eyebrow">Selling to distributors</p>
+        <h1>Distributor Orders</h1>
         <p>
-            Requests to Quote and Purchase Orders from Distributors — answer each request with a
-            quote, then ship and invoice once they accept it.
+            A Distributor asks for prices, you agree on them, you ship the order, then you bill them.
+            Orders marked <strong>Your turn</strong> are waiting for you.
         </p>
     </div>
 </div>
+
+<nav class="list-tabs" aria-label="Show orders">
+    {% for tab in tabs %}
+        <a
+            href="?{% if tab.value %}show={{ tab.value }}{% endif %}"
+            class="{% if tab.value == current_tab %}active{% endif %}{% if tab.value == 'owner' and tab.count %} has-attention{% endif %}"
+        >
+            {{ tab.label }} <span>{{ tab.count }}</span>
+        </a>
+    {% endfor %}
+</nav>
 
 <section class="panel">
     <div class="table-wrapper">
         <table>
             <thead>
                 <tr>
-                    <th>Number</th>
+                    <th>Order</th>
                     <th>Distributor</th>
-                    <th>Started</th>
-                    <th>Items</th>
-                    <th>Total</th>
                     <th>Stage</th>
-                    <th>Next</th>
+                    <th>What's next</th>
+                    <th>Total</th>
                     <th></th>
                 </tr>
             </thead>
 
             <tbody>
                 {% for purchase_order in purchase_orders %}
-                    <tr class="{% if not purchase_order.owner_viewed_at or purchase_order.pk in updated_ids %}row-highlight{% endif %}">
+                    <tr class="{% if purchase_order.waiting_on == 'owner' %}mo-row-active{% endif %}">
                         <td>
-                            <strong>{{ purchase_order.po_number }}</strong>
+                            <a class="product-name-link" href="{% url 'owner-purchase-order-detail' purchase_order.pk %}"><strong>{{ purchase_order.po_number }}</strong></a>
                             {% if not purchase_order.owner_viewed_at %}
                                 <span class="badge badge-pending">New</span>
                             {% elif purchase_order.pk in updated_ids %}
                                 <span class="badge badge-pending">Updated</span>
                             {% endif %}
                             {% if purchase_order.invoice_number %}
-                                <div class="table-secondary">{{ purchase_order.invoice_number }}</div>
+                                <small class="table-secondary">{{ purchase_order.invoice_number }}</small>
                             {% endif %}
                         </td>
                         <td>{{ purchase_order.distributor_profile.name }}</td>
-                        <td>{{ purchase_order.created_at|date:"M d, Y" }}</td>
-                        <td>{{ purchase_order.items.count }}</td>
-                        <td>{{ purchase_order.grand_total|money }}</td>
-                        <td>{% include "requests/_po_status_badge.html" %}</td>
-                        <td class="table-secondary">
-                            {% if purchase_order.status == "QUOTE" %}
-                                {% if purchase_order.latest_stage == "QUOTE" %}Waiting for the Distributor{% else %}<strong>Send your quote</strong>{% endif %}
-                            {% elif purchase_order.status == "DECLINED" %}
-                                —
-                            {% elif not purchase_order.invoiced_at %}
-                                {% if purchase_order.status == "PENDING" %}Ship{% elif purchase_order.status == "PARTIALLY_SHIPPED" %}Ship the rest{% else %}Invoice{% endif %}
-                            {% else %}
-                                Done
-                            {% endif %}
+                        <td class="nowrap">
+                            <span class="flow-mini" aria-label="Stage {{ purchase_order.stage_number }} of 4">
+                                {% for number in "1234" %}
+                                    <span class="{% if forloop.counter < purchase_order.stage_number %}is-done{% elif forloop.counter == purchase_order.stage_number %}is-current{% endif %}"></span>
+                                {% endfor %}
+                            </span>
+                            <small class="table-secondary">
+                                {% if purchase_order.status == "DECLINED" %}Declined{% elif purchase_order.stage_number > 4 %}Done{% else %}Stage {{ purchase_order.stage_number }} of 4{% endif %}
+                            </small>
                         </td>
                         <td>
+                            <div class="flow-next-cell">
+                                <span>{{ purchase_order.next_text }}</span>
+                                {% if purchase_order.waiting_on == "owner" %}
+                                    <span><span class="flow-turn flow-turn-you">Your turn</span></span>
+                                {% endif %}
+                            </div>
+                            <small class="table-secondary">
+                                Started {{ purchase_order.created_at|date:"d M Y" }} · {{ purchase_order.items.all|length }} product{{ purchase_order.items.all|length|pluralize }}
+                            </small>
+                        </td>
+                        <td class="nowrap">{{ purchase_order.grand_total|money }}</td>
+                        <td>
                             <a
-                                class="button button-secondary button-small"
+                                class="button {% if purchase_order.waiting_on == 'owner' %}button-primary{% else %}button-secondary{% endif %} button-small"
                                 href="{% url 'owner-purchase-order-detail' purchase_order.pk %}"
                             >
-                                View
+                                {% if purchase_order.waiting_on == "owner" %}Take action{% else %}Open{% endif %}
                             </a>
                         </td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="8" class="empty-table">
-                            No purchase orders yet.
+                        <td colspan="6" class="empty-table">
+                            {% if current_tab == "owner" %}
+                                Nothing needs you right now.
+                            {% elif current_tab %}
+                                No orders here.
+                            {% else %}
+                                No orders from Distributors yet.
+                            {% endif %}
                         </td>
                     </tr>
                 {% endfor %}

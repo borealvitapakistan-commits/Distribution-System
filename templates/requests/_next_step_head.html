@@ -1,0 +1,12 @@
+{# Heading of the "What to do now" panel on a Distributor order, with whose turn it is. me: "owner" or "distributor" — the panel it's shown on. #}
+<div class="flow-card-head">
+    <span class="eyebrow">Next step</span>
+    <h2>What to do now</h2>
+    {% if turn == me %}
+        <span class="flow-turn flow-turn-you">Your turn</span>
+    {% elif turn == "owner" %}
+        <span class="flow-turn flow-turn-them">Waiting for {{ brand.name|default:"the Owner" }}</span>
+    {% elif turn == "distributor" %}
+        <span class="flow-turn flow-turn-them">Waiting for {{ purchase_order.distributor_profile.name }}</span>
+    {% endif %}
+</div>

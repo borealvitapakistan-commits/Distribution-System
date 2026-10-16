@@ -7,33 +7,40 @@
 {% block content %}
 <div class="page-header">
     <div>
-        <p class="eyebrow">Purchase Orders</p>
+        <p class="eyebrow">Buying &amp; selling</p>
         <h1>Purchase Orders</h1>
-        <p>What Distributors have asked you for, and what you've ordered from Manufacturers.</p>
+        <p>Choose which kind of order you want to work on.</p>
     </div>
 </div>
 
-<section class="panel">
-    <div class="hub-grid">
-        <a class="hub-card" href="{% url 'owner-purchase-order-list' %}">
-            <span class="hub-card-icon">✉</span>
-            <span class="hub-card-title">
-                Distributor's Purchase Orders
-                {% if new_purchase_orders_count %}
-                    <span class="badge badge-pending">{{ new_purchase_orders_count }} new</span>
-                {% endif %}
-                {% if purchase_order_updates_count %}
-                    <span class="badge badge-pending">{{ purchase_order_updates_count }} updated</span>
-                {% endif %}
-            </span>
-            <span class="hub-card-desc">Requests to Quote and orders from Distributors — quote, ship and invoice.</span>
-        </a>
+<div class="hub-choices">
+    <a class="hub-choice" href="{% url 'manufacturer-order-list' %}{% if manufacturer_needs_you %}?show=you{% endif %}">
+        <span class="hub-choice-icon">{% include "_icon.html" with name="box" %}</span>
+        <span class="hub-choice-text">
+            <strong>Buying from Manufacturers</strong>
+            <span>Ask a manufacturer for prices, agree on them, place the order and receive the stock.</span>
+        </span>
+        {% if manufacturer_needs_you %}
+            <span class="flow-turn flow-turn-you">{{ manufacturer_needs_you }} need{{ manufacturer_needs_you|pluralize:"s," }} you</span>
+        {% else %}
+            <span class="flow-turn flow-turn-them">Nothing waiting</span>
+        {% endif %}
+    </a>
 
-        <a class="hub-card" href="{% url 'manufacturer-order-list' %}">
-            <span class="hub-card-icon">◈</span>
-            <span class="hub-card-title">Manufacturer's Purchase Orders</span>
-            <span class="hub-card-desc">Orders you've placed with Manufacturers.</span>
-        </a>
-    </div>
-</section>
+    <a class="hub-choice" href="{% url 'owner-purchase-order-list' %}{% if distributor_needs_you %}?show=owner{% endif %}">
+        <span class="hub-choice-icon">{% include "_icon.html" with name="cart" %}</span>
+        <span class="hub-choice-text">
+            <strong>
+                Selling to Distributors
+                {% if new_purchase_orders_count %}<span class="badge badge-pending">{{ new_purchase_orders_count }} new</span>{% endif %}
+            </strong>
+            <span>Answer a Distributor's request with your prices, ship the order and bill them.</span>
+        </span>
+        {% if distributor_needs_you %}
+            <span class="flow-turn flow-turn-you">{{ distributor_needs_you }} need{{ distributor_needs_you|pluralize:"s," }} you</span>
+        {% else %}
+            <span class="flow-turn flow-turn-them">Nothing waiting</span>
+        {% endif %}
+    </a>
+</div>
 {% endblock %}

@@ -6,25 +6,37 @@
 {% endblock %}
 
 {% block content %}
+<a class="mo-back-link" href="{% url 'owner-purchase-orders-hub' %}">← Purchase Orders</a>
+
 <div class="page-header">
     <div>
-        <p class="eyebrow">Manufacturers</p>
-        <h1>Manufacture</h1>
-        <p>Requests to Quote and Purchase Orders sent to Manufacturers — from quote to invoice.</p>
+        <p class="eyebrow">Buying from manufacturers</p>
+        <h1>Manufacturer Orders</h1>
+        <p>
+            Every order goes through four stages: ask for prices, agree on them, confirm the order,
+            and receive the goods. Orders marked <strong>Your turn</strong> are waiting for you.
+        </p>
     </div>
 
-    <div>
-        <a class="button button-secondary" href="{% url 'owner-purchase-orders-hub' %}">
-            Back
-        </a>
-        <a class="button button-primary" href="{% url 'manufacturer-order-create' %}">
-            + New Request to Quote
-        </a>
-    </div>
+    <a class="button button-primary" href="{% url 'manufacturer-order-create' %}">
+        + Ask a Manufacturer for Prices
+    </a>
 </div>
+
+<nav class="list-tabs" aria-label="Show orders">
+    {% for tab in tabs %}
+        <a
+            href="?{% if tab.value %}show={{ tab.value }}{% endif %}{% if tab_query %}{% if tab.value %}&{% endif %}{{ tab_query }}{% endif %}"
+            class="{% if tab.value == current_tab %}active{% endif %}{% if tab.value == 'you' and tab.count %} has-attention{% endif %}"
+        >
+            {{ tab.label }} <span>{{ tab.count }}</span>
+        </a>
+    {% endfor %}
+</nav>
 
 <section class="panel">
     <form method="get" class="mo-filters">
+        {% if current_tab %}<input type="hidden" name="show" value="{{ current_tab }}">{% endif %}
         <input
             type="search"
             name="q"
@@ -32,20 +44,14 @@
             placeholder="Search PO number, manufacturer, brand or product…"
             aria-label="Search orders"
         >
-        <select name="status" aria-label="Status" onchange="this.form.submit()">
-            <option value="">All statuses</option>
-            {% for value, label in status_choices %}
-                <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
-            {% endfor %}
-        </select>
         <select name="days" aria-label="Date" onchange="this.form.submit()">
             {% for value, label in date_ranges %}
                 <option value="{{ value }}" {% if filters.days == value %}selected{% endif %}>{{ label }}</option>
             {% endfor %}
         </select>
         <button type="submit" class="button button-secondary">Search</button>
-        {% if filters.q or filters.status or filters.days %}
-            <a class="button button-secondary" href="{% url 'manufacturer-order-list' %}">Clear</a>
+        {% if filters.q or filters.days %}
+            <a class="button button-secondary" href="?{% if current_tab %}show={{ current_tab }}{% endif %}">Clear</a>
         {% endif %}
     </form>
 
@@ -55,58 +61,67 @@
                 <tr>
                     <th>Order</th>
                     <th>Manufacturer</th>
-                    <th>Brand</th>
-                    <th>Date</th>
-                    <th>Items</th>
+                    <th>Stage</th>
+                    <th>What's next</th>
                     <th>Total</th>
-                    <th>Actions</th>
+                    <th></th>
                 </tr>
             </thead>
 
             <tbody>
                 {% for order in orders %}
-                    <tr {% if order.status == "QUOTE" or order.status == "SENT" %}class="mo-row-active"{% endif %}>
+                    <tr {% if order.waiting_on == "you" %}class="mo-row-active"{% endif %}>
                         <td>
-                            <strong>{{ order.po_number }}</strong>
-                            {% include "manufacturers/_order_status_badge.html" %}
+                            <a class="product-name-link" href="{% url 'manufacturer-order-detail' order.pk %}"><strong>{{ order.po_number }}</strong></a>
                         </td>
-                        <td>{{ order.manufacturer.name }}</td>
                         <td>
+                            {{ order.manufacturer.name }}
                             {% if order.brand %}
-                                <span class="color-chip" style="background: {{ order.brand.primary_color }};"></span>
-                                {{ order.brand.name }}
-                            {% else %}
-                                —
+                                <small class="table-secondary">
+                                    <span class="color-chip" style="background: {{ order.brand.primary_color }};"></span>{{ order.brand.name }}
+                                </small>
                             {% endif %}
                         </td>
-                        <td>{{ order.created_at|date:"M d, Y" }}</td>
-                        <td>{{ order.items.all|length }}</td>
-                        <td>{{ order.grand_total|money }}</td>
+                        <td class="nowrap">
+                            <span class="flow-mini" aria-label="Stage {{ order.stage_number|default:5 }} of 4">
+                                {% for number in "1234" %}
+                                    <span class="{% if forloop.counter < order.stage_number %}is-done{% elif forloop.counter == order.stage_number %}is-current{% endif %}"></span>
+                                {% endfor %}
+                            </span>
+                            <small class="table-secondary">
+                                {% if order.stage_number > 4 %}{% if order.waiting_on == "you" %}Stock to place{% else %}Done{% endif %}{% else %}Stage {{ order.stage_number }} of 4{% endif %}
+                            </small>
+                        </td>
                         <td>
-                            {% if order.status == "QUOTE" or order.status == "SENT" or order.status == "RECEIVED" or order.status == "DISPUTED" %}
-                                <a
-                                    class="button button-primary button-small"
-                                    href="{% url 'manufacturer-order-detail' order.pk %}"
-                                >
-                                    Manage
-                                </a>
-                            {% else %}
-                                <a
-                                    class="button button-secondary button-small"
-                                    href="{% url 'manufacturer-order-detail' order.pk %}"
-                                >
-                                    View
-                                </a>
-                            {% endif %}
+                            <div class="flow-next-cell">
+                                <span>{{ order.next_text }}</span>
+                                {% if order.waiting_on == "you" %}
+                                    <span><span class="flow-turn flow-turn-you">Your turn</span></span>
+                                {% endif %}
+                            </div>
+                            <small class="table-secondary">Started {{ order.created_at|date:"d M Y" }} · {{ order.items.all|length }} product{{ order.items.all|length|pluralize }}</small>
+                        </td>
+                        <td class="nowrap">{{ order.grand_total|money }}</td>
+                        <td>
+                            <a
+                                class="button {% if order.waiting_on == 'you' %}button-primary{% else %}button-secondary{% endif %} button-small"
+                                href="{% url 'manufacturer-order-detail' order.pk %}"
+                            >
+                                {% if order.waiting_on == "you" %}Take action{% else %}Open{% endif %}
+                            </a>
                         </td>
                     </tr>
                 {% empty %}
                     <tr>
-                        <td colspan="7" class="empty-table">
-                            {% if filters.q or filters.status or filters.days %}
-                                No orders match these filters.
+                        <td colspan="6" class="empty-table">
+                            {% if filters.q or filters.days %}
+                                No orders match your search.
+                            {% elif current_tab == "you" %}
+                                Nothing needs you right now.
+                            {% elif current_tab %}
+                                No orders here.
                             {% else %}
-                                No manufacturer orders yet — start with a Request to Quote.
+                                No manufacturer orders yet — press <strong>Ask a Manufacturer for Prices</strong> to start one.
                             {% endif %}
                         </td>
                     </tr>

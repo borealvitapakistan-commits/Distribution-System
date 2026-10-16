@@ -1,0 +1,72 @@
+{# The "What to do now" card on a Manufacturer order. guide: apps.manufacturers.guide.next_step_guide #}
+<section class="panel flow-card">
+    <div class="flow-card-head">
+        <span class="eyebrow">What to do now</span>
+        <h2>{{ guide.heading }}</h2>
+        {% if guide.waiting_on == "you" %}
+            <span class="flow-turn flow-turn-you">Your turn</span>
+        {% elif guide.waiting_on == "manufacturer" %}
+            <span class="flow-turn flow-turn-them">Waiting for {{ order.manufacturer.name }}</span>
+        {% endif %}
+    </div>
+
+    <div class="flow-card-body">
+        <p class="flow-summary">{{ guide.summary }}</p>
+
+        {% if guide.checklist %}
+            <ul class="flow-checklist">
+                {% for check in guide.checklist %}
+                    <li class="{% if check.done %}is-done{% elif check.next %}is-next{% endif %}">
+                        <span class="flow-check" aria-hidden="true">{% if check.done %}✓{% endif %}</span>
+                        <span>{{ check.text }}</span>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+
+        {% if guide.contact %}
+            {% with contact=guide.contact %}
+                {% if contact.email or contact.phone %}
+                    <p class="flow-contact">
+                        Contact {{ contact.name }}:
+                        {% if contact.email %}<a href="mailto:{{ contact.email }}">{{ contact.email }}</a>{% endif %}
+                        {% if contact.email and contact.phone %} · {% endif %}
+                        {% if contact.phone %}<a href="tel:{{ contact.phone }}">{{ contact.phone }}</a>{% endif %}
+                    </p>
+                {% endif %}
+            {% endwith %}
+        {% endif %}
+
+        {% if guide.choices %}
+            <div class="flow-choices">
+                {% for choice in guide.choices %}
+                    <div class="flow-choice{% if choice.accept %} flow-choice-main{% endif %}">
+                        <strong>{{ choice.title }}</strong>
+                        <p>{{ choice.text }}</p>
+                        {% if choice.accept %}
+                            <form method="post" action="{% url 'manufacturer-order-confirm' order.pk %}">
+                                {% csrf_token %}
+                                <label for="acceptMessage">Note for the manufacturer <small>(optional)</small></label>
+                                <textarea id="acceptMessage" name="message" rows="2"></textarea>
+                                <button type="submit" class="button button-primary">Accept &amp; Send Purchase Order</button>
+                            </form>
+                        {% else %}
+                            <a class="button button-secondary" href="{{ choice.link.url }}">{{ choice.link.label }}</a>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {% if guide.primary or guide.secondary %}
+            <div class="flow-actions">
+                {% if guide.primary %}
+                    <a class="button button-primary flow-primary" href="{{ guide.primary.url }}">{{ guide.primary.label }} →</a>
+                {% endif %}
+                {% for link in guide.secondary %}
+                    <a class="button button-secondary" href="{{ link.url }}"{% if link.new_tab %} target="_blank" rel="noopener"{% endif %}>{{ link.label }}</a>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+</section>

@@ -5,7 +5,6 @@ from django.forms import inlineformset_factory
 
 from apps.core.forms import PaidQuestionForm
 from apps.core.models import Brand
-from apps.owner_warehouse.models import Location
 from apps.products.models import BottleSize, Product
 
 from .models import (
@@ -58,12 +57,15 @@ class ManufacturerForm(forms.ModelForm):
 class ManufacturerOrderForm(forms.Form):
     manufacturer = forms.ModelChoiceField(
         queryset=Manufacturer.objects.filter(active=True),
-        label="Vendor",
-        help_text="The Manufacturer this goes to — the manufacturer is the vendor.",
+        label="Manufacturer",
+        empty_label="Choose a manufacturer…",
+        help_text="Who you're asking for prices.",
     )
     brand = forms.ModelChoiceField(
         queryset=Brand.objects.filter(active=True),
-        help_text="The Request to Quote and Purchase Order use this brand's logo and colour.",
+        label="Brand",
+        empty_label="Choose a brand…",
+        help_text="The document is printed with this brand's logo and colour.",
     )
     terms = forms.CharField(
         required=False,
@@ -82,8 +84,8 @@ class ManufacturerOrderForm(forms.Form):
 class ManufacturerOrderItemForm(forms.ModelForm):
     save_price = forms.BooleanField(
         required=False,
-        label="Save as system price",
-        help_text="Store this price for the product and bottle size, to reuse next time.",
+        label="Remember this price",
+        help_text="Keep this price for this product and bottle size, so it's filled in next time.",
     )
 
     class Meta:
@@ -111,14 +113,14 @@ class ManufacturerOrderItemForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
 
         self.fields["product"].queryset = Product.objects.filter(active=True)
-        self.fields["product"].empty_label = "Select product…"
-        self.fields["bottle_size"].choices = [("", "Bottle size — none")] + list(BottleSize.choices)
+        self.fields["product"].empty_label = "Choose a product…"
+        self.fields["bottle_size"].choices = [("", "Bottle size (optional)")] + list(BottleSize.choices)
         self.fields["unit_price"].required = False
         self.fields["source_purchase_order_item"].required = False
         self.fields["quantity"] = bottle_quantity_field(
             label="Qty (bottles)", css_class="doc-line-input"
         )
-        self.fields["quantity"].widget.attrs["placeholder"] = "0"
+        self.fields["quantity"].widget.attrs["placeholder"] = "e.g. 100"
 
     def clean(self):
         cleaned_data = super().clean()
@@ -369,20 +371,15 @@ class PurchaseOrderEditForm(OrderLinesForm):
 
 class ManufacturerOrderInvoiceForm(forms.Form):
     """The Manufacturer's invoice: their reference and document, shipping
-    and tax, the warehouse the goods go into, plus one
-    quantity/price/expiry row per line item — what actually arrived. Our
-    own invoice number is generated, not typed."""
+    and tax, plus one quantity/price/expiry row per line item — what
+    actually arrived. Our own invoice number is generated, not typed.
+    The stock lands unallocated; the Owner splits each batch across
+    regions and warehouses on the Inventory page afterwards."""
 
     ITEM_PRICE_PREFIX = "item_price_"
     ITEM_QTY_PREFIX = "item_qty_"
     ITEM_EXPIRY_PREFIX = "item_expiry_"
 
-    warehouse = forms.ModelChoiceField(
-        queryset=Location.objects.none(),
-        label="Receive into warehouse",
-        empty_label="Select warehouse…",
-        help_text="The stock goes straight into this warehouse.",
-    )
     supplier_invoice_ref = forms.CharField(
         max_length=100,
         required=False,
@@ -399,7 +396,7 @@ class ManufacturerOrderInvoiceForm(forms.Form):
         decimal_places=2,
         min_value=Decimal("0"),
         required=False,
-        label="Shipping",
+        label="Shipping charged (Rs)",
     )
     tax_percentage = forms.DecimalField(
         max_digits=5,
@@ -412,16 +409,6 @@ class ManufacturerOrderInvoiceForm(forms.Form):
 
     def __init__(self, *args, order=None, **kwargs):
         super().__init__(*args, **kwargs)
-
-        self.fields["warehouse"].queryset = (
-            Location.objects.filter(location_type=Location.LocationType.OWN, active=True)
-            .select_related("inventory")
-            .order_by("inventory__name", "name")
-        )
-        self.fields["warehouse"].label_from_instance = lambda location: (
-            f"{location.inventory.name} — {location.name}"
-            if location.inventory_id else location.name
-        )
 
         if order is not None:
             self.fields["shipping_amount"].initial = order.shipping_amount
@@ -437,7 +424,12 @@ class ManufacturerOrderInvoiceForm(forms.Form):
                 max_digits=18,
                 decimal_places=4,
                 min_value=Decimal("0.0001"),
-                initial=item.quantity,
+                # 50, not 50.0000 — bottles are counted whole.
+                initial=(
+                    item.quantity.to_integral_value()
+                    if item.quantity == item.quantity.to_integral_value()
+                    else item.quantity
+                ),
                 label=f"{item.product.name} — quantity",
             )
             self.fields[f"{self.ITEM_PRICE_PREFIX}{item.pk}"] = forms.DecimalField(
@@ -449,7 +441,7 @@ class ManufacturerOrderInvoiceForm(forms.Form):
             )
             self.fields[f"{self.ITEM_EXPIRY_PREFIX}{item.pk}"] = forms.DateField(
                 widget=forms.DateInput(attrs={"type": "date"}),
-                initial=getattr(item.batch, "expiry_date", None),
+                initial=getattr(getattr(item, "batch", None), "expiry_date", None),
                 label=f"{item.product.name} — expiry date",
             )
 

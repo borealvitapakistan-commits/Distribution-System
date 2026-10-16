@@ -8,36 +8,38 @@
 <form method="post" id="moForm" novalidate>
     {% csrf_token %}
 
-    <div class="doc-toolbar">
-        <div class="doc-toolbar-title">
-            <h1>{% if order %}Edit Request to Quote {{ order.po_number }}{% else %}New Request to Quote{% endif %}</h1>
-            <a class="mo-back-link" href="{% if order %}{% url 'manufacturer-order-detail' order.pk %}{% else %}{% url 'manufacturer-order-list' %}{% endif %}">
-                ← {% if order %}Back to order{% else %}Back to list{% endif %}
-            </a>
+    <div class="page-header">
+        <div>
+            <p class="eyebrow">Stage 1 of 4 · Request to Quote{% if order %} · {{ order.po_number }}{% endif %}</p>
+            <h1>{% if order %}Change your Request to Quote{% else %}Ask a manufacturer for prices{% endif %}</h1>
+            <p>Fill in the document below the way you'd write it on paper. Nothing is ordered or paid yet.</p>
         </div>
-
-        <div class="doc-toolbar-actions">
+        <div class="fin-downloads">
+            <a class="button button-secondary" href="{% if order %}{% url 'manufacturer-order-detail' order.pk %}{% else %}{% url 'manufacturer-order-list' %}{% endif %}">Cancel</a>
             {% if order %}
-                <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}" target="_blank">Print PDF</a>
                 <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?download=1">Download PDF</a>
-            {% else %}
-                <span class="button button-secondary" aria-disabled="true" title="Save the RTQ first">Print PDF</span>
-                <span class="button button-secondary" aria-disabled="true" title="Save the RTQ first">Download PDF</span>
             {% endif %}
         </div>
     </div>
 
-    <div class="doc-toolbar">
-        <span class="stat-detail">
-            Pick products and bottle sizes, then type the price you want — or click
-            <em>Use system price</em> on a line to use the price saved in the system.
-            Leave a price empty to have it quoted.
-        </span>
-        <div class="doc-toolbar-actions">
-            <button class="button button-secondary" type="button" id="moUseAllSaved" title="Fill every empty price with the system price, where one is saved">Use system prices for empty lines</button>
-            <label for="{{ form.brand.id_for_label }}">RTQ brand: <span class="required">*</span></label>
+    <ol class="entry-steps">
+        <li><span>1</span><div><strong>Choose who it's for</strong><small>The manufacturer and your brand.</small></div></li>
+        <li><span>2</span><div><strong>Add the products</strong><small>How many bottles, and the price you'd like — or leave the price empty and let them quote.</small></div></li>
+        <li><span>3</span><div><strong>Save it</strong><small>Then download it and send it to the manufacturer.</small></div></li>
+    </ol>
+
+    <div class="entry-who">
+        <div class="form-group">
+            <label for="{{ form.manufacturer.id_for_label }}">Manufacturer <span class="required">*</span></label>
+            {{ form.manufacturer }}
+            {% for error in form.manufacturer.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+            <small>Who you're asking for prices. Not in the list? <a href="{% url 'manufacturer-create' %}" target="_blank" rel="noopener">Add a manufacturer</a>, then refresh this page.</small>
+        </div>
+        <div class="form-group">
+            <label for="{{ form.brand.id_for_label }}">Brand <span class="required">*</span></label>
             {{ form.brand }}
-            <button class="button button-doc" type="submit" data-doc-save>Save RTQ</button>
+            {% for error in form.brand.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+            <small>{{ form.brand.help_text }}</small>
         </div>
     </div>
 
@@ -60,20 +62,11 @@
     >
         {% include "manufacturers/_doc_head.html" with doc_title="Request to Quote" doc_number=order.po_number doc_date=order.created_at|default:today %}
 
-        <div class="form-grid">
-            <div class="doc-field">
-                <label for="{{ form.manufacturer.id_for_label }}">Vendor (select a manufacturer to auto-fill)</label>
-                {{ form.manufacturer }}
-                {% for error in form.manufacturer.errors %}<div class="doc-errors">{{ error }}</div>{% endfor %}
-                <div class="doc-hint"><a href="{% url 'manufacturer-create' %}" target="_blank">+ Add a manufacturer</a></div>
-            </div>
-        </div>
-
         <div class="doc-parties">
             <div>
                 <span class="doc-label">Vendor</span>
                 <div data-vendor-block>
-                    <div class="doc-party-name doc-placeholder">—select manufacturer above—</div>
+                    <div class="doc-party-name doc-placeholder">Choose a manufacturer above</div>
                     <div class="doc-party-line doc-placeholder">Manufacturer address…</div>
                 </div>
             </div>
@@ -90,12 +83,16 @@
         {{ formset.management_form }}
 
         <div class="doc-lines">
+            <div class="entry-lines-head">
+                <h2>Products</h2>
+                <button class="button button-secondary button-small" type="button" id="moUseAllSaved" title="Fill every empty price with the price you usually pay, where one is saved">Fill empty prices from my price list</button>
+            </div>
             <div class="doc-row doc-row-head">
-                <span>Sr#</span>
-                <span>Description</span>
-                <span>Qty</span>
-                <span>Unit price</span>
-                <span>Total price</span>
+                <span>#</span>
+                <span>Product and bottle size</span>
+                <span>Bottles</span>
+                <span>Price per bottle</span>
+                <span>Line total</span>
                 <span></span>
             </div>
 
@@ -105,7 +102,7 @@
                 {% endfor %}
             </div>
 
-            <button type="button" class="doc-add" id="moAddRow">＋ Add line item</button>
+            <button type="button" class="doc-add" id="moAddRow">＋ Add another product</button>
         </div>
 
         <div class="doc-foot">
@@ -125,6 +122,17 @@
             </div>
         </div>
     </section>
+
+    <div class="entry-bar">
+        <div class="entry-bar-summary">
+            <strong id="moBarLines">No products yet</strong>
+            <span id="moBarDetail">Add at least one product to save.</span>
+        </div>
+        <div class="entry-bar-actions">
+            <a class="button button-secondary" href="{% if order %}{% url 'manufacturer-order-detail' order.pk %}{% else %}{% url 'manufacturer-order-list' %}{% endif %}">Cancel</a>
+            <button class="button button-primary" type="submit" data-doc-save>{% if order %}Save changes{% else %}Save Request to Quote{% endif %}</button>
+        </div>
+    </div>
 </form>
 
 <template id="moEmptyRow">
@@ -175,7 +183,7 @@
     function applyVendor() {
         var vendor = vendorSelect && sheetData.manufacturers[vendorSelect.value];
         fillParty(form.querySelector("[data-vendor-block]"), vendor,
-            ["—select manufacturer above—", "Manufacturer address…"]);
+            ["Choose a manufacturer above", "Their address appears here"]);
     }
 
     // The brand decides the sheet's colour, logo and who it ships to.
@@ -273,15 +281,15 @@
             var alreadyUsed = saved !== null && priceInput.value !== "" &&
                 parseFloat(priceInput.value) === parseFloat(saved);
             button.hidden = saved === null || alreadyUsed;
-            button.textContent = saved !== null ? "Use system price (" + saved + ")" : "";
+            button.textContent = saved !== null ? "Use my usual price (" + saved + ")" : "";
         }
 
         if (hint) {
             if (!product || !product.value) {
-                hint.textContent = "—select above—";
+                hint.textContent = "Choose a product above";
             } else {
                 var name = product.options[product.selectedIndex].text;
-                hint.textContent = name + (saved !== null ? " · system price " + saved : " · no system price");
+                hint.textContent = name + (saved !== null ? " · you usually pay " + saved : " · no saved price");
             }
         }
     }
@@ -316,7 +324,22 @@
 
         var note = document.getElementById("moUnpriced");
         note.hidden = unpriced === 0;
-        note.textContent = unpriced ? "+ " + unpriced + " line(s) to be quoted" : "";
+        note.textContent = unpriced ? "+ " + unpriced + " product(s) for them to price" : "";
+
+        var chosen = 0;
+        rowsContainer.querySelectorAll("[data-line]").forEach(function (row) {
+            var product = row.querySelector("select[name$='-product']");
+            var deleteBox = row.querySelector("input[name$='-DELETE']");
+            if (product && product.value && !(deleteBox && deleteBox.checked)) { chosen += 1; }
+        });
+        document.getElementById("moBarLines").textContent = chosen
+            ? chosen + " product" + (chosen === 1 ? "" : "s") + " · Rs " + formatMoney(subtotal)
+            : "No products yet";
+        document.getElementById("moBarDetail").textContent = !chosen
+            ? "Add at least one product to save."
+            : unpriced
+                ? unpriced + " left for the manufacturer to price"
+                : "Every price filled in";
     }
 
     document.getElementById("moAddRow").addEventListener("click", function () {

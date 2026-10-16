@@ -1,19 +1,21 @@
 {% extends "base.html" %}
-{% load money_filters %}
+{% load money_filters order_flow %}
 
 {% block title %}
     Order Received — {{ order.po_number }}
 {% endblock %}
 
 {% block content %}
+{% order_stage_bar order current=4 %}
+
 <div class="page-header">
     <div>
-        <p class="eyebrow">Step 3 of 3 · Order received</p>
-        <h1>{{ order.po_number }} — {{ order.manufacturer.name }}</h1>
+        <p class="eyebrow">Stage 4 of 4 · Invoice · {{ order.po_number }}</p>
+        <h1>The goods from {{ order.manufacturer.name }} arrived</h1>
         <p>
             {% if needs_receipt and needs_invoice %}
-                Enter the invoice, pick the warehouse and pay the full remaining amount —
-                the order can't be marked received until it's paid in full.
+                Enter what actually arrived (from their invoice), pay whatever is still owed,
+                and save. The stock then goes to Inventory, where you split it across your warehouses.
             {% elif needs_invoice %}
                 The goods are already received — confirm what arrived to add it to Inventory, and settle whatever is left to pay.
             {% else %}
@@ -24,7 +26,7 @@
 
     <div>
         <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">
-            Back
+            Cancel
         </a>
     </div>
 </div>
@@ -32,83 +34,47 @@
 <form method="post" enctype="multipart/form-data" class="form-layout" id="receiveForm">
     {% csrf_token %}
 
-    <section class="panel">
-        <dl class="details-list">
-            <div>
-                <dt>Order total</dt>
-                <dd data-live-total>{{ order.grand_total|money }}</dd>
-            </div>
-            <div>
-                <dt>Paid in advance</dt>
-                <dd>{{ order.advance_paid|money }} ({{ order.advance_percentage }}%)</dd>
-            </div>
-            <div>
-                <dt>Remaining to pay</dt>
-                <dd data-live-remaining>{{ order.remaining_amount|money }}</dd>
-            </div>
-        </dl>
-    </section>
+    <ol class="entry-steps">
+        {% if needs_invoice %}
+            <li><span>1</span><div><strong>Check what arrived</strong><small>Change a number only if it's different from the order. Add each expiry date.</small></div></li>
+            <li><span>2</span><div><strong>Add their invoice</strong><small>Their invoice number, a photo of it, and any shipping or tax they charged.</small></div></li>
+        {% endif %}
+        <li><span>{% if needs_invoice %}3{% else %}1{% endif %}</span><div><strong>Pay the balance</strong><small>The order must be fully paid. Attach the bank slip or screenshot.</small></div></li>
+    </ol>
 
     {% if needs_invoice %}
         <section class="panel">
             <div class="panel-header">
                 <div>
-                    <h2>Invoice &amp; goods received</h2>
-                    <p>
-                        Adjust each line's quantity and price to what actually arrived,
-                        and add the expiry date. Saving this puts the stock into the warehouse you pick.
-                    </p>
+                    <h2>1. What arrived</h2>
+                    <p>Each line becomes its own batch in stock, with this expiry date.</p>
                 </div>
             </div>
-
-            <dl class="details-list">
-                <div>
-                    <dt>Invoice number</dt>
-                    <dd><strong>{{ next_invoice_number }}</strong> <small class="table-secondary">— generated automatically</small></dd>
-                </div>
-            </dl>
 
             {% if invoice_form.non_field_errors %}
                 <div class="form-errors">{{ invoice_form.non_field_errors }}</div>
             {% endif %}
-
-            <div class="form-grid panel-body">
-                {% for field in invoice_form %}
-                    {% if field.name == "warehouse" or field.name == "supplier_invoice_ref" or field.name == "invoice_file" or field.name == "shipping_amount" or field.name == "tax_percentage" %}
-                        <div class="form-group">
-                            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-                            {{ field }}
-                            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
-                            {% for error in field.errors %}
-                                <span class="field-error">{{ error }}</span>
-                            {% endfor %}
-                        </div>
-                    {% endif %}
-                {% endfor %}
-            </div>
 
             <div class="table-wrapper">
                 <table class="input-table">
                     <thead>
                         <tr>
                             <th>Product</th>
-                            <th>Bottle</th>
                             <th>Batch</th>
-                            <th>Quantity</th>
-                            <th>Unit Price</th>
-                            <th>Expiry Date</th>
-                            <th>Line Total</th>
+                            <th>Bottles received</th>
+                            <th>Price per bottle</th>
+                            <th>Expiry date <span class="required">*</span></th>
+                            <th>Line total</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for item, qty_field, price_field, expiry_field in invoice_form.item_rows %}
                             <tr data-invoice-line>
                                 <td>
-                                    {{ item.product.name }}
-                                    <small class="table-secondary">{{ item.product.sku }}</small>
+                                    <strong>{{ item.product.name }}</strong>
+                                    <small class="table-secondary">{{ item.get_bottle_size_display|default:"No bottle size" }} · {{ item.product.sku }}</small>
                                 </td>
-                                <td>{{ item.get_bottle_size_display|default:"—" }}</td>
-                                <td>{{ item.batch.code }}</td>
+                                <td>{{ item.batch.code|default:"New batch" }}</td>
                                 <td>
                                     {{ qty_field }}
                                     {% for error in qty_field.errors %}
@@ -134,13 +100,40 @@
                 </table>
             </div>
         </section>
+
+        <section class="panel">
+            <div class="panel-header">
+                <div>
+                    <h2>2. Their invoice</h2>
+                    <p>
+                        Our own invoice number is <strong>{{ next_invoice_number }}</strong> — made for you.
+                        Everything here is optional except what they charged.
+                    </p>
+                </div>
+            </div>
+
+            <div class="form-grid panel-body">
+                {% for field in invoice_form %}
+                    {% if field.name == "supplier_invoice_ref" or field.name == "invoice_file" or field.name == "shipping_amount" or field.name == "tax_percentage" %}
+                        <div class="form-group">
+                            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                            {% for error in field.errors %}
+                                <span class="field-error">{{ error }}</span>
+                            {% endfor %}
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            </div>
+        </section>
     {% elif order.invoice_approved_at %}
         <section class="panel">
             <dl class="details-list">
                 <div>
                     <dt>Invoice</dt>
                     <dd>
-                        Approved {{ order.invoice_approved_at|date:"M d, Y" }}
+                        Recorded {{ order.invoice_approved_at|date:"d M Y" }}
                         {% if order.invoice_number %}({{ order.invoice_number }}){% endif %}
                     </dd>
                 </div>
@@ -148,49 +141,68 @@
         </section>
     {% endif %}
 
-    <section class="panel form-panel">
-        <div data-paid-full {% if order.remaining_amount > 0 %}hidden{% endif %} class="info-box">
-            <strong>Paid in full.</strong>
-            <p>What's been paid already covers the whole order, so there's nothing left to pay.</p>
-        </div>
-
-        <div data-paid-owed {% if order.remaining_amount <= 0 %}hidden{% endif %}>
-            <h2>Final payment</h2>
-            <p class="stat-detail">
-                Pay the full remaining amount and upload the proof — the order can't be
-                marked received until it's paid in full.
-            </p>
-
-            {% if form.non_field_errors %}
-                <div class="form-errors">{{ form.non_field_errors }}</div>
-            {% endif %}
-
-            <div class="form-grid">
-                {% for field in form %}
-                    <div class="form-group">
-                        <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-                        {{ field }}
-                        {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
-                        {% for error in field.errors %}
-                            <span class="field-error">{{ error }}</span>
-                        {% endfor %}
-                    </div>
-                {% endfor %}
+    <section class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>{% if needs_invoice %}3. {% endif %}Pay the balance</h2>
+                <p>The totals follow the numbers above as you type.</p>
             </div>
         </div>
 
-        <div class="form-actions">
-            <button class="button button-primary" type="submit">
-                {% if needs_receipt and needs_invoice %}
-                    Mark Received
-                {% elif needs_invoice %}
-                    Add Stock to Inventory
-                {% else %}
-                    Mark Received
+        <dl class="details-list">
+            <div>
+                <dt>Order total</dt>
+                <dd data-live-total>{{ order.grand_total|money }}</dd>
+            </div>
+            <div>
+                <dt>Paid in advance</dt>
+                <dd>{{ order.advance_paid|money }}</dd>
+            </div>
+            <div>
+                <dt><strong>Left to pay now</strong></dt>
+                <dd><strong data-live-remaining>{{ order.remaining_amount|money }}</strong></dd>
+            </div>
+        </dl>
+
+        <div class="panel-body">
+            <div data-paid-full {% if order.remaining_amount > 0 %}hidden{% endif %} class="info-box">
+                <strong>Already paid in full.</strong>
+                <p>What you've paid covers the whole order, so there's nothing to pay now.</p>
+            </div>
+
+            <div data-paid-owed {% if order.remaining_amount <= 0 %}hidden{% endif %}>
+                {% if form.non_field_errors %}
+                    <div class="form-errors">{{ form.non_field_errors }}</div>
                 {% endif %}
-            </button>
+
+                <div class="form-grid">
+                    {% for field in form %}
+                        <div class="form-group">
+                            <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                            {{ field }}
+                            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                            {% for error in field.errors %}
+                                <span class="field-error">{{ error }}</span>
+                            {% endfor %}
+                        </div>
+                    {% endfor %}
+                </div>
+            </div>
         </div>
     </section>
+
+    <div class="entry-bar">
+        <div class="entry-bar-summary">
+            <strong>Left to pay: Rs <span data-bar-remaining>{{ order.remaining_amount|floatformat:"2g" }}</span></strong>
+            <span>{% if needs_invoice %}Saving adds the stock to Inventory — you'll split it across warehouses next.{% else %}Saving records the payment and marks the goods received.{% endif %}</span>
+        </div>
+        <div class="entry-bar-actions">
+            <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">Cancel</a>
+            <button class="button button-primary" type="submit">
+                {% if needs_invoice %}Save &amp; Add to Inventory{% else %}Save &amp; Mark Received{% endif %}
+            </button>
+        </div>
+    </div>
 </form>
 
 <script>
@@ -247,6 +259,10 @@
 
         totalCell.textContent = money(total);
         remainingCell.textContent = money(remaining);
+        const barRemaining = document.querySelector("[data-bar-remaining]");
+        if (barRemaining) {
+            barRemaining.textContent = money(remaining);
+        }
         owed.hidden = remaining <= 0;
         full.hidden = remaining > 0;
 

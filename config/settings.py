@@ -93,6 +93,7 @@ TEMPLATES = [
                 "django.contrib.auth.context_processors.auth",
                 "django.contrib.messages.context_processors.messages",
                 "apps.core.context_processors.brand",
+                "apps.core.navigation.nav_section",
                 "apps.core.context_processors.owner_notifications",
                 "apps.core.context_processors.distributor_notifications",
             ],

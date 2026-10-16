@@ -31,144 +31,102 @@
 <div class="app-layout">
     {% if request.user.is_authenticated %}
         <aside class="sidebar" id="sidebar">
-            <div class="brand">
-                <div class="brand-mark">DF</div>
+            <a class="brand" href="{% if request.user.is_owner %}{% url 'owner-dashboard' %}{% else %}{% url 'distributor-dashboard' %}{% endif %}">
+                {% if brand.logo %}
+                    <img class="brand-logo" src="{{ brand.logo.url }}" alt="">
+                {% else %}
+                    <div class="brand-mark">{{ brand.name|default:"D"|slice:":1"|upper }}</div>
+                {% endif %}
 
                 <div>
-                    <strong>Distribution</strong>
-                    <span>Finance Platform</span>
+                    <strong>{{ brand.name|default:"Distribution" }}</strong>
+                    <span>{% if request.user.is_owner %}Owner panel{% else %}Distributor panel{% endif %}</span>
                 </div>
-            </div>
+            </a>
 
-            <nav class="sidebar-nav">
+            <nav class="sidebar-nav" aria-label="Main">
                 {% if request.user.is_owner %}
-                    <a
-                        href="{% url 'owner-dashboard' %}"
-                        class="{% if request.resolver_match.url_name == 'owner-dashboard' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">⌂</span>
+                    <a href="{% url 'owner-dashboard' %}" class="{% if nav_section == 'dashboard' %}active{% endif %}">
+                        {% include "_icon.html" with name="home" %}
                         Dashboard
                     </a>
 
-                    <a
-                        href="{% url 'product-list' %}"
-                        class="{% if request.resolver_match.url_name == 'product-list' or request.resolver_match.url_name == 'product-create' or request.resolver_match.url_name == 'product-detail' or request.resolver_match.url_name == 'product-edit' or request.resolver_match.url_name == 'category-list' or request.resolver_match.url_name == 'category-create' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">▦</span>
-                        Products
-                    </a>
-
-                    <a
-                        href="{% url 'inventory-list' %}"
-                        class="{% if request.resolver_match.url_name == 'inventory-list' or request.resolver_match.url_name == 'inventory-create' or request.resolver_match.url_name == 'inventory-detail' or request.resolver_match.url_name == 'inventory-edit' or request.resolver_match.url_name == 'location-list' or request.resolver_match.url_name == 'location-create' or request.resolver_match.url_name == 'location-detail' or request.resolver_match.url_name == 'location-edit' or request.resolver_match.url_name == 'stock-balance-list' or request.resolver_match.url_name == 'inventory-add' or request.resolver_match.url_name == 'inventory-give' or request.resolver_match.url_name == 'shopify-sync' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">▥</span>
-                        Inventory
-                    </a>
-
-                    <a
-                        href="{% url 'stock-batch-list' %}"
-                        class="{% if request.resolver_match.url_name == 'stock-batch-list' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">▤</span>
-                        Stock / Batches
-                    </a>
-
-                    <a
-                        href="{% url 'batch-trace' %}"
-                        class="{% if request.resolver_match.url_name == 'batch-trace' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">⌕</span>
-                        Batch Trace
-                    </a>
-
-                    <a
-                        href="{% url 'owner-purchase-orders-hub' %}"
-                        class="{% if request.resolver_match.url_name == 'owner-purchase-orders-hub' or request.resolver_match.url_name == 'owner-purchase-order-list' or request.resolver_match.url_name == 'owner-purchase-order-detail' or request.resolver_match.url_name == 'purchase-order-quote' or request.resolver_match.url_name == 'purchase-order-change' or request.resolver_match.url_name == 'purchase-order-invoice' or request.resolver_match.url_name == 'manufacturer-order-list' or request.resolver_match.url_name == 'manufacturer-order-create' or request.resolver_match.url_name == 'manufacturer-order-detail' or request.resolver_match.url_name == 'manufacturer-order-edit' or request.resolver_match.url_name == 'manufacturer-order-quote' or request.resolver_match.url_name == 'manufacturer-order-received' or request.resolver_match.url_name == 'manufacturer-order-advance' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">✉</span>
+                    <span class="nav-group">Buying &amp; selling</span>
+                    <a href="{% url 'owner-purchase-orders-hub' %}" class="{% if nav_section == 'purchase-orders' %}active{% endif %}">
+                        {% include "_icon.html" with name="cart" %}
                         Purchase Orders
                         {% if purchase_orders_attention_count %}
                             <span class="nav-badge">{{ purchase_orders_attention_count }}</span>
                         {% endif %}
                     </a>
-
-                    <a
-                        href="{% url 'owner-agreement-list' %}"
-                        class="{% if request.resolver_match.url_name == 'owner-agreement-list' or request.resolver_match.url_name == 'owner-agreement-create' or request.resolver_match.url_name == 'owner-agreement-detail' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">✎</span>
+                    <a href="{% url 'owner-agreement-list' %}" class="{% if nav_section == 'agreements' %}active{% endif %}">
+                        {% include "_icon.html" with name="handshake" %}
                         Agreements
                     </a>
 
-                    <a
-                        href="{% url 'owner-finance' %}"
-                        class="{% if 'owner-finance' in request.resolver_match.url_name %}active{% endif %}"
-                    >
-                        <span class="nav-icon">$</span>
+                    <span class="nav-group">Stock</span>
+                    <a href="{% url 'product-list' %}" class="{% if nav_section == 'products' %}active{% endif %}">
+                        {% include "_icon.html" with name="box" %}
+                        Products
+                    </a>
+                    <a href="{% url 'inventory-list' %}" class="{% if nav_section == 'inventory' %}active{% endif %}">
+                        {% include "_icon.html" with name="warehouse" %}
+                        Inventory
+                    </a>
+                    <a href="{% url 'stock-batch-list' %}" class="{% if request.resolver_match.url_name == 'stock-batch-list' %}active{% endif %}">
+                        {% include "_icon.html" with name="layers" %}
+                        Stock / Batches
+                    </a>
+                    <a href="{% url 'batch-trace' %}" class="{% if request.resolver_match.url_name == 'batch-trace' %}active{% endif %}">
+                        {% include "_icon.html" with name="search" %}
+                        Batch Trace
+                    </a>
+
+                    <span class="nav-group">Money</span>
+                    <a href="{% url 'owner-finance' %}" class="{% if nav_section == 'finance' %}active{% endif %}">
+                        {% include "_icon.html" with name="wallet" %}
                         Finance
                     </a>
                 {% else %}
-                    <a
-                        href="{% url 'distributor-dashboard' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-dashboard' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">⌂</span>
+                    <a href="{% url 'distributor-dashboard' %}" class="{% if nav_section == 'dashboard' %}active{% endif %}">
+                        {% include "_icon.html" with name="home" %}
                         Dashboard
                     </a>
 
-                    <a
-                        href="{% url 'distributor-profile' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-profile' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">♙</span>
-                        My Profile
-                    </a>
-
-                    <a
-                        href="{% url 'distributor-orders-hub' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-orders-hub' or request.resolver_match.url_name == 'distributor-purchase-order-list' or request.resolver_match.url_name == 'distributor-purchase-order-detail' or request.resolver_match.url_name == 'purchase-order-create' or request.resolver_match.url_name == 'purchase-order-edit' or request.resolver_match.url_name == 'purchase-order-counter' or request.resolver_match.url_name == 'distributor-purchase-order-advance' or request.resolver_match.url_name == 'distributor-purchase-order-receive' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">✉</span>
+                    <span class="nav-group">Buying</span>
+                    <a href="{% url 'distributor-orders-hub' %}" class="{% if nav_section == 'orders' %}active{% endif %}">
+                        {% include "_icon.html" with name="cart" %}
                         Orders
                         {% if order_updates_count %}
                             <span class="nav-badge">{{ order_updates_count }}</span>
                         {% endif %}
                     </a>
-
-                    <a
-                        href="{% url 'distributor-agreement-list' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-agreement-list' or request.resolver_match.url_name == 'distributor-agreement-detail' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">✎</span>
+                    <a href="{% url 'distributor-agreement-list' %}" class="{% if nav_section == 'agreements' %}active{% endif %}">
+                        {% include "_icon.html" with name="handshake" %}
                         Agreements
                         {% if agreements_to_sign_count %}
                             <span class="nav-badge">{{ agreements_to_sign_count }}</span>
                         {% endif %}
                     </a>
 
-                    <a
-                        href="{% url 'distributor-region-list' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-region-list' or request.resolver_match.url_name == 'distributor-region-create' or request.resolver_match.url_name == 'distributor-region-detail' or request.resolver_match.url_name == 'distributor-region-edit' or request.resolver_match.url_name == 'distributor-warehouse-list' or request.resolver_match.url_name == 'distributor-warehouse-create' or request.resolver_match.url_name == 'distributor-warehouse-detail' or request.resolver_match.url_name == 'distributor-warehouse-edit' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">◈</span>
+                    <span class="nav-group">Stock &amp; sales</span>
+                    <a href="{% url 'distributor-region-list' %}" class="{% if nav_section == 'inventory' %}active{% endif %}">
+                        {% include "_icon.html" with name="warehouse" %}
                         Inventory
                     </a>
-
-                    <a
-                        href="{% url 'distributor-stock-balance-list' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-stock-balance-list' or request.resolver_match.url_name == 'distributor-stock-batch-list' or request.resolver_match.url_name == 'distributor-stock-movement-list' or request.resolver_match.url_name == 'distributor-stock-receive' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">▥</span>
+                    <a href="{% url 'distributor-stock-balance-list' %}" class="{% if nav_section == 'stock' %}active{% endif %}">
+                        {% include "_icon.html" with name="layers" %}
                         My Stock
                     </a>
-
-                    <a
-                        href="{% url 'distributor-sale-list' %}"
-                        class="{% if request.resolver_match.url_name == 'distributor-sale-list' or request.resolver_match.url_name == 'distributor-sale-create' %}active{% endif %}"
-                    >
-                        <span class="nav-icon">⇢</span>
+                    <a href="{% url 'distributor-sale-list' %}" class="{% if nav_section == 'sales' %}active{% endif %}">
+                        {% include "_icon.html" with name="chart" %}
                         Sales
+                    </a>
+
+                    <span class="nav-group">Account</span>
+                    <a href="{% url 'distributor-profile' %}" class="{% if nav_section == 'profile' %}active{% endif %}">
+                        {% include "_icon.html" with name="user" %}
+                        My Profile
                     </a>
                 {% endif %}
             </nav>

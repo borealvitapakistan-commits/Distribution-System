@@ -319,7 +319,6 @@ class ManufacturerOrderTests(TestCase):
     def test_full_lifecycle_via_views(self):
         order = self.make_order()
         item = order.items.get()
-        warehouse = make_warehouse(self.owner)
         record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
         self.client.force_login(self.owner)
 
@@ -328,7 +327,6 @@ class ManufacturerOrderTests(TestCase):
         response = self.client.post(
             reverse("manufacturer-order-received", kwargs={"pk": order.pk}),
             {
-                "warehouse": warehouse.pk,
                 f"item_qty_{item.pk}": "10",
                 f"item_price_{item.pk}": "62.50",
                 f"item_expiry_{item.pk}": "2027-01-01",
@@ -337,9 +335,8 @@ class ManufacturerOrderTests(TestCase):
                 "proof": proof_file(),
             },
         )
-        self.assertRedirects(
-            response, reverse("manufacturer-order-detail", kwargs={"pk": order.pk})
-        )
+        # Straight on to Inventory, to split the new batch across warehouses.
+        self.assertRedirects(response, reverse("inventory-list"))
 
         order.refresh_from_db()
         self.assertEqual(order.status, ManufacturerOrder.Status.RECEIVED)
@@ -350,10 +347,10 @@ class ManufacturerOrderTests(TestCase):
         self.assertEqual(item.batch.status, "RECEIVED")
         self.assertEqual(str(item.batch.expiry_date), "2027-01-01")
 
-        from apps.owner_inventory.services import available_batches_fefo
+        from apps.owner_inventory.services import unallocated_batches
 
-        # The stock went straight into the warehouse picked on the page.
-        created_batch = available_batches_fefo(location=warehouse, product=item.product).first()
+        # The stock waits unallocated until it's split across warehouses.
+        created_batch = unallocated_batches(product=item.product).first()
         self.assertEqual(created_batch.quantity_remaining, Decimal("10"))
         self.assertEqual(created_batch.batch_number, item.batch.code)
         self.assertEqual(created_batch.source_batch_id, item.batch.pk)
@@ -516,7 +513,6 @@ class ManufacturerPaymentFlowTests(TestCase):
         from apps.core.models import Brand
 
         brand = Brand.objects.create(name="Flow Brand")
-        warehouse = make_warehouse(self.owner)
         self.client.force_login(self.owner)
 
         response = self.client.post(
@@ -557,11 +553,12 @@ class ManufacturerPaymentFlowTests(TestCase):
         )
         self.assertRedirects(response, advance_url)
 
-        # Until the advance is answered, receiving is locked: the button
-        # is greyed out and the page sends you to the advance question.
+        # Until the advance is answered, receiving is locked: the page asks
+        # for the advance and doesn't offer the goods-arrived step yet.
         detail = self.client.get(detail_url)
-        self.assertContains(detail, "Upload Payment Proof (Advance / No Advance)")
-        self.assertContains(detail, "is-disabled")
+        self.assertContains(detail, "Record Your Advance Payment")
+        self.assertContains(detail, "Your turn")
+        self.assertNotContains(detail, "Goods Arrived — Record Invoice")
         receive_url = reverse("manufacturer-order-received", kwargs={"pk": order.pk})
         self.assertRedirects(self.client.get(receive_url), advance_url)
 
@@ -588,16 +585,15 @@ class ManufacturerPaymentFlowTests(TestCase):
         self.assertContains(detail, "Advance paid")
 
         page = self.client.get(receive_url)
-        self.assertContains(page, "Final payment")
-        self.assertContains(page, "Invoice &amp; goods received")
+        self.assertContains(page, "Pay the balance")
+        self.assertContains(page, "1. What arrived")
         # Our invoice number is generated from the brand.
         self.assertContains(page, "INV-FLOW-BRAND-0001")
         self.assertContains(page, "Invoice document")
-        self.assertContains(page, "Receive into warehouse")
+        self.assertNotContains(page, "Receive into warehouse")
 
         item = order.items.get()
         invoice = {
-            "warehouse": warehouse.pk,
             f"item_qty_{item.pk}": "5",
             f"item_price_{item.pk}": "200",
         }
@@ -632,7 +628,7 @@ class ManufacturerPaymentFlowTests(TestCase):
                 "proof": proof_file(),
             },
         )
-        self.assertRedirects(response, detail_url)
+        self.assertRedirects(response, reverse("inventory-list"))
 
         order.refresh_from_db()
         self.assertEqual(order.status, ManufacturerOrder.Status.RECEIVED)
@@ -642,9 +638,9 @@ class ManufacturerPaymentFlowTests(TestCase):
         self.assertEqual(order.invoice_number, "INV-FLOW-BRAND-0001")
         self.assertEqual(order.supplier_invoice_ref, "FB-778")
 
-        from apps.owner_inventory.services import available_batches_fefo
+        from apps.owner_inventory.services import unallocated_batches
 
-        stock = available_batches_fefo(location=warehouse, product=self.product).get()
+        stock = unallocated_batches(product=self.product).get()
         self.assertEqual(stock.quantity_remaining, Decimal("5"))
 
         detail = self.client.get(reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
@@ -703,12 +699,11 @@ class ManufacturerPaymentFlowTests(TestCase):
         self.client.force_login(self.owner)
         receive_url = reverse("manufacturer-order-received", kwargs={"pk": self.order.pk})
         page = self.client.get(receive_url)
-        self.assertContains(page, "Add Stock to Inventory")
+        self.assertContains(page, "Save &amp; Add to Inventory")
 
         response = self.client.post(
             receive_url,
             {
-                "warehouse": make_warehouse(self.owner).pk,
                 f"item_qty_{item.pk}": "10",
                 f"item_price_{item.pk}": "100",
                 f"item_expiry_{item.pk}": "2028-06-30",
@@ -717,9 +712,7 @@ class ManufacturerPaymentFlowTests(TestCase):
                 "proof": proof_file(),
             },
         )
-        self.assertRedirects(
-            response, reverse("manufacturer-order-detail", kwargs={"pk": self.order.pk})
-        )
+        self.assertRedirects(response, reverse("inventory-list"))
         self.assertIsNotNone(self._refresh().invoice_approved_at)
 
         # Nothing left to do — the page sends you back to the order.
@@ -857,7 +850,10 @@ class BatchIdentityTests(TestCase):
         rows = list(response.context["batches"])
         self.assertEqual(len(rows), 2)
         self.assertEqual([row.batch_number for row in rows], [yesterday.code, today.code])
-        self.assertNotContains(response, "140")
+        # No cell shows the combined 140 — matched as a cell's whole text,
+        # so a number elsewhere in the page (e.g. app.css?v=...140...)
+        # doesn't count.
+        self.assertNotRegex(response.content.decode(), r">\s*140(\.0+)?\s*<")
 
 
 class ManufacturerApiTests(TestCase):
@@ -1099,9 +1095,10 @@ class RequestToQuoteFlowTests(TestCase):
         self.assertContains(detail, "mo-row-new")
         self.assertContains(detail, "Send Purchase Order")
 
-        list_page = self.client.get(reverse("manufacturer-order-list") + "?status=QUOTE&q=Glorious")
+        # Their prices are in, so it's waiting for us: on the "Needs you" tab.
+        list_page = self.client.get(reverse("manufacturer-order-list") + "?show=you&q=Glorious")
         self.assertContains(list_page, order.po_number)
-        list_page = self.client.get(reverse("manufacturer-order-list") + "?status=GOOD")
+        list_page = self.client.get(reverse("manufacturer-order-list") + "?show=done")
         self.assertNotContains(list_page, order.po_number)
 
     def test_product_page_saves_bottle_prices(self):
@@ -1371,7 +1368,8 @@ class RequestToQuoteFlowTests(TestCase):
         self.assertContains(detail, "Conversation history")
         self.assertContains(detail, "Can you do 20?")
         self.assertContains(detail, "Our best price.")
-        self.assertContains(detail, "Waiting for the manufacturer")
+        self.assertContains(detail, f"Waiting for {order.manufacturer.name}")
+        self.assertContains(detail, "Record Manufacturer&#x27;s Reply")
 
         # Accepting their reply sends the message along with the PO.
         self.quote_reply(
@@ -1406,7 +1404,7 @@ class RequestToQuoteFlowTests(TestCase):
         from .services import record_manufacturer_invoice as invoice
         invoice(actor=self.owner, order_id=order.pk)
         detail = self.client.get(detail_url)
-        self.assertContains(detail, "View Full Conversation History")
+        self.assertContains(detail, "See the conversation")
         self.assertContains(detail, "Can you do 20?")
         self.assertContains(detail, "Purchase Order v2")
         self.assertContains(detail, "Download Full Order Record (PDF)")
@@ -1510,3 +1508,137 @@ class RequestToQuoteFlowTests(TestCase):
         record_manufacturer_invoice(actor=self.owner, order_id=order.pk)
         order.refresh_from_db()
         self.assertEqual([s for _, s in states(order)], ["done"] * 4)
+
+
+class OrderGuideTests(TestCase):
+    """The "What to do now" card and the list's "What's next" column say
+    the same thing, and the right thing, at every stage."""
+
+    setUp = RequestToQuoteFlowTests.setUp
+    make_quote = RequestToQuoteFlowTests.make_quote
+    lines = RequestToQuoteFlowTests.lines
+    quote_reply = RequestToQuoteFlowTests.quote_reply
+
+    def guide(self, order):
+        from .guide import next_step_guide
+
+        order = ManufacturerOrder.objects.get(pk=order.pk)
+        return next_step_guide(order)
+
+    def status(self, order):
+        from .guide import list_status
+
+        return list_status(ManufacturerOrder.objects.get(pk=order.pk))
+
+    def test_every_stage(self):
+        from .guide import MANUFACTURER, YOU
+        from .services import confirm_purchase_order, record_advance_decision, record_counter_offer
+
+        order = self.make_quote()
+
+        # 1. Request to Quote sent — waiting for their prices.
+        guide = self.guide(order)
+        self.assertEqual(guide["heading"], "Record Manufacturer's Reply")
+        self.assertEqual(guide["waiting_on"], MANUFACTURER)
+        self.assertEqual(guide["primary"]["label"], "Next")
+        self.assertEqual([c.get("next", False) for c in guide["checklist"]], [False, True, False])
+        self.assertEqual(self.status(order)[:2], (1, "Waiting for the manufacturer's prices"))
+
+        # 2. Their prices are in — your turn, three choices.
+        prices = {(self.ashwagandha.pk, 60): "12", (self.ashwagandha.pk, 120): "30", (self.vitamin_d.pk, 60): "10"}
+        self.quote_reply(order, prices)
+        guide = self.guide(order)
+        self.assertEqual(guide["heading"], "Review the Manufacturer's Prices")
+        self.assertEqual(guide["waiting_on"], YOU)
+        self.assertEqual(len(guide["choices"]), 3)
+        self.assertIn("1 price differ", guide["summary"])
+        self.assertEqual(self.status(order)[2], YOU)
+
+        # A counter-offer puts the ball back in their court.
+        lines = self.lines(order)
+        record_counter_offer(
+            actor=self.owner,
+            order_id=order.pk,
+            item_updates={str(item.pk): {"unit_price": Decimal("9")} for item in lines.values()},
+        )
+        guide = self.guide(order)
+        self.assertEqual(guide["heading"], "Record Manufacturer's Reply")
+        self.assertEqual(guide["waiting_on"], MANUFACTURER)
+        self.assertEqual(self.status(order)[1], "Waiting for their answer to your counter-offer")
+
+        # 3. Accepted — record the advance, then wait for the goods.
+        self.quote_reply(order, prices)
+        confirm_purchase_order(actor=self.owner, order_id=order.pk)
+        guide = self.guide(order)
+        self.assertEqual(guide["heading"], "Record Your Advance Payment")
+        self.assertEqual(guide["waiting_on"], YOU)
+        self.assertEqual(self.status(order)[:2], (3, "Record your advance payment"))
+
+        record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
+        guide = self.guide(order)
+        self.assertEqual(guide["heading"], "Wait for the Goods")
+        self.assertEqual(guide["primary"]["label"], "Goods Arrived — Record Invoice")
+        self.assertEqual(self.status(order)[2], MANUFACTURER)
+
+        # 4. Invoiced — the stock waits to be split across warehouses.
+        from .services import record_manufacturer_invoice
+
+        mark_manufacturer_order_received(actor=self.owner, order_id=order.pk)
+        record_manufacturer_invoice(actor=self.owner, order_id=order.pk)
+        guide = self.guide(order)
+        self.assertEqual(guide["heading"], "Split the Stock Across Warehouses")
+        self.assertEqual(guide["primary"]["url"], reverse("inventory-list"))
+        self.assertEqual(self.status(order)[:2], (5, "Split the stock across warehouses"))
+
+    def test_pages_show_the_stage_bar_and_list_columns(self):
+        order = self.make_quote()
+        self.client.force_login(self.owner)
+
+        detail = self.client.get(reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
+        self.assertContains(detail, "You are here")
+        self.assertContains(detail, "What do these stages mean?")
+        self.assertContains(detail, "You ask the manufacturer for prices")
+
+        quote_page = self.client.get(reverse("manufacturer-order-quote", kwargs={"pk": order.pk}))
+        self.assertContains(quote_page, "Stage 2 of 4")
+        self.assertContains(quote_page, "flow-tracker-compact")
+
+        listing = self.client.get(reverse("manufacturer-order-list"))
+        self.assertContains(listing, "Waiting for the manufacturer&#x27;s prices")
+        self.assertContains(listing, "Stage 1 of 4")
+
+
+class OlderOrderWithoutBatchTests(TestCase):
+    """Orders placed before batches existed have lines with no batch; the
+    goods-arrived page and recording their invoice must still work."""
+
+    def test_receive_page_and_invoice_work_without_a_batch(self):
+        from apps.batches.models import Batch
+        from apps.owner_inventory.services import unallocated_batches
+
+        from .services import record_advance_decision, record_manufacturer_invoice
+
+        owner = User.objects.create_user(
+            email="owner@old.test", password="OwnerPassword123!",
+            role=User.Role.OWNER, is_active=True,
+        )
+        manufacturer = create_manufacturer(actor=owner, name="Old Labs")
+        product = create_product(
+            actor=owner, sku="OLD-1", barcode="", name="Old Syrup",
+            base_retail_price=Decimal("100"), currency="pkr",
+        )
+        order = create_manufacturer_order(
+            actor=owner, manufacturer=manufacturer,
+            items=[{"product": product, "quantity": Decimal("5"), "unit_price": Decimal("10")}],
+        )
+        Batch.objects.filter(manufacturer_order_item__order=order).delete()
+        record_advance_decision(actor=owner, order_id=order.pk, pays_advance=False)
+
+        self.client.force_login(owner)
+        page = self.client.get(reverse("manufacturer-order-received", kwargs={"pk": order.pk}))
+        self.assertEqual(page.status_code, 200)
+        self.assertContains(page, "New batch")
+        self.assertContains(page, 'value="5"')
+
+        record_manufacturer_invoice(actor=owner, order_id=order.pk)
+        self.assertEqual(unallocated_batches(product=product).get().quantity_remaining, Decimal("5"))

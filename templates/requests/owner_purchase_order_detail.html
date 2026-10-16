@@ -71,12 +71,8 @@
 {% include "requests/_steps.html" %}
 
 <div class="mo-cards">
-    <section class="panel">
-        <div class="panel-header">
-            <div>
-                <h2>Next step</h2>
-            </div>
-        </div>
+    <section class="panel flow-card">
+        {% include "requests/_next_step_head.html" with me="owner" %}
 
         <div class="panel-body mo-next">
             {% if purchase_order.status == "DECLINED" %}
