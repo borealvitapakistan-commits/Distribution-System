@@ -44,6 +44,8 @@
             {% endif %}
             {% if show_conversation %}
                 <a href="#conversation">Conversation history</a>
+            {% else %}
+                <a href="{% url 'manufacturer-order-conversation' order.pk %}">Conversation history</a>
             {% endif %}
             {% if order.invoice_approved_at %}
                 <a href="{% url 'manufacturer-order-record-pdf' order.pk %}">Download full order record (PDF)</a>
@@ -55,9 +57,11 @@
 
 {% include "manufacturers/_stage_tracker.html" %}
 
-<div class="flow-layout">
+{% if not guide.choices %}
+<div class="flow-layout{% if not show_glance %} flow-layout-single{% endif %}">
     {% include "manufacturers/_next_step_card.html" %}
 
+    {% if show_glance %}
     <section class="panel flow-glance">
         <div class="panel-header">
             <div>
@@ -120,8 +124,11 @@
             </li>
         </ul>
     </section>
+    {% endif %}
 </div>
+{% endif %}
 
+{% if not waiting_for_first_reply %}
 <h2 class="flow-section-title">
     {% if order.is_quote and order.quoted_at %}
         Prices from {{ order.manufacturer.name }}
@@ -147,7 +154,7 @@
     <div class="doc-parties">
         <div>
             <span class="doc-label">Vendor</span>
-            {% with party=order.manufacturer %}
+            {% with party=order.vendor %}
                 <div class="doc-party-name">{{ party.name }}</div>
                 {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
                 {% if party.email %}<div class="doc-party-line">Mail: {{ party.email }}</div>{% endif %}
@@ -156,9 +163,12 @@
         </div>
         <div>
             <span class="doc-label">Ship to</span>
-            <div class="doc-party-name">{{ brand.legal_name|default:brand.name }}</div>
-            {% if brand.address %}<div class="doc-party-line">{{ brand.address }}</div>{% endif %}
-            {% if brand.phone %}<div class="doc-party-line">Phone: {{ brand.phone }}</div>{% endif %}
+            {% with party=order.ship_to %}
+                <div class="doc-party-name">{{ party.name }}</div>
+                {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
+                {% if party.email %}<div class="doc-party-line">Mail: {{ party.email }}</div>{% endif %}
+                {% if party.phone %}<div class="doc-party-line">Phone: {{ party.phone }}</div>{% endif %}
+            {% endwith %}
         </div>
     </div>
 
@@ -241,7 +251,23 @@
             <div class="doc-grand">{{ order.grand_total|floatformat:"2g" }}</div>
         </div>
     </div>
+
+    {% if guide.choices %}
+        {# Reviewing their prices: the three choices sit under the order itself. #}
+        <div class="doc-actions">
+            <form method="post" action="{% url 'manufacturer-order-confirm' order.pk %}">
+                {% csrf_token %}
+                <button type="submit" class="button button-primary">Accept &amp; Send Purchase Order</button>
+            </form>
+            {% for choice in guide.choices %}
+                {% if not choice.accept %}
+                    <a class="button button-secondary" href="{{ choice.link.url }}" title="{{ choice.text }}">{{ choice.link.label }}</a>
+                {% endif %}
+            {% endfor %}
+        </div>
+    {% endif %}
 </section>
+{% endif %}
 
 {% if not order.is_quote %}
 <section class="panel">

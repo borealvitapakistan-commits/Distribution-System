@@ -62,23 +62,26 @@
     >
         {% include "manufacturers/_doc_head.html" with doc_title="Request to Quote" doc_number=order.po_number doc_date=order.created_at|default:today %}
 
-        <div class="doc-parties">
-            <div>
+        <div class="doc-parties doc-parties-edit">
+            <div data-party="vendor">
                 <span class="doc-label">Vendor</span>
-                <div data-vendor-block>
-                    <div class="doc-party-name doc-placeholder">Choose a manufacturer above</div>
-                    <div class="doc-party-line doc-placeholder">Manufacturer address…</div>
-                </div>
+                <input type="text" name="{{ form.vendor_name.html_name }}" value="{{ form.vendor_name.value|default:'' }}" placeholder="Manufacturer name" aria-label="Vendor name" class="doc-party-input doc-party-input-name" data-party-field="name">
+                <textarea name="{{ form.vendor_address.html_name }}" rows="2" placeholder="Address" aria-label="Vendor address" class="doc-party-input" data-party-field="address">{{ form.vendor_address.value|default:'' }}</textarea>
+                <input type="text" name="{{ form.vendor_email.html_name }}" value="{{ form.vendor_email.value|default:'' }}" placeholder="Email" aria-label="Vendor email" class="doc-party-input" data-party-field="email">
+                <input type="text" name="{{ form.vendor_phone.html_name }}" value="{{ form.vendor_phone.value|default:'' }}" placeholder="Phone" aria-label="Vendor phone" class="doc-party-input" data-party-field="phone">
             </div>
-            <div>
+            <div data-party="shipto">
                 <span class="doc-label">Ship to</span>
-                <div data-shipto-block>
-                    <div class="doc-party-name doc-placeholder">Company name…</div>
-                    <div class="doc-party-line doc-placeholder">Address…</div>
-                    <div class="doc-party-line doc-placeholder">Phone…</div>
-                </div>
+                <input type="text" name="{{ form.ship_to_name.html_name }}" value="{{ form.ship_to_name.value|default:'' }}" placeholder="Company name" aria-label="Ship to name" class="doc-party-input doc-party-input-name" data-party-field="name">
+                <textarea name="{{ form.ship_to_address.html_name }}" rows="2" placeholder="Address" aria-label="Ship to address" class="doc-party-input" data-party-field="address">{{ form.ship_to_address.value|default:'' }}</textarea>
+                <input type="text" name="{{ form.ship_to_email.html_name }}" value="{{ form.ship_to_email.value|default:'' }}" placeholder="Email" aria-label="Ship to email" class="doc-party-input" data-party-field="email">
+                <input type="text" name="{{ form.ship_to_phone.html_name }}" value="{{ form.ship_to_phone.value|default:'' }}" placeholder="Phone" aria-label="Ship to phone" class="doc-party-input" data-party-field="phone">
             </div>
         </div>
+        <p class="doc-hint doc-parties-hint">
+            Filled in from the manufacturer and brand you chose. Change anything here for this
+            Request to Quote only — the manufacturer's and brand's own details stay as they are.
+        </p>
 
         {{ formset.management_form }}
 
@@ -165,29 +168,30 @@
         return node;
     }
 
-    function fillParty(block, party, placeholders) {
-        block.replaceChildren();
-        if (!party) {
-            block.appendChild(el("div", "doc-party-name doc-placeholder", placeholders[0]));
-            placeholders.slice(1).forEach(function (text) {
-                block.appendChild(el("div", "doc-party-line doc-placeholder", text));
-            });
-            return;
-        }
-        block.appendChild(el("div", "doc-party-name", party.name));
-        [party.address, party.email && "Mail: " + party.email, party.phone && "Phone: " + party.phone]
-            .filter(Boolean)
-            .forEach(function (text) { block.appendChild(el("div", "doc-party-line", text)); });
+    // The Vendor / Ship to boxes are filled from the manufacturer or brand
+    // picked — every time the choice changes, but not on first load when
+    // they already hold this order's own (possibly edited) details.
+    function fillPartyInputs(which, party) {
+        var block = form.querySelector("[data-party='" + which + "']");
+        ["name", "address", "email", "phone"].forEach(function (field) {
+            var input = block.querySelector("[data-party-field='" + field + "']");
+            input.value = party ? (party[field] || "") : "";
+        });
     }
 
-    function applyVendor() {
+    function partyIsEmpty(which) {
+        var block = form.querySelector("[data-party='" + which + "']");
+        return !block.querySelector("[data-party-field='name']").value.trim();
+    }
+
+    function applyVendor(fromChange) {
+        if (!fromChange && !partyIsEmpty("vendor")) { return; }
         var vendor = vendorSelect && sheetData.manufacturers[vendorSelect.value];
-        fillParty(form.querySelector("[data-vendor-block]"), vendor,
-            ["Choose a manufacturer above", "Their address appears here"]);
+        fillPartyInputs("vendor", vendor);
     }
 
     // The brand decides the sheet's colour, logo and who it ships to.
-    function applyBrand() {
+    function applyBrand(fromChange) {
         var brand = brandSelect && sheetData.brands[brandSelect.value];
         var logo = form.querySelector("[data-doc-logo]");
         var lines = form.querySelector("[data-doc-brand-lines]");
@@ -219,9 +223,10 @@
             if (brand.address) { lines.appendChild(el("div", "doc-party-line", brand.address)); }
         }
 
-        fillParty(form.querySelector("[data-shipto-block]"),
-            brand ? {name: brand.legal_name, address: brand.address, email: brand.email, phone: brand.phone} : null,
-            ["Company name…", "Address…", "Phone…"]);
+        if (fromChange || partyIsEmpty("shipto")) {
+            fillPartyInputs("shipto",
+                brand ? {name: brand.legal_name, address: brand.address, email: brand.email, phone: brand.phone} : null);
+        }
     }
 
     function formatMoney(amount) {
@@ -371,8 +376,8 @@
     });
 
     form.addEventListener("change", function (event) {
-        if (event.target === vendorSelect) { applyVendor(); }
-        if (event.target === brandSelect) { applyBrand(); }
+        if (event.target === vendorSelect) { applyVendor(true); }
+        if (event.target === brandSelect) { applyBrand(true); }
 
         var row = event.target.closest("[data-line]");
         if (row && event.target.matches("select[name$='-product'], select[name$='-bottle_size']")) {
@@ -401,8 +406,8 @@
     });
 
     rowsContainer.querySelectorAll("[data-line]").forEach(refreshSavedPrice);
-    applyVendor();
-    applyBrand();
+    applyVendor(false);
+    applyBrand(false);
     computeTotals();
 })();
 </script>

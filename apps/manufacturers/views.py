@@ -31,6 +31,7 @@ from .forms import (
 )
 from .models import Manufacturer, ManufacturerOrder, OrderRevision
 from .guide import STAGES, list_status, next_step_guide
+from .record_pdf import document_pdf, order_record_pdf
 from .services import (
     awaiting_manufacturer_reply,
     confirm_purchase_order,
@@ -385,6 +386,7 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
                 brand=form.cleaned_data["brand"],
                 terms=form.cleaned_data["terms"],
                 message=form.cleaned_data["message"],
+                parties=form.party_details(),
                 items=manufacturer_order_item_rows(formset),
             )
         except (PermissionDenied, ValidationError) as exc:
@@ -443,6 +445,8 @@ class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, Vie
                     "manufacturer": order.manufacturer,
                     "brand": order.brand,
                     "terms": order.terms,
+                    **{f"vendor_{key}": value for key, value in order.vendor.items()},
+                    **{f"ship_to_{key}": value for key, value in order.ship_to.items()},
                     "message": (
                         order.revisions.filter(stage=OrderRevision.Stage.REQUEST)
                         .values_list("message", flat=True)
@@ -473,6 +477,7 @@ class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, Vie
                 brand=form.cleaned_data["brand"],
                 terms=form.cleaned_data["terms"],
                 message=form.cleaned_data["message"],
+                parties=form.party_details(),
                 items=manufacturer_order_item_rows(formset),
             )
         except (PermissionDenied, ValidationError) as exc:
@@ -662,9 +667,6 @@ class ManufacturerOrderCounterView(OrderLinesFormView):
         "their answer, record it as their reply."
     )
     submit_label = "Save Counter-offer"
-
-    def success_url(self, order):
-        return f"{super().success_url(order)}#conversation"
 
     def allowed(self, order):
         return order.is_quote and order.quoted_at is not None
@@ -859,11 +861,17 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
             1 for item in context["items"] if item.price_highlight == "new"
         )
         context["can_edit_quote"] = self.object.is_quote and self.object.quoted_at is None
-        # Shown while negotiating and once the order is complete; hidden
-        # in between, while the Purchase Order is with the manufacturer.
-        context["show_conversation"] = (
-            self.object.is_quote or self.object.invoice_approved_at is not None
+        # Right after the Request to Quote is made, the page is just the
+        # stage and what to do now — the document comes in once the
+        # manufacturer has replied.
+        context["waiting_for_first_reply"] = (
+            self.object.is_quote and self.object.quoted_at is None
         )
+        # While the prices are being agreed the page stays on the decision:
+        # no "at a glance" panel. The conversation is shown on the order
+        # only once it's invoiced; until then it has its own page.
+        context["show_glance"] = not self.object.is_quote
+        context["show_conversation"] = self.object.invoice_approved_at is not None
         if context["show_conversation"]:
             context["timeline"] = revision_timeline(self.object)
         context["awaiting_reply"] = (
@@ -1208,18 +1216,8 @@ class ManufacturerOrderPDFView(OwnerRequiredMixin, View):
             raise Http404
 
         team_copy = request.GET.get("copy") == "team"
-        brand = _order_brand(order)
-        columns, rows = document_table(list(order.items.all()))
-
-        pdf_bytes = render_pdf(
-            "manufacturers/manufacturer_order_pdf.html",
-            {
-                "order": order,
-                "brand": brand,
-                "columns": columns,
-                "rows": rows,
-                "highlight_changes": team_copy,
-            },
+        pdf_bytes = document_pdf(
+            order, kind="current", brand=_order_brand(order), highlight_changes=team_copy
         )
 
         kind = "RTQ" if order.is_quote else "PO"
@@ -1234,9 +1232,11 @@ class ManufacturerOrderPDFView(OwnerRequiredMixin, View):
 
 
 class ManufacturerOrderRecordPDFView(OwnerRequiredMixin, View):
-    """The complete record of one order as a PDF, for our files: the
-    stages, the final lines with their price changes, payments and the
-    whole conversation with the Manufacturer. Internal only."""
+    """The complete record of one order as one PDF, for our files, in the
+    order it happened: our Request to Quote, the manufacturer's quote,
+    our Purchase Order, any advance proof, their invoice, the payment
+    proof, then the summary and whole conversation. Internal only —
+    see apps.manufacturers.record_pdf."""
 
     def get(self, request, pk):
         order = (
@@ -1251,11 +1251,13 @@ class ManufacturerOrderRecordPDFView(OwnerRequiredMixin, View):
         if order is None:
             raise Http404
 
-        pdf_bytes = render_pdf(
-            "manufacturers/manufacturer_order_record_pdf.html",
-            {
+        brand = _order_brand(order)
+        pdf_bytes = order_record_pdf(
+            order,
+            brand=brand,
+            record_context={
                 "order": order,
-                "brand": _order_brand(order),
+                "brand": brand,
                 "steps": order_steps(order),
                 "items": list(order.items.all()),
                 "payments": list(order.payments.all()),

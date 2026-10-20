@@ -29,7 +29,7 @@
         <li><span>3</span><div><strong>Save</strong><small>Can't supply something? Remove it with the bin icon.</small></div></li>
     </ol>
 
-    <div class="entry-who">
+    <div class="entry-who entry-who-single">
         <div class="form-group">
             <label for="{{ form.quote_file.id_for_label }}">
                 Their quote document
@@ -46,11 +46,6 @@
                 <small>{{ form.quote_file.help_text }}</small>
             {% endif %}
             {% for error in form.quote_file.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
-        </div>
-        <div class="form-group">
-            <label for="{{ form.message.id_for_label }}">What they said <small>(optional)</small></label>
-            {{ form.message }}
-            <small>{{ form.message.help_text }}</small>
         </div>
     </div>
 
@@ -70,7 +65,7 @@
         <div class="doc-parties">
             <div>
                 <span class="doc-label">Vendor</span>
-                {% with party=order.manufacturer %}
+                {% with party=order.vendor %}
                     <div class="doc-party-name">{{ party.name }}</div>
                     {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
                     {% if party.email %}<div class="doc-party-line">Mail: {{ party.email }}</div>{% endif %}
@@ -79,9 +74,12 @@
             </div>
             <div>
                 <span class="doc-label">Ship to</span>
-                <div class="doc-party-name">{{ brand.legal_name|default:brand.name }}</div>
-                {% if brand.address %}<div class="doc-party-line">{{ brand.address }}</div>{% endif %}
-                {% if brand.phone %}<div class="doc-party-line">Phone: {{ brand.phone }}</div>{% endif %}
+                {% with party=order.ship_to %}
+                    <div class="doc-party-name">{{ party.name }}</div>
+                    {% if party.address %}<div class="doc-party-line">{{ party.address }}</div>{% endif %}
+                    {% if party.email %}<div class="doc-party-line">Mail: {{ party.email }}</div>{% endif %}
+                    {% if party.phone %}<div class="doc-party-line">Phone: {{ party.phone }}</div>{% endif %}
+                {% endwith %}
             </div>
         </div>
 
@@ -182,24 +180,21 @@
                 </div>
             </div>
             <p>
-                These prices differ from the prices saved for the product. Tick the ones
-                that should become the new saved price for future Requests to Quote — or
-                leave them unticked to only change this order.
+                These prices are different from the ones saved for the products. Should they
+                become your saved prices, so they're filled in on your next Request to Quote?
             </p>
-            <div class="save-price-list">
+            <ul class="save-price-list">
                 {% for row in form.item_rows %}
-                    <label class="checkbox-label save-price-option" data-for="{{ row.save.id_for_label }}" hidden>
-                        {{ row.save }}
-                        <span>
-                            <strong>{{ row.item.product.name }}{% if row.item.bottle_size %} ({{ row.item.get_bottle_size_display }}){% endif %}</strong>
-                            <span class="table-secondary save-price-detail"></span>
-                        </span>
-                    </label>
+                    <li class="save-price-option" data-for="{{ row.save.id_for_label }}" hidden>
+                        <span hidden>{{ row.save }}</span>
+                        <strong>{{ row.item.product.name }}{% if row.item.bottle_size %} ({{ row.item.get_bottle_size_display }}){% endif %}</strong>
+                        <span class="table-secondary save-price-detail"></span>
+                    </li>
                 {% endfor %}
-            </div>
+            </ul>
             <div class="modal-actions">
-                <button type="button" class="button button-secondary" id="savePricesBack">Back</button>
-                <button type="button" class="button button-primary" id="savePricesConfirm">Save Prices</button>
+                <button type="button" class="button button-secondary" id="savePricesNo">No, only this order</button>
+                <button type="button" class="button button-primary" id="savePricesYes">Yes, update saved prices</button>
             </div>
         </div>
     </dialog>
@@ -294,7 +289,7 @@
             }
 
             option.querySelector(".save-price-detail").textContent =
-                " — saved " + (state.saved === null ? "none" : state.saved.toFixed(3)) +
+                "saved " + (state.saved === null ? "none" : state.saved.toFixed(3)) +
                 " → new " + state.price.toFixed(3);
             candidates.push(option);
         });
@@ -323,14 +318,23 @@
         }
     });
 
-    document.getElementById("savePricesBack").addEventListener("click", function () {
-        modal.close();
-    });
-
-    document.getElementById("savePricesConfirm").addEventListener("click", function () {
+    // One answer for all of them: yes saves every price listed, no keeps
+    // the saved prices as they are. Either way the reply is saved.
+    function answer(update) {
+        saveCandidates().forEach(function (option) {
+            option.querySelector("input").checked = update;
+        });
         confirmed = true;
         modal.close();
         form.requestSubmit ? form.requestSubmit() : form.submit();
+    }
+
+    document.getElementById("savePricesYes").addEventListener("click", function () { answer(true); });
+    document.getElementById("savePricesNo").addEventListener("click", function () { answer(false); });
+
+    // A click outside the box (or Esc) goes back to the prices, unsaved.
+    modal.addEventListener("click", function (event) {
+        if (event.target === modal) { modal.close(); }
     });
 
     refresh();

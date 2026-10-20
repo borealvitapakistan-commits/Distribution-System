@@ -342,8 +342,41 @@ def create_manufacturer_order(
 
 
 @transaction.atomic
+def _apply_party_details(order, parties):
+    """The Vendor / Ship to details as typed on the Request to Quote —
+    stored on this order only. Anything left blank falls back to the
+    Manufacturer's / Brand's own details, so the document is never empty."""
+    parties = parties or {}
+    defaults = {
+        "vendor_name": order.manufacturer.name,
+        "vendor_address": order.manufacturer.address,
+        "vendor_email": order.manufacturer.email,
+        "vendor_phone": order.manufacturer.phone,
+    }
+    brand = order.brand
+    if brand is not None:
+        defaults.update({
+            "ship_to_name": brand.legal_name or brand.name,
+            "ship_to_address": brand.address,
+            "ship_to_email": brand.email,
+            "ship_to_phone": brand.phone,
+        })
+    for field in (
+        "vendor_name", "vendor_address", "vendor_email", "vendor_phone",
+        "ship_to_name", "ship_to_address", "ship_to_email", "ship_to_phone",
+    ):
+        value = (parties.get(field) or "").strip()
+        if field in parties:
+            # Typed on the form: kept as typed, but a document always has a name.
+            if not value and field.endswith("_name"):
+                value = defaults.get(field, "")
+        else:
+            value = defaults.get(field, "")
+        setattr(order, field, value)
+
+
 def create_request_to_quote(
-    *, actor, manufacturer, items, brand=None, terms="", message=""
+    *, actor, manufacturer, items, brand=None, terms="", message="", parties=None
 ):
     """Step one: the products, bottle sizes and quantities we want, at the
     prices we'd like (pre-filled from our saved prices, each optional).
@@ -363,6 +396,7 @@ def create_request_to_quote(
         created_by=actor,
         updated_by=actor,
     )
+    _apply_party_details(order, parties)
     order.full_clean()
     order.save()
 
@@ -404,7 +438,7 @@ def _get_quote_for_update(order_id):
 
 @transaction.atomic
 def update_request_to_quote(
-    *, actor, order_id, manufacturer, items, brand=None, terms="", message=None
+    *, actor, order_id, manufacturer, items, brand=None, terms="", message=None, parties=None
 ):
     """Rewrites a Request to Quote's lines — only until the
     Manufacturer's quote has been entered, since after that the
@@ -425,6 +459,7 @@ def update_request_to_quote(
     order.manufacturer = manufacturer
     order.brand = brand
     order.terms = (terms or "").strip()
+    _apply_party_details(order, parties)
     order.updated_by = actor
     order.full_clean()
     order.save()

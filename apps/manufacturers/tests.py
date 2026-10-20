@@ -1362,14 +1362,20 @@ class RequestToQuoteFlowTests(TestCase):
             data[f"line_price_{item.pk}"] = "20"
             data[f"line_qty_{item.pk}"] = f"{item.quantity.normalize():f}"
         response = self.client.post(counter_url, data)
-        self.assertRedirects(response, detail_url + "#conversation")
+        self.assertRedirects(response, detail_url)
 
+        # While negotiating the order page stays on what to do; the whole
+        # back-and-forth is on its own conversation page.
         detail = self.client.get(detail_url)
-        self.assertContains(detail, "Conversation history")
-        self.assertContains(detail, "Can you do 20?")
-        self.assertContains(detail, "Our best price.")
+        self.assertNotContains(detail, "Can you do 20?")
+        self.assertNotContains(detail, "Order at a glance")
         self.assertContains(detail, f"Waiting for {order.manufacturer.name}")
         self.assertContains(detail, "Record Manufacturer&#x27;s Reply")
+        conversation = self.client.get(
+            reverse("manufacturer-order-conversation", kwargs={"pk": order.pk})
+        )
+        self.assertContains(conversation, "Can you do 20?")
+        self.assertContains(conversation, "Our best price.")
 
         # Accepting their reply sends the message along with the PO.
         self.quote_reply(
@@ -1391,7 +1397,7 @@ class RequestToQuoteFlowTests(TestCase):
 
         # The Purchase Order page doesn't show the conversation, but it's all kept.
         detail = self.client.get(detail_url)
-        self.assertNotContains(detail, "Conversation history")
+        self.assertNotContains(detail, "Conversation history</h2>")
         self.assertNotContains(detail, "Can you do 20?")
         conversation = self.client.get(
             reverse("manufacturer-order-conversation", kwargs={"pk": order.pk})
@@ -1642,3 +1648,197 @@ class OlderOrderWithoutBatchTests(TestCase):
 
         record_manufacturer_invoice(actor=owner, order_id=order.pk)
         self.assertEqual(unallocated_batches(product=product).get().quantity_remaining, Decimal("5"))
+
+
+def real_png(name="photo.png"):
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (400, 300), (30, 120, 80)).save(buffer, format="PNG")
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="image/png")
+
+
+def real_pdf(name="invoice.pdf", pages=2):
+    from io import BytesIO
+
+    from reportlab.pdfgen import canvas
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer)
+    for page in range(pages):
+        pdf.drawString(100, 700, f"Manufacturer invoice page {page + 1}")
+        pdf.showPage()
+    pdf.save()
+    return SimpleUploadedFile(name, buffer.getvalue(), content_type="application/pdf")
+
+
+@override_settings(MEDIA_ROOT=MEDIA_ROOT)
+class FullOrderRecordTests(TestCase):
+    """The Full Order Record walks through the order in the order it
+    happened, with the real files in it."""
+
+    setUp = RequestToQuoteFlowTests.setUp
+    make_quote = RequestToQuoteFlowTests.make_quote
+    lines = RequestToQuoteFlowTests.lines
+    quote_reply = RequestToQuoteFlowTests.quote_reply
+
+    def page_titles(self, order):
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("manufacturer-order-record-pdf", kwargs={"pk": order.pk}))
+        self.assertEqual(response.status_code, 200)
+        reader = PdfReader(BytesIO(response.content))
+        return [page.extract_text() or "" for page in reader.pages]
+
+    def test_sections_come_in_order_with_the_files_in_them(self):
+        from .services import (
+            confirm_purchase_order,
+            record_advance_decision,
+            record_manufacturer_invoice,
+            record_manufacturer_payment,
+        )
+
+        order = self.make_quote()
+        prices = {(self.ashwagandha.pk, 60): "12", (self.ashwagandha.pk, 120): "30", (self.vitamin_d.pk, 60): "10"}
+        self.quote_reply(order, prices, quote_file=real_png("their-quote.png"))
+        confirm_purchase_order(actor=self.owner, order_id=order.pk)
+        record_advance_decision(
+            actor=self.owner, order_id=order.pk, pays_advance=True,
+            amount=Decimal("500"), paid_at="2026-10-01", proof=real_png("advance.png"),
+        )
+        mark_manufacturer_order_received(actor=self.owner, order_id=order.pk)
+        record_manufacturer_invoice(actor=self.owner, order_id=order.pk, invoice_file=real_pdf())
+        order = ManufacturerOrder.objects.get(pk=order.pk)
+        record_manufacturer_payment(
+            actor=self.owner, order_id=order.pk, amount=order.remaining_amount,
+            paid_at="2026-10-05", proof=proof_file("final.png"),
+        )
+
+        pages = self.page_titles(order)
+        order_of_sections = [
+            "Request to Quote",
+            "2. Manufacturer's quote",
+            "Purchase Order",
+            "4. Advance payment proof",
+            "5. Manufacturer's invoice",
+            "Manufacturer invoice page 1",
+            "Manufacturer invoice page 2",
+            "6. Payment proof",
+            "7. Summary & conversation",
+        ]
+        position = 0
+        for page in pages:
+            if position < len(order_of_sections) and order_of_sections[position] in page:
+                position += 1
+        self.assertEqual(position, len(order_of_sections), pages)
+
+        joined = "\n".join(pages)
+        self.assertIn("Rs 500.00 paid 01 Oct 2026", joined)
+        # A file that isn't a real picture still gets its page, with a note.
+        self.assertIn("can't be shown here", joined)
+
+    def test_no_advance_means_no_advance_section(self):
+        from .services import confirm_purchase_order, record_advance_decision
+
+        order = self.make_quote()
+        self.quote_reply(order, {(self.ashwagandha.pk, 60): "12", (self.ashwagandha.pk, 120): "30", (self.vitamin_d.pk, 60): "10"})
+        confirm_purchase_order(actor=self.owner, order_id=order.pk)
+        record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
+
+        joined = "\n".join(self.page_titles(order))
+        self.assertNotIn("Advance payment proof", joined)
+        self.assertIn("4. Summary & conversation", joined)
+
+
+@override_settings(MEDIA_ROOT=MEDIA_ROOT)
+class RequestToQuoteDocumentTests(TestCase):
+    """What's typed on the Request to Quote is what's printed: the message,
+    and the Vendor / Ship to details edited for this order only."""
+
+    setUp = RequestToQuoteFlowTests.setUp
+
+    def post_quote(self, **extra):
+        self.client.force_login(self.owner)
+        data = {
+            "manufacturer": self.manufacturer.pk,
+            "brand": self.brand.pk,
+            "terms": "Deliver on time.",
+            "message": "Please give us your best prices.",
+            "items-TOTAL_FORMS": "1",
+            "items-INITIAL_FORMS": "0",
+            "items-MIN_NUM_FORMS": "0",
+            "items-MAX_NUM_FORMS": "1000",
+            "items-0-product": self.ashwagandha.pk,
+            "items-0-bottle_size": "60",
+            "items-0-quantity": "40",
+            "items-0-unit_price": "1850",
+            **extra,
+        }
+        response = self.client.post(reverse("manufacturer-order-create"), data)
+        order = ManufacturerOrder.objects.order_by("-created_at").first()
+        self.assertRedirects(response, reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
+        return order
+
+    def pdf_text(self, order, url_name="manufacturer-order-pdf"):
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        response = self.client.get(reverse(url_name, kwargs={"pk": order.pk}))
+        return "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(response.content)).pages)
+
+    def test_message_is_printed_on_the_request_to_quote(self):
+        order = self.post_quote()
+
+        self.assertIn("Please give us your best prices.", self.pdf_text(order))
+        self.assertIn("Please give us your best prices.", self.pdf_text(order, "manufacturer-order-record-pdf"))
+
+    def test_vendor_and_ship_to_edits_stay_on_this_order(self):
+        order = self.post_quote(
+            vendor_name="Glorious Labs (Lahore office)",
+            vendor_address="12 Mall Road, Lahore",
+            vendor_email="",
+            vendor_phone="042-111",
+            ship_to_name="Herbal Aid Warehouse",
+            ship_to_address="Plot 7, Karachi",
+            ship_to_email="store@herbal.test",
+            ship_to_phone="021-222",
+        )
+
+        self.assertEqual(order.vendor["name"], "Glorious Labs (Lahore office)")
+        self.assertEqual(order.vendor["email"], "")
+        self.assertEqual(order.ship_to["address"], "Plot 7, Karachi")
+
+        # The Manufacturer and Brand records themselves are untouched.
+        self.manufacturer.refresh_from_db()
+        self.brand.refresh_from_db()
+        self.assertEqual(self.manufacturer.name, "Glorious Labs")
+        self.assertEqual(self.brand.address, "")
+
+        text = self.pdf_text(order)
+        self.assertIn("Glorious Labs (Lahore office)", text)
+        self.assertIn("12 Mall Road, Lahore", text)
+        self.assertIn("Herbal Aid Warehouse", text)
+
+        edit = self.client.get(reverse("manufacturer-order-edit", kwargs={"pk": order.pk}))
+        self.assertContains(edit, 'value="Glorious Labs (Lahore office)"')
+
+    def test_details_left_out_fall_back_to_the_manufacturer(self):
+        order = self.post_quote()
+
+        self.assertEqual(order.vendor["name"], "Glorious Labs")
+        self.assertEqual(order.ship_to["name"], "Herbal Aid")
+
+    def test_page_after_creating_shows_only_the_essentials(self):
+        order = self.post_quote()
+
+        detail = self.client.get(reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
+        self.assertContains(detail, "What to do now")
+        self.assertNotContains(detail, "Order at a glance")
+        self.assertNotContains(detail, 'class="doc-sheet"')
+        self.assertNotContains(detail, "Conversation history</h2>")

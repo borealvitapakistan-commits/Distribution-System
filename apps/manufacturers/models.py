@@ -86,6 +86,20 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         default=Status.SENT,
     )
 
+    # Who the documents are addressed to and from — copied from the
+    # Manufacturer and Brand when the Request to Quote is made, and
+    # editable for this order alone (the Manufacturer and Brand records
+    # don't change). Blank on orders from before these existed: they show
+    # the Manufacturer's and Brand's own details instead.
+    vendor_name = models.CharField(max_length=200, blank=True)
+    vendor_address = models.TextField(blank=True)
+    vendor_email = models.CharField(max_length=254, blank=True)
+    vendor_phone = models.CharField(max_length=50, blank=True)
+    ship_to_name = models.CharField(max_length=200, blank=True)
+    ship_to_address = models.TextField(blank=True)
+    ship_to_email = models.CharField(max_length=254, blank=True)
+    ship_to_phone = models.CharField(max_length=50, blank=True)
+
     owner_note = models.TextField(blank=True)
     terms = models.TextField(
         blank=True,
@@ -174,6 +188,36 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+    PARTY_FIELDS = ("name", "address", "email", "phone")
+
+    @property
+    def vendor(self):
+        """{name, address, email, phone} the documents are addressed to."""
+        if self.vendor_name:
+            return {field: getattr(self, f"vendor_{field}") for field in self.PARTY_FIELDS}
+        manufacturer = self.manufacturer
+        return {
+            "name": manufacturer.name,
+            "address": manufacturer.address,
+            "email": manufacturer.email,
+            "phone": manufacturer.phone,
+        }
+
+    @property
+    def ship_to(self):
+        """{name, address, email, phone} the goods are shipped to."""
+        if self.ship_to_name:
+            return {field: getattr(self, f"ship_to_{field}") for field in self.PARTY_FIELDS}
+        brand = self.brand
+        if brand is None:
+            return {"name": "", "address": "", "email": "", "phone": ""}
+        return {
+            "name": brand.legal_name or brand.name,
+            "address": brand.address,
+            "email": brand.email,
+            "phone": brand.phone,
+        }
 
     @property
     def is_quote(self):

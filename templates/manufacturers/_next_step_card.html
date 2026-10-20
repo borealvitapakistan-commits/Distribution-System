@@ -41,13 +41,13 @@
             <div class="flow-choices">
                 {% for choice in guide.choices %}
                     <div class="flow-choice{% if choice.accept %} flow-choice-main{% endif %}">
-                        <strong>{{ choice.title }}</strong>
-                        <p>{{ choice.text }}</p>
+                        {% if not choice.accept %}
+                            <strong>{{ choice.title }}</strong>
+                            <p>{{ choice.text }}</p>
+                        {% endif %}
                         {% if choice.accept %}
                             <form method="post" action="{% url 'manufacturer-order-confirm' order.pk %}">
                                 {% csrf_token %}
-                                <label for="acceptMessage">Note for the manufacturer <small>(optional)</small></label>
-                                <textarea id="acceptMessage" name="message" rows="2"></textarea>
                                 <button type="submit" class="button button-primary">Accept &amp; Send Purchase Order</button>
                             </form>
                         {% else %}

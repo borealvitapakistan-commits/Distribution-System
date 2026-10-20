@@ -66,9 +66,9 @@
         </tr>
     </table>
 
-    <h1>Order Record - {{ order.po_number }}</h1>
+    <h1>{% if section_number %}{{ section_number }}. Summary &amp; conversation{% else %}Order Record - {{ order.po_number }}{% endif %}</h1>
     <div class="subtitle">
-        Everything on this order from the Request to Quote to the invoice. Internal document - for our records only.
+        {% if section_number %}Order {{ order.po_number }} at a glance, then every message between us and the manufacturer.{% else %}Everything on this order from the Request to Quote to the invoice.{% endif %} Internal document - for our records only.
     </div>
 
     <table class="meta">

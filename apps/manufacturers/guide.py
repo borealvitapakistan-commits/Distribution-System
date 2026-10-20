@@ -170,7 +170,9 @@ def _build_guide(order, *, can_edit_quote=False, can_edit_po=False):
                 _check("Record their answer", False),
             ],
             primary=_link("Next", quote_url),
-            secondary=[_link("See the conversation", "#conversation")],
+            secondary=[_link(
+                "See the conversation", reverse("manufacturer-order-conversation", args=[pk])
+            )],
             contact=order.manufacturer,
         )
         return guide

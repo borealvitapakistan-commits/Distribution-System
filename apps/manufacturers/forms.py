@@ -77,8 +77,34 @@ class ManufacturerOrderForm(forms.Form):
         required=False,
         label="Message to the manufacturer",
         widget=forms.Textarea(attrs={"rows": 3}),
-        help_text="Kept in the order's conversation history — not printed.",
+        help_text="Printed on the Request to Quote, and kept in the order's conversation history.",
     )
+
+    # Who the document is addressed to and from. Filled in from the
+    # Manufacturer and Brand chosen above; changes apply to this order only.
+    vendor_name = forms.CharField(required=False, max_length=200, label="Name")
+    vendor_address = forms.CharField(required=False, label="Address", widget=forms.Textarea(attrs={"rows": 2}))
+    vendor_email = forms.CharField(required=False, max_length=254, label="Email")
+    vendor_phone = forms.CharField(required=False, max_length=50, label="Phone")
+    ship_to_name = forms.CharField(required=False, max_length=200, label="Name")
+    ship_to_address = forms.CharField(required=False, label="Address", widget=forms.Textarea(attrs={"rows": 2}))
+    ship_to_email = forms.CharField(required=False, max_length=254, label="Email")
+    ship_to_phone = forms.CharField(required=False, max_length=50, label="Phone")
+
+    PARTY_FIELDS = (
+        "vendor_name", "vendor_address", "vendor_email", "vendor_phone",
+        "ship_to_name", "ship_to_address", "ship_to_email", "ship_to_phone",
+    )
+
+    def party_details(self):
+        """The Vendor / Ship to details as typed, for this order only.
+        Fields the page didn't send at all are left out, so they fall back
+        to the Manufacturer's / Brand's own details."""
+        return {
+            name: (self.cleaned_data.get(name) or "").strip()
+            for name in self.PARTY_FIELDS
+            if name in self.data
+        }
 
 
 class ManufacturerOrderItemForm(forms.ModelForm):
