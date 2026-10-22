@@ -8,39 +8,9 @@
 {% block content %}
 {% order_stage_bar order current=4 %}
 
-<div class="page-header">
-    <div>
-        <p class="eyebrow">Stage 4 of 4 · Invoice · {{ order.po_number }}</p>
-        <h1>The goods from {{ order.manufacturer.name }} arrived</h1>
-        <p>
-            {% if needs_receipt and needs_invoice %}
-                Enter what actually arrived (from their invoice), pay whatever is still owed,
-                and save. The stock then goes to Inventory, where you split it across your warehouses.
-            {% elif needs_invoice %}
-                The goods are already received — confirm what arrived to add it to Inventory, and settle whatever is left to pay.
-            {% else %}
-                The stock is already in Inventory — confirm the goods have arrived and settle whatever is left to pay.
-            {% endif %}
-        </p>
-    </div>
-
-    <div>
-        <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">
-            Cancel
-        </a>
-    </div>
-</div>
-
 <form method="post" enctype="multipart/form-data" class="form-layout" id="receiveForm">
     {% csrf_token %}
 
-    <ol class="entry-steps">
-        {% if needs_invoice %}
-            <li><span>1</span><div><strong>Check what arrived</strong><small>Change a number only if it's different from the order. Add each expiry date.</small></div></li>
-            <li><span>2</span><div><strong>Add their invoice</strong><small>Their invoice number, a photo of it, and any shipping or tax they charged.</small></div></li>
-        {% endif %}
-        <li><span>{% if needs_invoice %}3{% else %}1{% endif %}</span><div><strong>Pay the balance</strong><small>The order must be fully paid. Attach the bank slip or screenshot.</small></div></li>
-    </ol>
 
     {% if needs_invoice %}
         <section class="panel">
@@ -145,24 +115,10 @@
         <div class="panel-header">
             <div>
                 <h2>{% if needs_invoice %}3. {% endif %}Pay the balance</h2>
-                <p>The totals follow the numbers above as you type.</p>
+                <p>The amount follows the invoice above as you type.</p>
             </div>
         </div>
 
-        <dl class="details-list">
-            <div>
-                <dt>Order total</dt>
-                <dd data-live-total>{{ order.grand_total|money }}</dd>
-            </div>
-            <div>
-                <dt>Paid in advance</dt>
-                <dd>{{ order.advance_paid|money }}</dd>
-            </div>
-            <div>
-                <dt><strong>Left to pay now</strong></dt>
-                <dd><strong data-live-remaining>{{ order.remaining_amount|money }}</strong></dd>
-            </div>
-        </dl>
 
         <div class="panel-body">
             <div data-paid-full {% if order.remaining_amount > 0 %}hidden{% endif %} class="info-box">
@@ -175,12 +131,20 @@
                     <div class="form-errors">{{ form.non_field_errors }}</div>
                 {% endif %}
 
-                <div class="form-grid">
+                <div class="form-grid pay-grid">
                     {% for field in form %}
                         <div class="form-group">
                             <label for="{{ field.id_for_label }}">{{ field.label }}</label>
                             {{ field }}
-                            {% if field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
+                            {% if field.name == "amount" %}
+                                <div class="pay-breakdown" data-pay-breakdown>
+                                    <div><span>Order total</span><strong data-pay-total>Rs {{ order.grand_total|floatformat:"2g" }}</strong></div>
+                                    <div><span>Already paid (advance)</span><strong>Rs {{ order.total_paid|floatformat:"2g" }}</strong></div>
+                                    <div class="pay-breakdown-now"><span>Paying now — the rest of the order</span><strong data-pay-now>Rs {{ order.remaining_amount|floatformat:"2g" }}</strong></div>
+                                    <div class="pay-breakdown-after"><span>Left to pay after this</span><strong>Rs 0.00</strong></div>
+                                </div>
+                                <small>The whole balance has to be paid before the order is marked received, so this is filled in for you.</small>
+                            {% elif field.help_text %}<small>{{ field.help_text }}</small>{% endif %}
                             {% for error in field.errors %}
                                 <span class="field-error">{{ error }}</span>
                             {% endfor %}
@@ -257,8 +221,12 @@
         const total = cents(subtotal + cents(subtotal * taxPercentage / 100) + shipping);
         const remaining = Math.max(cents(total - alreadyPaid), 0);
 
-        totalCell.textContent = money(total);
-        remainingCell.textContent = money(remaining);
+        if (totalCell) { totalCell.textContent = money(total); }
+        if (remainingCell) { remainingCell.textContent = money(remaining); }
+        const payTotal = document.querySelector("[data-pay-total]");
+        const payNow = document.querySelector("[data-pay-now]");
+        if (payTotal) { payTotal.textContent = "Rs " + money(total); }
+        if (payNow) { payNow.textContent = "Rs " + money(remaining); }
         const barRemaining = document.querySelector("[data-bar-remaining]");
         if (barRemaining) {
             barRemaining.textContent = money(remaining);

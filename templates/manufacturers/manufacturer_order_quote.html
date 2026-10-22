@@ -11,23 +11,6 @@
 <form method="post" enctype="multipart/form-data" id="quoteForm" novalidate>
     {% csrf_token %}
 
-    <div class="page-header">
-        <div>
-            <p class="eyebrow">Stage 2 of 4 · Quote · {{ order.po_number }}</p>
-            <h1>Record the reply from {{ order.manufacturer.name }}</h1>
-            <p>Copy their prices from the quote they sent you. You'll check them and decide what to do on the next page.</p>
-        </div>
-        <div class="fin-downloads">
-            <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">Cancel</a>
-            <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team" target="_blank">Print our request</a>
-        </div>
-    </div>
-
-    <ol class="entry-steps">
-        <li><span>1</span><div><strong>Attach what they sent</strong><small>A photo, PDF or screenshot of their quote.</small></div></li>
-        <li><span>2</span><div><strong>Type their price for each product</strong><small>Different from yours turns <mark class="mo-changed-mark mo-mark-changed">orange</mark>; one they priced for you turns <mark class="mo-changed-mark">yellow</mark>.</small></div></li>
-        <li><span>3</span><div><strong>Save</strong><small>Can't supply something? Remove it with the bin icon.</small></div></li>
-    </ol>
 
     <div class="entry-who entry-who-single">
         <div class="form-group">

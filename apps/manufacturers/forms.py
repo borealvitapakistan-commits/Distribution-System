@@ -577,7 +577,7 @@ class ManufacturerOrderReceiveForm(forms.Form):
         decimal_places=2,
         min_value=Decimal("0.01"),
         required=False,
-        label="Amount paid",
+        label="Amount you're paying now (Rs)",
     )
     paid_at = forms.DateField(
         label="Date paid",

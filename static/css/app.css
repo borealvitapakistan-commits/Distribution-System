@@ -4335,3 +4335,250 @@ ul.save-price-list .save-price-option {
         width: 100%;
     }
 }
+
+.paid-percent-toggle {
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+[data-paid-percent-box] {
+    display: grid;
+    gap: 0.375rem;
+    margin-bottom: 0.75rem;
+}
+
+[data-paid-percent-box][hidden] {
+    display: none;
+}
+
+.paid-percent-input {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.paid-percent-input input {
+    flex: 1;
+}
+
+.paid-percent-input span {
+    color: var(--slate-600);
+    font-weight: 700;
+}
+
+input[readonly] {
+    background: var(--slate-50);
+    color: var(--slate-600);
+}
+
+[data-paid-details] {
+    align-items: start;
+}
+
+.pay-breakdown {
+    display: grid;
+    gap: 0.25rem;
+    margin-top: 0.625rem;
+    padding: 0.75rem 0.875rem;
+    border-radius: 0.625rem;
+    background: var(--slate-50);
+    font-size: 0.875rem;
+}
+
+.pay-breakdown div {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.pay-breakdown span {
+    color: var(--slate-600);
+}
+
+.pay-breakdown strong {
+    font-variant-numeric: tabular-nums;
+}
+
+.pay-breakdown-now {
+    padding-top: 0.375rem;
+    border-top: 0.0625rem solid var(--slate-200);
+}
+
+.pay-breakdown-now strong {
+    color: var(--blue-700);
+}
+
+.pay-breakdown-after strong {
+    color: var(--green-600);
+}
+
+.pay-grid {
+    align-items: start;
+}
+
+/* Order stages: a slim step bar ------------------------------------------ */
+
+.stepper {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin: 0 0 1.25rem;
+    padding: 0.875rem 1.125rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: var(--radius);
+    background: var(--white);
+    list-style: none;
+}
+
+.stepper-step {
+    position: relative;
+    display: flex;
+    gap: 0.625rem;
+    align-items: flex-start;
+    min-width: 0;
+    padding-right: 0.75rem;
+}
+
+/* The line joining one step to the next. */
+.stepper-step:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    top: 0.8125rem;
+    left: 2.25rem;
+    right: 0.75rem;
+    height: 0.125rem;
+    border-radius: 1rem;
+    background: var(--slate-200);
+}
+
+.stepper-step.is-done:not(:last-child)::after {
+    background: var(--green-600);
+}
+
+.stepper-dot {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    flex: 0 0 auto;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: 0.125rem solid var(--slate-300);
+    border-radius: 50%;
+    background: var(--white);
+    color: var(--slate-500);
+    font-size: 0.75rem;
+    font-weight: 800;
+}
+
+.is-done .stepper-dot {
+    border-color: var(--green-600);
+    background: var(--green-600);
+    color: var(--white);
+}
+
+.is-current .stepper-dot {
+    border-color: var(--blue-600);
+    background: var(--blue-600);
+    color: var(--white);
+    box-shadow: 0 0 0 0.25rem #dbeafe;
+}
+
+/* Text sits on a white pad so the joining line passes behind it. */
+.stepper-text {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    gap: 0.0625rem;
+    min-width: 0;
+    padding: 0.25rem 0.5rem 0 0;
+    background: var(--white);
+}
+
+.stepper-text strong {
+    color: var(--slate-950);
+    font-size: 0.875rem;
+    line-height: 1.25;
+}
+
+.stepper-text small {
+    color: var(--slate-500);
+    font-size: 0.75rem;
+    line-height: 1.35;
+}
+
+.is-upcoming .stepper-text strong {
+    color: var(--slate-500);
+    font-weight: 600;
+}
+
+.is-done .stepper-text small {
+    color: var(--green-600);
+    font-weight: 600;
+}
+
+.is-current .stepper-text strong {
+    color: var(--blue-700);
+}
+
+.is-current .stepper-text small {
+    color: var(--slate-700);
+}
+
+.stepper-compact {
+    padding: 0.625rem 1rem;
+}
+
+.stepper-compact .stepper-step {
+    align-items: center;
+}
+
+.stepper-compact .stepper-text {
+    padding-top: 0;
+}
+
+@media (max-width: 53.125em) {
+    .stepper {
+        padding: 0.75rem;
+    }
+
+    .stepper-text small {
+        display: none;
+    }
+
+    .stepper-text strong {
+        font-size: 0.75rem;
+    }
+
+    .stepper-step:not(.is-current) .stepper-text strong {
+        display: none;
+    }
+}
+
+.stepper-step {
+    gap: 0;
+}
+
+.stepper-text {
+    padding-left: 0.625rem;
+    padding-right: 0.75rem;
+}
+
+.stepper-step {
+    align-items: center;
+}
+
+.stepper-text {
+    padding-top: 0;
+}
+
+.flow-card.flow-card-buttons {
+    border-top-width: 0.0625rem;
+}
+
+.flow-card-buttons .flow-card-body {
+    padding-top: 1.25rem;
+}
+
+.flow-glance[hidden] {
+    display: none;
+}

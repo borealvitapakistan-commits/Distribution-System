@@ -3,7 +3,9 @@ A Yes/No payment question. "Yes" reveals amount, date and proof; "No"
 hides them. Expects `form` (a PaidQuestionForm), `total` (the full
 order amount, for the percentage shown next to the amount),
 `none_message` (shown on "No") and optionally `fill_amounts`
-([{label, value}] quick buttons that fill in the amount).
+([{label, value}] quick buttons that fill in the amount) and
+`percent_mode` (an "In percentage" switch, on by default: the amount is
+worked out from a percentage of the total — only the amount is sent).
 
 The page can change the total later: set `data-total` on the
 [data-paid-question] box, update a button's `data-fill-amount`, then
@@ -35,6 +37,19 @@ dispatch a "paid:refresh" event on the box.
 
 <div class="form-grid" data-paid-details hidden>
     <div class="form-group">
+        {% if percent_mode %}
+            <label class="checkbox-label paid-percent-toggle">
+                <input type="checkbox" data-paid-percent-toggle checked>
+                In percentage
+            </label>
+            <div data-paid-percent-box>
+                <label for="paidPercent">Percentage of the order total</label>
+                <div class="paid-percent-input">
+                    <input type="number" id="paidPercent" min="0" max="100" step="0.01" placeholder="e.g. 30" data-paid-percent>
+                    <span>%</span>
+                </div>
+            </div>
+        {% endif %}
         <label for="{{ form.amount.id_for_label }}">Amount</label>
         {{ form.amount }}
         <small data-paid-share></small>
@@ -94,6 +109,36 @@ dispatch a "paid:refresh" event on the box.
     const none = document.querySelector("[data-paid-none]");
     const amount = document.getElementById("{{ form.amount.id_for_label }}");
     const share = document.querySelector("[data-paid-share]");
+    const percentToggle = document.querySelector("[data-paid-percent-toggle]");
+    const percentBox = document.querySelector("[data-paid-percent-box]");
+    const percent = document.querySelector("[data-paid-percent]");
+
+    function inPercent() {
+        return Boolean(percentToggle && percentToggle.checked);
+    }
+
+    // In percentage: the amount follows the percentage of the total.
+    function amountFromPercent() {
+        if (!inPercent()) { return; }
+        const total = parseFloat(box.dataset.total) || 0;
+        const pct = parseFloat(percent.value);
+        amount.value = isNaN(pct) || !total ? "" : (Math.round(total * pct) / 100).toFixed(2);
+    }
+
+    function applyMode() {
+        if (!percentToggle) { return; }
+        percentBox.hidden = !inPercent();
+        amount.readOnly = inPercent();
+        if (inPercent()) {
+            const total = parseFloat(box.dataset.total) || 0;
+            const value = parseFloat(amount.value);
+            if (total && !isNaN(value)) {
+                percent.value = +(value / total * 100).toFixed(2);
+            }
+            amountFromPercent();
+        }
+    }
+
     function refresh() {
         const total = parseFloat(box.dataset.total) || 0;
         const picked = answer.querySelector("input:checked");
@@ -109,9 +154,17 @@ dispatch a "paid:refresh" event on the box.
     document.querySelectorAll("[data-fill-amount]").forEach(function (button) {
         button.addEventListener("click", function () {
             amount.value = button.dataset.fillAmount;
+            applyMode();
             refresh();
         });
     });
+
+    if (percentToggle) {
+        percentToggle.addEventListener("change", function () { applyMode(); refresh(); });
+        percent.addEventListener("input", function () { amountFromPercent(); refresh(); });
+        box.addEventListener("paid:refresh", function () { amountFromPercent(); });
+        applyMode();
+    }
 
     answer.addEventListener("change", refresh);
     box.addEventListener("paid:refresh", refresh);

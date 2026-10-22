@@ -1,35 +1,14 @@
-{# The four stages of an order, in plain words. steps: [{number, title, plain, state, date, note, done_note}]; compact=True for the slim bar on step pages. #}
-<div class="flow-tracker{% if compact %} flow-tracker-compact{% endif %}">
-    <ol class="flow-steps" aria-label="Order stages">
-        {% for step in steps %}
-            <li class="flow-step flow-step-{{ step.state }}"{% if step.state == "current" %} aria-current="step"{% endif %}>
-                <span class="flow-dot">{% if step.state == "done" %}✓{% else %}{{ step.number }}{% endif %}</span>
-                <span class="flow-text">
-                    <strong>{{ step.title }}</strong>
-                    {% if step.plain and not compact %}<span class="flow-plain">{{ step.plain }}</span>{% endif %}
-                    {% if step.state == "current" %}
-                        <span class="flow-here">You are here</span>
-                    {% elif step.state == "done" and not compact %}
-                        <span class="flow-when">
-                            {% if step.date %}Done {{ step.date|date:"d M Y" }}{% elif step.done_note %}{{ step.done_note }}{% else %}Done{% endif %}
-                        </span>
-                    {% endif %}
-                </span>
-            </li>
-        {% endfor %}
-    </ol>
-
-    {% if not compact %}
-        <details class="flow-help">
-            <summary>What do these stages mean?</summary>
-            <dl>
-                {% for step in steps %}
-                    <div>
-                        <dt>{{ step.number }}. {{ step.title }}</dt>
-                        <dd>{{ step.help|default:step.plain }}</dd>
-                    </div>
-                {% endfor %}
-            </dl>
-        </details>
-    {% endif %}
-</div>
+{# The four stages of an order as a slim step bar. steps: [{number, title, plain, help, state, date, done_note}]; compact=True hides the short lines (step pages). #}
+<ol class="stepper{% if compact %} stepper-compact{% endif %}" aria-label="Order stages">
+    {% for step in steps %}
+        <li class="stepper-step is-{{ step.state }}"{% if step.state == "current" %} aria-current="step"{% endif %}{% if step.help %} title="{{ step.help }}"{% endif %}>
+            <span class="stepper-dot">{% if step.state == "done" %}✓{% else %}{{ step.number }}{% endif %}</span>
+            <span class="stepper-text">
+                <strong>{{ step.title }}</strong>
+                {% if not compact and step.state == "done" %}
+                    <small>{% if step.date %}Done · {{ step.date|date:"d M" }}{% elif step.done_note %}{{ step.done_note }}{% else %}Done{% endif %}</small>
+                {% endif %}
+            </span>
+        </li>
+    {% endfor %}
+</ol>

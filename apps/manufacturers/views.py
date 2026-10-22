@@ -867,10 +867,10 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
         context["waiting_for_first_reply"] = (
             self.object.is_quote and self.object.quoted_at is None
         )
-        # While the prices are being agreed the page stays on the decision:
+        # Until the order is complete the page stays on what to do next:
         # no "at a glance" panel. The conversation is shown on the order
         # only once it's invoiced; until then it has its own page.
-        context["show_glance"] = not self.object.is_quote
+        context["show_glance"] = self.object.invoice_approved_at is not None
         context["show_conversation"] = self.object.invoice_approved_at is not None
         if context["show_conversation"]:
             context["timeline"] = revision_timeline(self.object)
@@ -884,6 +884,16 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
             can_edit_quote=context["can_edit_quote"],
             can_edit_po=context["can_edit_po"],
         )
+        # Reviewing the manufacturer's prices, and the whole time the
+        # Purchase Order is out with them, the next step's buttons sit
+        # under the document itself instead of in a card above it — and
+        # the payments panel waits until the order is complete.
+        po_out = (
+            self.object.status == ManufacturerOrder.Status.SENT
+            and self.object.invoice_approved_at is None
+        )
+        context["actions_on_document"] = bool(context["guide"]["choices"]) or po_out
+        context["show_payments"] = not self.object.is_quote and not po_out
         return context
 
 

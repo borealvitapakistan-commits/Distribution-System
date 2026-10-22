@@ -30,7 +30,7 @@
     table.bottom td { vertical-align: top; }
     table.terms { width: 100%; border: 1px solid #374151; }
     table.terms td { padding: 6px 8px; font-size: 8.5pt; line-height: 1.5; }
-    table.message { margin-bottom: 12px; }
+    .message-gap { height: 14px; font-size: 1pt; }
     .terms-title { color: {{ brand.primary_color }}; font-weight: bold; text-decoration: underline; padding-bottom: 3px; }
     table.totals { width: 100%; }
     table.totals td { padding: 3px 0; }
@@ -104,15 +104,6 @@
 
     <div class="rule">&nbsp;</div>
 
-    {% if doc.message %}
-        <table class="terms message">
-            <tr><td>
-                <span class="terms-title">Message</span><br>
-                {{ doc.message|linebreaksbr }}
-            </td></tr>
-        </table>
-    {% endif %}
-
     <table class="items" repeat="1">
         <thead>
             <tr>
@@ -184,5 +175,15 @@
             </td>
         </tr>
     </table>
+    {% if doc.message %}
+        <div class="message-gap">&nbsp;</div>
+        <table class="terms message">
+            <tr><td>
+                <span class="terms-title">Message</span><br>
+                {{ doc.message|linebreaksbr }}
+            </td></tr>
+        </table>
+    {% endif %}
+
 </body>
 </html>

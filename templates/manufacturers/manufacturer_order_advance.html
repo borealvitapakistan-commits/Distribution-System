@@ -42,7 +42,7 @@
     <form method="post" enctype="multipart/form-data" class="form-layout">
         {% csrf_token %}
 
-        {% with total=order.grand_total none_message="No advance — the full amount must be paid when the order arrives, before it can be marked received." %}
+        {% with percent_mode=True total=order.grand_total none_message="No advance — the full amount must be paid when the order arrives, before it can be marked received." %}
             {% include "core/_paid_question.html" %}
         {% endwith %}
 

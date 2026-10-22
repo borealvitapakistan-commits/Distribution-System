@@ -556,9 +556,10 @@ class ManufacturerPaymentFlowTests(TestCase):
         # Until the advance is answered, receiving is locked: the page asks
         # for the advance and doesn't offer the goods-arrived step yet.
         detail = self.client.get(detail_url)
-        self.assertContains(detail, "Record Your Advance Payment")
-        self.assertContains(detail, "Your turn")
+        self.assertContains(detail, "Record Advance Payment")
+        self.assertContains(detail, 'class="doc-actions"')
         self.assertNotContains(detail, "Goods Arrived — Record Invoice")
+        self.assertNotContains(detail, "<h2>Payments</h2>")
         receive_url = reverse("manufacturer-order-received", kwargs={"pk": order.pk})
         self.assertRedirects(self.client.get(receive_url), advance_url)
 
@@ -582,7 +583,7 @@ class ManufacturerPaymentFlowTests(TestCase):
 
         detail = self.client.get(detail_url)
         self.assertNotContains(detail, "is-disabled")
-        self.assertContains(detail, "Advance paid")
+        self.assertContains(detail, "Goods Arrived — Record Invoice")
 
         page = self.client.get(receive_url)
         self.assertContains(page, "Pay the balance")
@@ -1601,13 +1602,13 @@ class OrderGuideTests(TestCase):
         self.client.force_login(self.owner)
 
         detail = self.client.get(reverse("manufacturer-order-detail", kwargs={"pk": order.pk}))
-        self.assertContains(detail, "You are here")
-        self.assertContains(detail, "What do these stages mean?")
-        self.assertContains(detail, "You ask the manufacturer for prices")
+        self.assertContains(detail, 'aria-current="step"')
+        self.assertContains(detail, "stepper-step is-current")
+        self.assertNotContains(detail, "You ask the manufacturer for prices</small>")
 
         quote_page = self.client.get(reverse("manufacturer-order-quote", kwargs={"pk": order.pk}))
-        self.assertContains(quote_page, "Stage 2 of 4")
-        self.assertContains(quote_page, "flow-tracker-compact")
+        self.assertContains(quote_page, "Save Their Prices")
+        self.assertContains(quote_page, "stepper-compact")
 
         listing = self.client.get(reverse("manufacturer-order-list"))
         self.assertContains(listing, "Waiting for the manufacturer&#x27;s prices")
