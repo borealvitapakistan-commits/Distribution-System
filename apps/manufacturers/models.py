@@ -4,6 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
+from django.db.models.functions import Lower
 
 from apps.core.models import AuditedModel
 from apps.core.payments import AdvanceFinalPaymentsMixin, PaymentKind
@@ -13,6 +14,10 @@ from apps.products.models import BottleSize
 
 class Manufacturer(AuditedModel):
     name = models.CharField(max_length=200, unique=True)
+    prefix = models.CharField(
+        max_length=30, blank=True,
+        help_text="Shown after product names, e.g. Ashwagandha (GP). Leave blank to use the manufacturer name.",
+    )
     phone = models.CharField(max_length=30, blank=True)
     email = models.EmailField(blank=True)
     address = models.TextField(blank=True)
@@ -41,11 +46,15 @@ class Manufacturer(AuditedModel):
 
     class Meta:
         ordering = ["name"]
+        constraints = [
+            models.UniqueConstraint(Lower("prefix"), condition=~models.Q(prefix=""), name="unique_manufacturer_prefix"),
+        ]
 
     def clean(self):
         super().clean()
 
         self.name = self.name.strip()
+        self.prefix = self.prefix.strip()
 
         if not self.name:
             raise ValidationError(
@@ -54,6 +63,10 @@ class Manufacturer(AuditedModel):
 
     def __str__(self):
         return self.name
+
+    @property
+    def product_label(self):
+        return self.prefix or self.name
 
 
 class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):

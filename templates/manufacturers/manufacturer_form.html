@@ -36,6 +36,7 @@
                 </label>
 
                 {{ field }}
+                    {% if field.help_text %}<small class="stat-detail">{{ field.help_text }}</small>{% endif %}
 
                 {% for error in field.errors %}
                     <span class="field-error">{{ error }}</span>

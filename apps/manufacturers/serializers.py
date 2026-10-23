@@ -6,7 +6,7 @@ from .models import Manufacturer
 class ManufacturerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Manufacturer
-        fields = ["id", "name", "phone", "email", "address", "notes", "active"]
+        fields = ["id", "name", "prefix", "phone", "email", "address", "notes", "active"]
         read_only_fields = ["id"]
 
     def create(self, validated_data):

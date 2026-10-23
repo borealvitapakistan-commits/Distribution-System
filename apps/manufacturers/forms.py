@@ -42,7 +42,7 @@ class ManufacturerForm(forms.ModelForm):
     class Meta:
         model = Manufacturer
         fields = [
-            "name", "logo", "phone", "email", "address", "notes", "active",
+            "name", "prefix", "logo", "phone", "email", "address", "notes", "active",
         ]
         widgets = {
             "address": forms.Textarea(attrs={"rows": 3}),

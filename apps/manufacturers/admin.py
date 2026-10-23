@@ -12,10 +12,10 @@ from .models import (
 
 @admin.register(Manufacturer)
 class ManufacturerAdmin(admin.ModelAdmin):
-    list_display = ("name", "phone", "email", "active")
+    list_display = ("name", "prefix", "phone", "email", "active")
     exclude = ("upfront_payment_percentage",)
     list_filter = ("active",)
-    search_fields = ("name", "email", "phone")
+    search_fields = ("name", "prefix", "email", "phone")
     ordering = ("name",)
 
 

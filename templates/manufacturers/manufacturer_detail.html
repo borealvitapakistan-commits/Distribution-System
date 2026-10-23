@@ -35,6 +35,7 @@
     </div>
 
     <dl class="details-list">
+        <div><dt>Product prefix</dt><dd>{{ manufacturer.prefix|default:"Not set — products use the manufacturer name" }}</dd></div>
         <div>
             <dt>Email</dt>
             <dd>{{ manufacturer.email|default:"—" }}</dd>

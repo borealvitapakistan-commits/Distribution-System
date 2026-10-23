@@ -34,7 +34,7 @@
             <tbody>
                 {% for manufacturer in manufacturers %}
                     <tr>
-                        <td><strong>{{ manufacturer.name }}</strong></td>
+                        <td><strong>{{ manufacturer.name }}</strong>{% if manufacturer.prefix %}<span class="table-secondary"> · {{ manufacturer.prefix }}</span>{% endif %}</td>
 
                         <td>
                             {{ manufacturer.email|default:manufacturer.phone|default:"—" }}

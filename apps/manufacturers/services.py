@@ -29,6 +29,7 @@ from .deletion import delete_manufacturer
 def _manufacturer_payload(manufacturer):
     return {
         "name": manufacturer.name,
+        "prefix": manufacturer.prefix,
         "phone": manufacturer.phone,
         "email": manufacturer.email,
         "active": manufacturer.active,
