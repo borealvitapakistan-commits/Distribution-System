@@ -93,7 +93,9 @@ class ManufacturerDeletionTests(TestCase):
         from apps.audit.models import AuditEvent
 
         manufacturer_id = self.manufacturer.pk
-        response = self.client.post(self.url, follow=True)
+        from .deletion import review_manufacturer
+
+        response = self.client.post(self.url, {"review_token": review_manufacturer(self.manufacturer)["token"], "confirmed": "on"}, follow=True)
         self.assertRedirects(response, reverse("manufacturer-list"))
         self.assertFalse(Manufacturer.objects.filter(pk=manufacturer_id).exists())
         event = AuditEvent.objects.get(action="manufacturer.deleted")
@@ -103,7 +105,7 @@ class ManufacturerDeletionTests(TestCase):
         self.assertContains(response, "Manufacturer deleted successfully.")
 
     def test_get_does_not_delete(self):
-        self.assertEqual(self.client.get(self.url).status_code, 405)
+        self.assertContains(self.client.get(self.url), "Choose what happens next")
         self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
 
     def test_missing_manufacturer_returns_404(self):
@@ -130,41 +132,21 @@ class ManufacturerDeletionTests(TestCase):
         self.assertEqual(client.post(self.url).status_code, 403)
         self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
 
-    def test_linked_records_block_deletion_without_losing_data_or_auditing_success(self):
-        from apps.audit.models import AuditEvent
-        from apps.products.models import ProductPackagePrice
+    def test_linked_products_require_an_explicit_decision(self):
+        from .deletion import review_manufacturer
 
         product = create_product(
             actor=self.owner, sku="KEEP-001", name="Linked product",
+            manufacturer=self.manufacturer,
             base_retail_price=Decimal("100"), currency="pkr",
         )
-        order = ManufacturerOrder.objects.create(
-            manufacturer=self.manufacturer, po_number="MO-KEEP",
-            created_by=self.owner, updated_by=self.owner,
-        )
-        package = ProductPackagePrice.objects.create(
-            product=product, manufacturer=self.manufacturer,
-            amount=Decimal("100"), price=Decimal("50"),
-            created_by=self.owner, updated_by=self.owner,
-        )
-        for relation in ("order", "package price", "product"):
-            with self.subTest(relation=relation):
-                response = self.client.post(self.url, follow=True)
-                self.assertRedirects(response, reverse("manufacturer-list"))
-                self.assertContains(response, "Cannot delete this manufacturer")
-                self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
-                self.assertFalse(AuditEvent.objects.filter(action="manufacturer.deleted").exists())
-                if relation == "order":
-                    order.refresh_from_db()
-                    order.delete()
-                elif relation == "package price":
-                    package.refresh_from_db()
-                    package.delete()
-                    product.manufacturer = self.manufacturer
-                    product.save()
-                else:
-                    product.refresh_from_db()
-                    self.assertEqual(product.manufacturer_id, self.manufacturer.pk)
+        response = self.client.post(self.url, {
+            "review_token": review_manufacturer(self.manufacturer)["token"], "confirmed": "on",
+        })
+        self.assertContains(response, "This field is required.")
+        product.refresh_from_db()
+        self.assertEqual(product.manufacturer_id, self.manufacturer.pk)
+        self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
 
 
 @override_settings(MEDIA_ROOT=MEDIA_ROOT)

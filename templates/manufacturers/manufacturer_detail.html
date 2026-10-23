@@ -16,12 +16,16 @@
             Back
         </a>
 
-        <a class="button button-primary" href="{% url 'manufacturer-edit' manufacturer.pk %}">
-            Edit
-        </a>
+        {% if not manufacturer.archived_at %}
+            <a class="button button-primary" href="{% url 'manufacturer-edit' manufacturer.pk %}">Edit</a>
+        {% endif %}
         {% include "manufacturers/_delete_form.html" %}
     </div>
 </div>
+
+{% if manufacturer.archived_at %}
+    <div class="alert alert-info">This manufacturer is archived. Its details are kept for existing orders and stock history.</div>
+{% endif %}
 
 <section class="panel">
     <div class="panel-header">
@@ -54,7 +58,9 @@
         <div>
             <dt>Status</dt>
             <dd>
-                {% if manufacturer.active %}
+                {% if manufacturer.archived_at %}
+                    <span class="badge badge-pending">Archived</span>
+                {% elif manufacturer.active %}
                     <span class="badge badge-open">Active</span>
                 {% else %}
                     <span class="badge badge-pending">Retired</span>

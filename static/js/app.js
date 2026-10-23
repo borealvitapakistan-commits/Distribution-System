@@ -86,7 +86,25 @@ document.addEventListener("DOMContentLoaded", () => {
     initializeDynamicFormsets();
     initializeSettingsMenu();
     initializePartnersMenu();
+    initializeDeletionReview();
 });
+
+
+function initializeDeletionReview() {
+    document.querySelectorAll("[data-product-decision]").forEach((row) => {
+        const action = row.querySelector("[data-deletion-action]");
+        const replacement = row.querySelector("[data-reassignment]");
+        const select = replacement.querySelector("select");
+        function updateReplacement() {
+            const reassign = action.value === "reassign";
+            replacement.hidden = !reassign;
+            select.disabled = !reassign;
+            select.required = reassign;
+        }
+        action.addEventListener("change", updateReplacement);
+        updateReplacement();
+    });
+}
 
 
 function initializePartnersMenu() {

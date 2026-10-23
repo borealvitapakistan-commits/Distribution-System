@@ -20,6 +20,7 @@ from .forms import (
     CounterOfferForm,
     ManufacturerAdvancePaymentForm,
     ManufacturerForm,
+    ManufacturerDeletionForm,
     ManufacturerOrderForm,
     ManufacturerOrderInvoiceForm,
     ManufacturerOrderItemFormSet,
@@ -30,6 +31,7 @@ from .forms import (
     PurchaseOrderEditForm,
 )
 from .models import Manufacturer, ManufacturerOrder, OrderRevision
+from .deletion import review_manufacturer
 from .guide import STAGES, list_status, next_step_guide
 from .record_pdf import document_pdf, order_record_pdf
 from .services import (
@@ -58,7 +60,7 @@ class ManufacturerListView(OwnerRequiredMixin, ListView):
     context_object_name = "manufacturers"
 
     def get_queryset(self):
-        return Manufacturer.objects.for_user(self.request.user)
+        return Manufacturer.objects.for_user(self.request.user).filter(archived_at__isnull=True)
 
 
 class ManufacturerCreateView(OwnerRequiredMixin, View):
@@ -98,16 +100,54 @@ class ManufacturerDetailView(OwnerRequiredMixin, DetailView):
 
 
 class ManufacturerDeleteView(OwnerRequiredMixin, View):
-    def post(self, request, pk):
-        manufacturer = get_object_or_404(
-            Manufacturer.objects.for_user(request.user), pk=pk,
+    template_name = "manufacturers/manufacturer_delete.html"
+
+    def get_object(self):
+        return get_object_or_404(
+            Manufacturer.objects.for_user(self.request.user).filter(archived_at__isnull=True),
+            pk=self.kwargs["pk"],
         )
+
+    def render_review(self, request, manufacturer, review, form):
+        return render(request, self.template_name, {"manufacturer":manufacturer, "review":review, "form":form})
+
+    def get(self, request, pk):
+        manufacturer = self.get_object()
+        review = review_manufacturer(manufacturer)
+        form = ManufacturerDeletionForm(manufacturer=manufacturer, review=review)
+        return self.render_review(request, manufacturer, review, form)
+
+    def post(self, request, pk):
+        manufacturer = self.get_object()
+        review = review_manufacturer(manufacturer)
+        form = ManufacturerDeletionForm(request.POST, manufacturer=manufacturer, review=review)
+        if not form.is_valid():
+            return self.render_review(request, manufacturer, review, form)
         try:
-            delete_manufacturer(actor=request.user, manufacturer_id=manufacturer.pk)
+            result = delete_manufacturer(
+                actor=request.user, manufacturer_id=manufacturer.pk,
+                review_token=form.cleaned_data["review_token"], product_actions=form.product_actions(),
+            )
         except ValidationError as exc:
-            messages.error(request, " ".join(exc.messages))
+            manufacturer.refresh_from_db()
+            review = review_manufacturer(manufacturer)
+            data = request.POST.copy()
+            data["review_token"] = review["token"]
+            data.pop("confirmed", None)
+            form = ManufacturerDeletionForm(data, manufacturer=manufacturer, review=review)
+            form.is_valid()
+            form.add_error(None, exc)
+            return self.render_review(request, manufacturer, review, form)
+        if result["archived"]:
+            messages.success(request, "Manufacturer removed from the list. Its history has been preserved in the archive.")
         else:
             messages.success(request, "Manufacturer deleted successfully.")
+        archived_products = sum(row["archived"] for row in result["products"])
+        held_products = sum(row["action"] == "hold" for row in result["products"])
+        if archived_products:
+            messages.info(request, f"{archived_products} product(s) archived to preserve their history.")
+        if held_products:
+            messages.info(request, f"{held_products} product(s) put on hold. You can find and reactivate them under Products.")
         return redirect("manufacturer-list")
 
 
@@ -117,7 +157,7 @@ class ManufacturerUpdateView(OwnerRequiredMixin, View):
     def get_object(self):
         return (
             Manufacturer.objects.for_user(self.request.user)
-            .filter(pk=self.kwargs["pk"])
+            .filter(pk=self.kwargs["pk"], archived_at__isnull=True)
             .first()
         )
 

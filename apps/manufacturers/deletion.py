@@ -30,7 +30,8 @@ def _history(product):
             continue
         count = model._base_manager.filter(**{relation.field.name: product.pk}).count()
         if count:
-            history.append({"label": str(model._meta.verbose_name_plural), "count": count})
+            label = model._meta.verbose_name if count == 1 else model._meta.verbose_name_plural
+            history.append({"label": str(label), "count": count})
     return history
 
 
@@ -158,16 +159,18 @@ def delete_manufacturer(*, actor, manufacturer_id, product_actions=None, review_
                     price.save(update_fields=["manufacturer", "updated_by", "updated_at"])
             product.manufacturer = target
             audit_action = "product.manufacturer_reassigned"
+        elif action == "delete" and row["history"]:
+            # Keep the archived catalog record intact for historical references.
+            product.active = False
+            product.archived_at = timezone.now()
+            audit_action = "product.archived"
         else:
             ProductPackagePrice.objects.filter(pk__in=[p.pk for p in old_prices]).delete()
             price_changes = [{"amount": str(p.amount), "removed_price": str(p.price)} for p in old_prices]
             if product.manufacturer_id == manufacturer.pk:
                 product.manufacturer = None
             product.active = False
-            if action == "delete" and row["history"]:
-                product.archived_at = timezone.now()
-                audit_action = "product.archived"
-            elif action == "delete":
+            if action == "delete":
                 audit_action = "product.deleted"
             else:
                 audit_action = "product.put_on_hold"

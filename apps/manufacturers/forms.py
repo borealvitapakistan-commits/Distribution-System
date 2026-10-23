@@ -54,6 +54,54 @@ class ManufacturerForm(forms.ModelForm):
         }
 
 
+class ManufacturerDeletionForm(forms.Form):
+    review_token = forms.CharField(widget=forms.HiddenInput)
+    confirmed = forms.BooleanField(
+        label="I have reviewed these choices and want to delete this manufacturer.",
+        error_messages={"required": "Confirm your choices before deleting the manufacturer."},
+    )
+
+    def __init__(self, *args, manufacturer, review, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields["review_token"].initial = review["token"]
+        self.rows = []
+        targets = Manufacturer.objects.filter(
+            active=True, archived_at__isnull=True,
+        ).exclude(pk=manufacturer.pk)
+        for row in review["products"]:
+            product = row["product"]
+            action_name = f"action_{product.pk.hex}"
+            target_name = f"target_{product.pk.hex}"
+            self.fields[action_name] = forms.ChoiceField(
+                label=f"What should happen to {product.name}?",
+                choices=[("", "Choose an action…"), ("reassign", "Reassign to another manufacturer"),
+                         ("hold", "Put on hold"), ("delete", "Delete product")],
+                widget=forms.Select(attrs={"data-deletion-action": ""}),
+            )
+            self.fields[target_name] = forms.ModelChoiceField(
+                label="Replacement manufacturer", queryset=targets, required=False,
+                empty_label="Choose a manufacturer…",
+            )
+            self.rows.append({**row, "action": self[action_name], "target": self[target_name]})
+
+    def clean(self):
+        cleaned = super().clean()
+        for row in self.rows:
+            if cleaned.get(row["action"].name) == "reassign" and not cleaned.get(row["target"].name):
+                self.add_error(row["target"].name, "Choose a replacement manufacturer for this product.")
+        return cleaned
+
+    def product_actions(self):
+        return {
+            str(row["product"].pk): {
+                "action": self.cleaned_data[row["action"].name],
+                "target_id": str(self.cleaned_data[row["target"].name].pk)
+                if self.cleaned_data.get(row["target"].name) else None,
+            }
+            for row in self.rows
+        }
+
+
 class ManufacturerOrderForm(forms.Form):
     manufacturer = forms.ModelChoiceField(
         queryset=Manufacturer.objects.filter(active=True),

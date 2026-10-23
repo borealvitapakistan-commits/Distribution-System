@@ -4011,6 +4011,126 @@ input[type="checkbox"] {
     text-transform: uppercase;
 }
 
+/* Review all supplier links before the owner confirms removal. */
+.deletion-review {
+    max-width: 72rem;
+}
+
+.deletion-review .errorlist {
+    color: var(--red-600);
+    font-size: 0.875rem;
+}
+
+.deletion-overview,
+.deletion-product {
+    padding: 1.5rem;
+}
+
+.deletion-overview h2,
+.deletion-product p {
+    margin-top: 0;
+}
+
+.deletion-options,
+.deletion-product-fields {
+    display: grid;
+    gap: 1.25rem;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 1.25rem;
+}
+
+.deletion-options > div {
+    padding: 1rem;
+    border-radius: 0.75rem;
+    background: var(--slate-50);
+    border: 1px solid var(--slate-200);
+}
+
+.deletion-options p {
+    margin: 0.5rem 0 0;
+    color: var(--slate-600);
+    font-size: 0.875rem;
+    line-height: 1.6;
+}
+
+.deletion-product {
+    min-width: 0;
+    margin: 0;
+}
+
+.deletion-product legend {
+    padding: 0 0.5rem;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+}
+
+.deletion-product legend span {
+    display: inline-block;
+    margin-left: 0.5rem;
+    font-size: 0.75rem;
+}
+
+.deletion-product-info {
+    font-size: 0.875rem;
+    line-height: 1.6;
+}
+
+.deletion-package-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1.75rem;
+    padding-left: 1.25rem;
+    font-size: 0.8125rem;
+    color: var(--slate-600);
+}
+
+.deletion-history-note {
+    color: var(--blue-700);
+}
+
+.deletion-product-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.deletion-product-fields [hidden] {
+    display: none;
+}
+
+.deletion-confirmation {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.625rem;
+    font-weight: 600;
+}
+
+.deletion-confirmation input {
+    width: 1.125rem;
+    height: 1.125rem;
+    flex-shrink: 0;
+    margin: 0.125rem 0 0;
+}
+
+@media (max-width: 42em) {
+    .deletion-options,
+    .deletion-product-fields {
+        grid-template-columns: 1fr;
+    }
+
+    .deletion-overview,
+    .deletion-product {
+        padding: 1rem;
+    }
+
+    .deletion-review .form-actions {
+        flex-wrap: wrap;
+    }
+
+    .deletion-review .form-actions .button {
+        white-space: normal;
+        text-align: center;
+    }
+}
+
 a.brand {
     color: var(--white);
     text-decoration: none;

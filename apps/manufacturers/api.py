@@ -29,7 +29,7 @@ def _raise_api_error(exc):
 def _get_scoped_manufacturer(request, manufacturer_id):
     manufacturer = (
         Manufacturer.objects.for_user(request.user)
-        .filter(pk=manufacturer_id)
+        .filter(pk=manufacturer_id, archived_at__isnull=True)
         .first()
     )
     if manufacturer is None:
@@ -41,7 +41,7 @@ class ManufacturerListCreateAPIView(APIView):
     permission_classes = [IsOwner]
 
     def get(self, request):
-        queryset = Manufacturer.objects.for_user(request.user)
+        queryset = Manufacturer.objects.for_user(request.user).filter(archived_at__isnull=True)
         return Response(
             ManufacturerSerializer(queryset, many=True, context={"request": request}).data
         )

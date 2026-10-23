@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+
+{% block title %}Delete {{ manufacturer.name }}{% endblock %}
+
+{% block content %}
+<nav class="breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'manufacturer-list' %}">Manufacturers</a>
+    <span aria-hidden="true">›</span>
+    <span aria-current="page">Delete {{ manufacturer.name }}</span>
+</nav>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Partners</p>
+        <h1>Delete {{ manufacturer.name }}</h1>
+        <p>Review the linked records and choose what happens to each product.</p>
+    </div>
+    <a class="button button-secondary" href="{% url 'manufacturer-list' %}">Cancel</a>
+</div>
+
+<form method="post" class="deletion-review form-layout" data-deletion-review>
+    {% csrf_token %}
+    {{ form.review_token }}
+    {% if form.non_field_errors or form.review_token.errors %}
+        <div class="form-errors" role="alert">{{ form.non_field_errors }}{{ form.review_token.errors }}</div>
+    {% endif %}
+
+    <section class="panel deletion-overview">
+        <h2>Choose what happens next</h2>
+        <p><strong>{{ form.rows|length }} linked product{{ form.rows|length|pluralize }}</strong> · {{ manufacturer.package_prices.count }} package price{{ manufacturer.package_prices.count|pluralize }}</p>
+        <div class="deletion-options">
+            <div><strong>Reassign</strong><p>Give the product and this supplier’s package prices to another manufacturer. Existing replacement prices take priority for matching package sizes.</p></div>
+            <div><strong>Put on hold</strong><p>Keep the product under Products, mark it inactive, and remove this supplier’s links and prices. You can reactivate it later.</p></div>
+            <div><strong>Delete product</strong><p>Remove it from the catalog for all manufacturers. Products with history are archived; unused products are permanently deleted.</p></div>
+        </div>
+    </section>
+
+    {% for row in form.rows %}
+        <fieldset class="panel deletion-product" data-product-decision>
+            <legend>{{ row.product.name }} <span class="table-secondary">{{ row.product.sku }}</span></legend>
+            <div class="deletion-product-info">
+                <p>Current manufacturer: <strong>{{ row.product.manufacturer.name|default:"Unassigned" }}</strong></p>
+                {% if row.other_suppliers %}<p>Also supplied by: <strong>{{ row.other_suppliers|join:", " }}</strong>. Your choice applies to the whole product.</p>{% endif %}
+                {% if row.packages %}
+                    <p>{{ manufacturer.name }} supplies these packages:</p>
+                    <ul class="deletion-package-list">
+                        {% for package in row.packages %}<li>{{ package.amount|floatformat:"-2" }} {{ row.product.get_unit_of_measure_display }} · {{ row.product.currency }} {{ package.price|floatformat:2 }}</li>{% endfor %}
+                    </ul>
+                {% endif %}
+                {% if row.history %}
+                    <p class="deletion-history-note">History will be preserved. Choosing Delete will archive this product.</p>
+                    <ul class="deletion-package-list">{% for entry in row.history %}<li>{{ entry.count }} {{ entry.label }}</li>{% endfor %}</ul>
+                {% endif %}
+            </div>
+            <div class="deletion-product-fields">
+                <div class="form-group">
+                    <label for="{{ row.action.id_for_label }}">{{ row.action.label }}</label>
+                    {{ row.action }}
+                    {{ row.action.errors }}
+                </div>
+                <div class="form-group" data-reassignment>
+                    <label for="{{ row.target.id_for_label }}">{{ row.target.label }}</label>
+                    {{ row.target }}
+                    {{ row.target.errors }}
+                </div>
+            </div>
+        </fieldset>
+    {% empty %}
+        <section class="panel deletion-overview"><p>No current product links need to be resolved.</p></section>
+    {% endfor %}
+
+    {% if review.orders or review.locations %}
+        <section class="panel deletion-overview">
+            <h2>History that stays</h2>
+            <p>This manufacturer will be archived and removed from the Manufacturers list. These records keep the original manufacturer’s details.</p>
+            {% if review.orders %}
+                <h3>Orders ({{ review.orders|length }})</h3>
+                <ul class="deletion-package-list">{% for order in review.orders %}<li><a href="{% url 'manufacturer-order-detail' order.pk %}">{{ order.po_number }}</a> · {{ order.get_status_display }}</li>{% endfor %}</ul>
+            {% endif %}
+            {% if review.locations %}
+                <h3>Warehouses ({{ review.locations|length }})</h3>
+                <ul class="deletion-package-list">{% for location in review.locations %}<li>{{ location.name }} · {{ location.code }}</li>{% endfor %}</ul>
+            {% endif %}
+        </section>
+    {% endif %}
+
+    <section class="panel deletion-overview">
+        <div class="deletion-confirmation">
+            {{ form.confirmed }}
+            <label for="{{ form.confirmed.id_for_label }}">{{ form.confirmed.label }}</label>
+        </div>
+        {{ form.confirmed.errors }}
+        <p class="table-secondary">No changes are made until you confirm. Existing orders, stock, sales, and audit history are kept.</p>
+        <div class="form-actions">
+            <a class="button button-secondary" href="{% url 'manufacturer-list' %}">Cancel</a>
+            <button type="submit" class="button button-danger">Confirm choices &amp; delete manufacturer</button>
+        </div>
+    </section>
+</form>
+{% endblock %}

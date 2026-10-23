@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
+from django.urls import reverse
 
 from apps.accounts.models import User
 from apps.audit.models import AuditEvent
@@ -94,6 +95,8 @@ class ManufacturerResolutionTests(TestCase):
         self.assertFalse(self.source.active)
         self.assertFalse(self.product.active)
         self.assertEqual(order.manufacturer_id, self.source.pk)
+        self.assertEqual(self.product.manufacturer_id, self.source.pk)
+        self.assertTrue(ProductPackagePrice.objects.filter(pk=self.package.pk).exists())
         self.assertEqual(order.items.get().product_id, self.product.pk)
         self.assertEqual(order.manufacturer.name, "Old supplier")
         self.assertFalse(Product.objects.for_user(self.owner).filter(pk=self.product.pk).exists())
@@ -214,3 +217,82 @@ class ManufacturerResolutionTests(TestCase):
         for create in (create_purchase_order, create_request_to_quote):
             with self.subTest(create=create), self.assertRaises(ValidationError):
                 create(actor=distributor, items=[{"product":self.product, "quantity_requested":1}])
+
+    def page_data(self, action="hold", **overrides):
+        return {
+            "review_token": review_manufacturer(self.source)["token"], "confirmed": "on",
+            f"action_{self.product.pk.hex}": action, **overrides,
+        }
+
+    def test_review_page_names_links_and_requires_a_replacement_when_reassigning(self):
+        self.client.force_login(self.owner)
+        url = reverse("manufacturer-delete", args=[self.source.pk])
+        response = self.client.get(url)
+        self.assertContains(response, self.product.name)
+        self.assertContains(response, "Reassign to another manufacturer")
+        self.assertContains(response, self.target.name)
+        response = self.client.post(url, self.page_data("reassign"))
+        self.assertContains(response, "Choose a replacement manufacturer for this product.")
+        self.assertTrue(Manufacturer.objects.filter(pk=self.source.pk).exists())
+
+    def test_post_without_confirmation_makes_no_changes(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            reverse("manufacturer-delete", args=[self.source.pk]), self.page_data(confirmed=""),
+        )
+        self.assertContains(response, "Confirm your choices before deleting the manufacturer.")
+        self.product.refresh_from_db()
+        self.assertTrue(self.product.active)
+
+    def test_one_confirmation_can_apply_different_choices_per_product(self):
+        second = create_product(
+            actor=self.owner, sku="SECOND", name="Other supplement", manufacturer=self.source,
+        )
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("manufacturer-delete", args=[self.source.pk]), self.page_data(
+            "reassign", **{
+                f"target_{self.product.pk.hex}":str(self.target.pk),
+                f"action_{second.pk.hex}":"hold",
+            },
+        ), follow=True)
+        self.assertRedirects(response, reverse("manufacturer-list"))
+        self.product.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual(self.product.manufacturer_id, self.target.pk)
+        self.assertFalse(second.active)
+        self.assertIsNone(second.manufacturer_id)
+        self.assertContains(self.client.get(reverse("product-list")), second.name)
+
+    def test_stale_submission_refreshes_review_and_requires_reconfirmation(self):
+        self.client.force_login(self.owner)
+        url = reverse("manufacturer-delete", args=[self.source.pk])
+        data = self.page_data()
+        self.package.price = 80
+        self.package.save()
+        response = self.client.post(url, data)
+        self.assertContains(response, "The linked records changed.")
+        refreshed = response.context["form"]
+        self.assertNotEqual(refreshed["review_token"].value(), data["review_token"])
+        self.assertFalse(refreshed["confirmed"].value())
+        data["review_token"] = refreshed["review_token"].value()
+        self.assertRedirects(self.client.post(url, data), reverse("manufacturer-list"))
+
+    def test_archived_manufacturer_is_hidden_but_history_details_remain_readable(self):
+        order = ManufacturerOrder.objects.create(manufacturer=self.source, po_number="MO-KEPT")
+        self.resolve("hold")
+        self.client.force_login(self.owner)
+        self.assertNotContains(self.client.get(reverse("manufacturer-list")), self.source.name)
+        response = self.client.get(reverse("manufacturer-detail", args=[self.source.pk]))
+        self.assertContains(response, "This manufacturer is archived.")
+        self.assertNotContains(response, reverse("manufacturer-delete", args=[self.source.pk]))
+        self.assertEqual(self.client.get(reverse("manufacturer-edit", args=[self.source.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("manufacturer-delete", args=[self.source.pk])).status_code, 404)
+        self.assertContains(self.client.get(reverse("manufacturer-order-detail", args=[order.pk])), self.source.name)
+
+    def test_archived_manufacturers_are_hidden_in_api(self):
+        ManufacturerOrder.objects.create(manufacturer=self.source, po_number="MO-API-KEPT")
+        self.resolve("hold")
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("api-manufacturer-list"))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(str(self.source.pk), response.content.decode())
