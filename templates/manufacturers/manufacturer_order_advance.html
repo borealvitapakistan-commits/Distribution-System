@@ -29,12 +29,6 @@
 <section class="panel">
     <dl class="details-list">
         <div><dt>Order total</dt><dd>{{ order.grand_total|money }}</dd></div>
-        {% if order.manufacturer.upfront_payment_percentage > 0 %}
-            <div>
-                <dt>{{ order.manufacturer.name }}'s usual advance</dt>
-                <dd>{{ order.manufacturer.upfront_payment_percentage }}% ({{ order.required_upfront_amount|money }})</dd>
-            </div>
-        {% endif %}
     </dl>
 </section>
 

@@ -12,7 +12,8 @@ from .models import (
 
 @admin.register(Manufacturer)
 class ManufacturerAdmin(admin.ModelAdmin):
-    list_display = ("name", "phone", "email", "upfront_payment_percentage", "active")
+    list_display = ("name", "phone", "email", "active")
+    exclude = ("upfront_payment_percentage",)
     list_filter = ("active",)
     search_fields = ("name", "email", "phone")
     ordering = ("name",)

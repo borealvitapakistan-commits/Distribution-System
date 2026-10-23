@@ -42,15 +42,11 @@ class ManufacturerForm(forms.ModelForm):
     class Meta:
         model = Manufacturer
         fields = [
-            "name", "logo", "phone", "email", "address", "notes",
-            "upfront_payment_percentage", "active",
+            "name", "logo", "phone", "email", "address", "notes", "active",
         ]
         widgets = {
             "address": forms.Textarea(attrs={"rows": 3}),
             "notes": forms.Textarea(attrs={"rows": 3}),
-        }
-        labels = {
-            "upfront_payment_percentage": "Payment terms: % due before shipping",
         }
 
 

@@ -978,18 +978,7 @@ class ManufacturerOrderAdvanceView(OwnerRequiredMixin, View):
     template_name = "manufacturers/manufacturer_order_advance.html"
 
     def _render(self, request, order, form):
-        fill_amounts = []
-        percentage = order.manufacturer.upfront_payment_percentage
-
-        if 0 < percentage < 100:
-            fill_amounts.append(
-                {
-                    "label": f"Usual {percentage.normalize():f}% ({order.required_upfront_amount})",
-                    "value": order.required_upfront_amount,
-                }
-            )
-
-        fill_amounts.append({"label": "Full amount (100%)", "value": order.grand_total})
+        fill_amounts = [{"label": "Full amount (100%)", "value": order.grand_total}]
 
         return render(
             request,
@@ -1008,9 +997,7 @@ class ManufacturerOrderAdvanceView(OwnerRequiredMixin, View):
         return self._already_answered(request, order) or self._render(
             request,
             order,
-            ManufacturerAdvancePaymentForm(
-                initial={"amount": order.required_upfront_amount or None}
-            ),
+            ManufacturerAdvancePaymentForm(),
         )
 
     def post(self, request, pk):
