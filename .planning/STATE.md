@@ -2,7 +2,9 @@
 
 Updated: 2026-10-23
 
-- Completed plan: `phases/01-partners/01-03-PLAN.md`.
+- Completed plan: `phases/01-partners/01-04-PLAN.md`.
+- Products now use the supplied Shopify references: a focused catalog, directly editable product pages, real stock by location, media/description editing, bulk status actions, and confirmed delete/archive.
+- Latest product validation: full suite 314 passed; final targeted workspace suite 14 passed; desktop/mobile browser flows passed in an isolated database.
 - Removed manufacturer preset payment-before-shipping terms from forms/admin and order advance suggestions; per-order advance entry starts blank.
 - Latest validation: 24 manufacturer/order/payment-flow tests passed; rendered screens and migration drift checks passed.
 - Partners sidebar navigation is complete. Manufacturer deletion now reviews linked products with per-product reassign, hold, or delete choices.
