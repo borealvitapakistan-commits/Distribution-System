@@ -1,0 +1,11 @@
+<form
+    method="post"
+    action="{% url 'manufacturer-delete' manufacturer.pk %}"
+    class="inline-form confirm-form"
+    data-confirm="Delete {{ manufacturer.name }}? This cannot be undone."
+>
+    {% csrf_token %}
+    <button type="submit" class="button button-danger button-small" aria-label="Delete {{ manufacturer.name }}">
+        Delete
+    </button>
+</form>

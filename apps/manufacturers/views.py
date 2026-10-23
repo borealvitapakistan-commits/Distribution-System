@@ -5,7 +5,7 @@ from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db.models import Q
 from django.http import Http404, HttpResponse
-from django.shortcuts import redirect, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 from django.views import View
@@ -36,6 +36,7 @@ from .services import (
     awaiting_manufacturer_reply,
     confirm_purchase_order,
     create_manufacturer,
+    delete_manufacturer,
     create_request_to_quote,
     record_manufacturer_quote,
     update_request_to_quote,
@@ -94,6 +95,20 @@ class ManufacturerDetailView(OwnerRequiredMixin, DetailView):
 
     def get_queryset(self):
         return Manufacturer.objects.for_user(self.request.user)
+
+
+class ManufacturerDeleteView(OwnerRequiredMixin, View):
+    def post(self, request, pk):
+        manufacturer = get_object_or_404(
+            Manufacturer.objects.for_user(request.user), pk=pk,
+        )
+        try:
+            delete_manufacturer(actor=request.user, manufacturer_id=manufacturer.pk)
+        except ValidationError as exc:
+            messages.error(request, " ".join(exc.messages))
+        else:
+            messages.success(request, "Manufacturer deleted successfully.")
+        return redirect("manufacturer-list")
 
 
 class ManufacturerUpdateView(OwnerRequiredMixin, View):

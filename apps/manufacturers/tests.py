@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -15,6 +15,7 @@ from apps.products.services import create_product
 from .models import Manufacturer, ManufacturerOrder, ManufacturerOrderPayment
 from .services import (
     create_manufacturer,
+    delete_manufacturer,
     create_manufacturer_order,
     mark_manufacturer_order_received,
     receive_manufacturer_order,
@@ -77,6 +78,93 @@ class ManufacturerRulesTests(TestCase):
             with self.subTest(route=route):
                 response = self.client.get(route)
                 self.assertEqual(response.status_code, 200)
+
+
+class ManufacturerDeletionTests(TestCase):
+    def setUp(self):
+        self.owner = User.objects.create_user(
+            email="owner@delete.test", role=User.Role.OWNER,
+        )
+        self.manufacturer = create_manufacturer(actor=self.owner, name="Unused supplier")
+        self.url = reverse("manufacturer-delete", args=[self.manufacturer.pk])
+        self.client.force_login(self.owner)
+
+    def test_owner_deletes_unused_manufacturer_and_records_audit(self):
+        from apps.audit.models import AuditEvent
+
+        manufacturer_id = self.manufacturer.pk
+        response = self.client.post(self.url, follow=True)
+        self.assertRedirects(response, reverse("manufacturer-list"))
+        self.assertFalse(Manufacturer.objects.filter(pk=manufacturer_id).exists())
+        event = AuditEvent.objects.get(action="manufacturer.deleted")
+        self.assertEqual(event.object_id, str(manufacturer_id))
+        self.assertEqual(event.before_data["name"], "Unused supplier")
+        self.assertEqual(event.actor, self.owner)
+        self.assertContains(response, "Manufacturer deleted successfully.")
+
+    def test_get_does_not_delete(self):
+        self.assertEqual(self.client.get(self.url).status_code, 405)
+        self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
+
+    def test_missing_manufacturer_returns_404(self):
+        import uuid
+
+        response = self.client.post(reverse("manufacturer-delete", args=[uuid.uuid4()]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_anonymous_and_distributor_cannot_delete(self):
+        self.client.logout()
+        self.assertEqual(self.client.post(self.url).status_code, 302)
+        distributor = User.objects.create_user(
+            email="dist@delete.test", role=User.Role.DISTRIBUTOR,
+        )
+        self.client.force_login(distributor)
+        self.assertEqual(self.client.post(self.url).status_code, 403)
+        with self.assertRaises(PermissionDenied):
+            delete_manufacturer(actor=distributor, manufacturer_id=self.manufacturer.pk)
+        self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
+
+    def test_delete_requires_csrf_token(self):
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.owner)
+        self.assertEqual(client.post(self.url).status_code, 403)
+        self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
+
+    def test_linked_records_block_deletion_without_losing_data_or_auditing_success(self):
+        from apps.audit.models import AuditEvent
+        from apps.products.models import ProductPackagePrice
+
+        product = create_product(
+            actor=self.owner, sku="KEEP-001", name="Linked product",
+            base_retail_price=Decimal("100"), currency="pkr",
+        )
+        order = ManufacturerOrder.objects.create(
+            manufacturer=self.manufacturer, po_number="MO-KEEP",
+            created_by=self.owner, updated_by=self.owner,
+        )
+        package = ProductPackagePrice.objects.create(
+            product=product, manufacturer=self.manufacturer,
+            amount=Decimal("100"), price=Decimal("50"),
+            created_by=self.owner, updated_by=self.owner,
+        )
+        for relation in ("order", "package price", "product"):
+            with self.subTest(relation=relation):
+                response = self.client.post(self.url, follow=True)
+                self.assertRedirects(response, reverse("manufacturer-list"))
+                self.assertContains(response, "Cannot delete this manufacturer")
+                self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
+                self.assertFalse(AuditEvent.objects.filter(action="manufacturer.deleted").exists())
+                if relation == "order":
+                    order.refresh_from_db()
+                    order.delete()
+                elif relation == "package price":
+                    package.refresh_from_db()
+                    package.delete()
+                    product.manufacturer = self.manufacturer
+                    product.save()
+                else:
+                    product.refresh_from_db()
+                    self.assertEqual(product.manufacturer_id, self.manufacturer.pk)
 
 
 @override_settings(MEDIA_ROOT=MEDIA_ROOT)

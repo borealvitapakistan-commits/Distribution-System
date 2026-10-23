@@ -2,6 +2,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from django.utils.text import slugify
 
@@ -83,6 +84,32 @@ def update_manufacturer(*, actor, manufacturer_id, **data):
         after_data=_manufacturer_payload(manufacturer),
     )
     return manufacturer
+
+
+@transaction.atomic
+def delete_manufacturer(*, actor, manufacturer_id):
+    require_owner(actor)
+    manufacturer = (
+        Manufacturer.objects.for_user(actor).select_for_update()
+        .filter(pk=manufacturer_id).first()
+    )
+    if manufacturer is None:
+        raise ValidationError("Manufacturer was not found.")
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.deleted",
+        instance=manufacturer,
+        before_data=_manufacturer_payload(manufacturer),
+    )
+    try:
+        manufacturer.delete()
+    except ProtectedError as exc:
+        raise ValidationError(
+            "Cannot delete this manufacturer because it is linked to products, "
+            "package prices, or orders. You can retire it by editing it and "
+            "turning off Active."
+        ) from exc
 
 
 def _as_decimal(value):

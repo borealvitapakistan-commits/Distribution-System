@@ -6,6 +6,7 @@ from .views import (
     ManufacturerOrderQuoteView,
     ManufacturerCreateView,
     ManufacturerDetailView,
+    ManufacturerDeleteView,
     ManufacturerListView,
     ManufacturerOrderCreateView,
     ManufacturerOrderDetailView,
@@ -28,6 +29,7 @@ urlpatterns = [
     path("owner/manufacturers/new/", ManufacturerCreateView.as_view(), name="manufacturer-create"),
     path("owner/manufacturers/<uuid:pk>/", ManufacturerDetailView.as_view(), name="manufacturer-detail"),
     path("owner/manufacturers/<uuid:pk>/edit/", ManufacturerUpdateView.as_view(), name="manufacturer-edit"),
+    path("owner/manufacturers/<uuid:pk>/delete/", ManufacturerDeleteView.as_view(), name="manufacturer-delete"),
     path(
         "owner/manufacturer-orders/",
         ManufacturerOrderListView.as_view(),

@@ -7,7 +7,7 @@
 {% block content %}
 <div class="page-header">
     <div>
-        <p class="eyebrow">Master Data</p>
+        <p class="eyebrow">Partners</p>
         <h1>Manufacturers</h1>
         <p>Who the Owner buys products from.</p>
     </div>
@@ -48,13 +48,14 @@
                             {% endif %}
                         </td>
 
-                        <td>
+                        <td class="table-actions">
                             <a
                                 class="button button-secondary button-small"
                                 href="{% url 'manufacturer-detail' manufacturer.pk %}"
                             >
                                 View
                             </a>
+                            {% include "manufacturers/_delete_form.html" %}
                         </td>
                     </tr>
                 {% empty %}
