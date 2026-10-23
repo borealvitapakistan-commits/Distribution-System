@@ -811,6 +811,9 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const name of ["image", "gallery_photos"]) {
         const input = form.querySelector(`input[type="file"][name="${name}"]`);
         input?.addEventListener("change", () => {
+            const filename = form.querySelector(`[data-file-name="${input.id}"]`);
+            if (filename) filename.textContent = input.files.length === 1
+                ? input.files[0].name : input.files.length ? `${input.files.length} images selected` : "";
             preview.querySelectorAll(`[data-client-preview="${name}"]`).forEach(item => item.remove());
             if (name === "image" && input.files.length) preview.querySelector(".pc-media-main")?.remove();
             [...input.files].filter(file => file.type.startsWith("image/")).forEach(file => {

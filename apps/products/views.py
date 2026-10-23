@@ -439,6 +439,7 @@ class ProductEditorMixin:
             return [form[name] for name in names.split() if name in form.fields]
         context.update({
             "product": product,
+            "clear_main_image": bool(form.data.get("image-clear")) if form.is_bound else False,
             "description": sanitize_description(form["body_html"].value() or ""),
             "identity_fields": fields("sku barcode unit_of_measure size units_per_case allow_fractional_quantity default_reorder_point default_reorder_quantity"),
             "price_fields": fields("base_retail_price compare_at_price currency"),

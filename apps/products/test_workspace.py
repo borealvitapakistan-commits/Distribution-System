@@ -155,3 +155,28 @@ class ProductWorkspaceRulesTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["form"]["name"].value(), "Keep this title")
         self.assertContains(response, "Please check the highlighted fields.")
+
+    def test_main_image_can_be_cleared_from_product_editor(self):
+        import tempfile
+        from django.core.files.base import ContentFile
+        from django.test import override_settings
+        from .forms import ProductForm
+        from .tests import fake_image
+
+        with tempfile.TemporaryDirectory() as media, override_settings(MEDIA_ROOT=media):
+            _, png = fake_image("")
+            self.product.image.save("main.png", ContentFile(png))
+            self.product.shopify_image_url = "https://example.com/original.jpg"
+            self.product.save(update_fields=["shopify_image_url"])
+            form = ProductForm(instance=self.product)
+            data = {name:value if value is not None else "" for name,value in form.initial.items()
+                    if name in form.fields and name not in ("image", "allow_fractional_quantity")}
+            data.update({"image-clear":"on", "active":"True",
+                         "ingredients-TOTAL_FORMS":"0", "ingredients-INITIAL_FORMS":"0",
+                         "ingredients-MIN_NUM_FORMS":"0", "ingredients-MAX_NUM_FORMS":"1000"})
+            self.client.force_login(self.owner)
+            response = self.client.post(reverse("product-detail", args=[self.product.pk]), data)
+            self.assertRedirects(response, reverse("product-detail", args=[self.product.pk]))
+            self.product.refresh_from_db()
+            self.assertFalse(self.product.image)
+            self.assertEqual(self.product.shopify_image_url, "")

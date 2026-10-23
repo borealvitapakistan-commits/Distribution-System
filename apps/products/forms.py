@@ -177,6 +177,10 @@ class ProductForm(forms.ModelForm):
     def split_photo_data(self):
         """(product fields, photos to add, photos to remove)."""
         data = dict(self.cleaned_data)
+        # Django's clear checkbox returns False; FileField expects an empty name.
+        if data.get("image") is False:
+            data["image"] = ""
+            data["shopify_image_url"] = ""
         add = data.pop("gallery_photos", None) or []
         remove = data.pop("remove_photos", None) or []
         return data, add, remove

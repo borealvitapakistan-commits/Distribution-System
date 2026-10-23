@@ -37,7 +37,10 @@
                             {% for photo in object.gallery.all %}<div class="pc-media-item"><img src="{{ photo.image.url }}" alt="{{ object.name }} photo {{ forloop.counter }}"></div>{% endfor %}
                             <label class="pc-media-add" for="id_gallery_photos"><span aria-hidden="true">＋</span><strong>Add media</strong><small>Images</small></label>
                         </div>
-                        <div class="pc-media-controls">{% include "products/_editor_field.html" with field=form.image %}{% include "products/_editor_field.html" with field=form.gallery_photos %}</div>
+                        <div class="pc-media-controls">
+                            <div class="form-group"><span class="pc-media-label">Main image</span><div><label class="button button-secondary button-small" for="id_image">{% if object.image or object.shopify_image_url %}Replace image{% else %}Upload image{% endif %}</label><input type="file" name="image" id="id_image" accept="image/*" class="pc-upload-input"><small class="pc-muted" data-file-name="id_image"></small></div>{% if object.image or object.shopify_image_url %}<label class="pc-clear-image"><input type="checkbox" name="image-clear" {% if clear_main_image %}checked{% endif %}> Remove main image</label>{% endif %}{{ form.image.errors }}</div>
+                            <div class="form-group"><span class="pc-media-label">Additional images</span><div><label class="button button-secondary button-small" for="id_gallery_photos">Upload images</label><input type="file" name="gallery_photos" id="id_gallery_photos" accept="image/*" multiple class="pc-upload-input"><small class="pc-muted" data-file-name="id_gallery_photos"></small></div>{{ form.gallery_photos.errors }}</div>
+                        </div>
                         {% if form.remove_photos %}<details class="pc-photo-removal"><summary>Remove existing photos</summary>{{ form.remove_photos }}{{ form.remove_photos.errors }}</details>{% endif %}
                     </div>
                     {% include "products/_editor_field.html" with field=form.category %}

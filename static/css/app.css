@@ -4928,3 +4928,11 @@ input[readonly] {
     .pc-editor-bottom { align-items: flex-start; }
     .pc-delete-review .pc-deletion-row { flex-wrap: wrap; }
 }
+.pc-media-controls .button { display: inline-flex; cursor: pointer; font-weight: 500; }
+.pc-media-label { font-size: .75rem; color: #666; }
+.pc-clear-image { display: flex; align-items: center; gap: .4rem; font-size: .75rem !important; }
+.pc-media-controls small { display: block; margin-top: .3rem; overflow-wrap: anywhere; }
+.pc-media-controls .form-group { position: relative; }
+.pc-shell .form-group input.pc-upload-input,
+.pc-shell .form-group input.pc-upload-input:focus-visible { position: absolute; left: 0; top: 0; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0; clip-path: inset(50%); }
+.pc-media-controls .form-group:focus-within .button { outline: 2px solid var(--blue-600); outline-offset: 2px; }
