@@ -51,6 +51,40 @@
                         Dashboard
                     </a>
 
+                    <div class="partners-menu" data-partners-menu>
+                        <button
+                            type="button"
+                            class="partners-toggle{% if nav_section == 'partners' %} active{% endif %}"
+                            aria-expanded="false"
+                            aria-controls="partnersLinks"
+                            data-partners-toggle
+                        >
+                            {% include "_icon.html" with name="partners" %}
+                            Partners
+                            <svg class="partners-chevron" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 7.5 5 5 5-5"/></svg>
+                        </button>
+                        <div class="partners-links" id="partnersLinks" inert>
+                            <div class="partners-links-inner">
+                                <a href="{% url 'manufacturer-list' %}" class="{% if request.resolver_match.url_name|slice:':13' == 'manufacturer-' %}active{% endif %}">
+                                    {% include "_icon.html" with name="factory" %}
+                                    Manufacturers
+                                </a>
+                                <a href="{% url 'owner-list' %}" class="{% if request.resolver_match.url_name == 'owner-list' or request.resolver_match.url_name == 'owner-create' %}active{% endif %}">
+                                    {% include "_icon.html" with name="user" %}
+                                    Owners
+                                </a>
+                                <a href="{% url 'brand-list' %}" class="{% if request.resolver_match.url_name|slice:':6' == 'brand-' %}active{% endif %}">
+                                    {% include "_icon.html" with name="box" %}
+                                    Brand
+                                </a>
+                                <a href="{% url 'distributor-list' %}" class="{% if request.resolver_match.url_name == 'distributor-list' or request.resolver_match.url_name == 'distributor-invite' %}active{% endif %}">
+                                    {% include "_icon.html" with name="partners" %}
+                                    Distributors
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+
                     <span class="nav-group">Buying &amp; selling</span>
                     <a href="{% url 'owner-purchase-orders-hub' %}" class="{% if nav_section == 'purchase-orders' %}active{% endif %}">
                         {% include "_icon.html" with name="cart" %}
@@ -178,7 +212,7 @@
                         <div class="settings-menu" data-settings-menu>
                             <button
                                 type="button"
-                                class="button button-secondary button-small settings-toggle{% if request.resolver_match.url_name in "brand-list brand-create brand-detail brand-edit owner-list owner-create owner-profile distributor-list distributor-invite audit-event-list manufacturer-list manufacturer-create manufacturer-detail manufacturer-edit stock-movement-list" %} active{% endif %}"
+                                class="button button-secondary button-small settings-toggle{% if request.resolver_match.url_name in "owner-profile audit-event-list stock-movement-list" %} active{% endif %}"
                                 aria-haspopup="true"
                                 aria-expanded="false"
                                 data-settings-toggle
@@ -189,22 +223,6 @@
 
                             <nav class="settings-dropdown" data-settings-dropdown hidden>
                                 <a
-                                    href="{% url 'brand-list' %}"
-                                    class="{% if request.resolver_match.url_name == 'brand-list' or request.resolver_match.url_name == 'brand-create' or request.resolver_match.url_name == 'brand-detail' or request.resolver_match.url_name == 'brand-edit' %}active{% endif %}"
-                                >
-                                    <span class="nav-icon">▣</span>
-                                    Brand
-                                </a>
-
-                                <a
-                                    href="{% url 'owner-list' %}"
-                                    class="{% if request.resolver_match.url_name == 'owner-list' or request.resolver_match.url_name == 'owner-create' %}active{% endif %}"
-                                >
-                                    <span class="nav-icon">♙</span>
-                                    Owners
-                                </a>
-
-                                <a
                                     href="{% url 'owner-profile' %}"
                                     class="{% if request.resolver_match.url_name == 'owner-profile' %}active{% endif %}"
                                 >
@@ -213,27 +231,11 @@
                                 </a>
 
                                 <a
-                                    href="{% url 'distributor-list' %}"
-                                    class="{% if request.resolver_match.url_name == 'distributor-list' or request.resolver_match.url_name == 'distributor-invite' %}active{% endif %}"
-                                >
-                                    <span class="nav-icon">✓</span>
-                                    Distributors
-                                </a>
-
-                                <a
                                     href="{% url 'audit-event-list' %}"
                                     class="{% if request.resolver_match.url_name == 'audit-event-list' %}active{% endif %}"
                                 >
                                     <span class="nav-icon">✓</span>
                                     Audit Events
-                                </a>
-
-                                <a
-                                    href="{% url 'manufacturer-list' %}"
-                                    class="{% if request.resolver_match.url_name == 'manufacturer-list' or request.resolver_match.url_name == 'manufacturer-create' or request.resolver_match.url_name == 'manufacturer-detail' or request.resolver_match.url_name == 'manufacturer-edit' %}active{% endif %}"
-                                >
-                                    <span class="nav-icon">◉</span>
-                                    Manufacturers
                                 </a>
 
                                 <a

@@ -10,6 +10,11 @@ OWNER_SECTIONS = [
         "owner-purchase-order", "purchase-order", "manufacturer-order",
     )),
     ("agreements", ("owner-agreement",)),
+    ("partners", (
+        "manufacturer-", "brand-", "owner-list", "owner-create",
+        "distributor-list", "distributor-invite", "approve-distributor",
+        "reject-distributor", "suspend-distributor", "deactivate-owner",
+    )),
     ("products", ("product-", "category-", "ingredient-")),
     ("batches", ("stock-batch-list", "batch-trace")),
     ("inventory", (

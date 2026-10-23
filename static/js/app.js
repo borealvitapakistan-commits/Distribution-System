@@ -85,7 +85,51 @@ document.addEventListener("DOMContentLoaded", () => {
     initializeFiscalPeriodModal();
     initializeDynamicFormsets();
     initializeSettingsMenu();
+    initializePartnersMenu();
 });
+
+
+function initializePartnersMenu() {
+    const menu = document.querySelector("[data-partners-menu]");
+    if (!menu) {
+        return;
+    }
+
+    const toggle = menu.querySelector("[data-partners-toggle]");
+    const links = menu.querySelector(".partners-links");
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+    function setOpen(open) {
+        toggle.setAttribute("aria-expanded", String(open));
+        links.inert = !open;
+        menu.classList.toggle("is-open", open);
+    }
+
+    toggle.addEventListener("click", () => {
+        setOpen(toggle.getAttribute("aria-expanded") !== "true");
+    });
+
+    menu.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            setOpen(false);
+            toggle.focus();
+        }
+    });
+
+    links.querySelectorAll("a").forEach((link) => {
+        link.addEventListener("click", (event) => {
+            if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) {
+                return;
+            }
+            event.preventDefault();
+            setOpen(false);
+            toggle.focus();
+            window.setTimeout(() => {
+                window.location.assign(link.href);
+            }, reducedMotion.matches ? 0 : 200);
+        });
+    });
+}
 
 
 function initializeSettingsMenu() {

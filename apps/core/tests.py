@@ -20,7 +20,15 @@ class NavigationSectionTests(TestCase):
             "stock-batch-list": "batches",
             "owner-finance-ledger": "finance",
             "owner-dashboard": "dashboard",
-            "brand-list": "",
+            "brand-list": "partners",
+            "brand-edit": "partners",
+            "manufacturer-list": "partners",
+            "manufacturer-delete": "partners",
+            "owner-list": "partners",
+            "owner-create": "partners",
+            "distributor-list": "partners",
+            "distributor-invite": "partners",
+            "owner-profile": "",
         }
         for url_name, section in cases.items():
             self.assertEqual(section_for(url_name, is_owner=True), section, url_name)
