@@ -1,0 +1,73 @@
+<details class="pc-card pc-disclosure"><summary>Package sizes &amp; bottle pricing</summary><div class="pc-disclosure-content">
+    <section class="panel package-card">
+        <div class="package-card-header">
+            <div>
+                <h2>Available Package Sizes &amp; Prices</h2>
+                <p>This product is available in multiple package sizes from different manufacturers.</p>
+            </div>
+            <a class="button button-primary button-small" href="{% url 'product-package-create' product.pk %}">
+                + Add Package Size
+            </a>
+        </div>
+
+        <div class="table-wrapper">
+            <table class="package-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Manufacturer</th>
+                        <th>Amount</th>
+                        <th>Unit</th>
+                        <th>Price (PKR)</th>
+                        <th class="table-actions">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for package in packages %}
+                        <tr{% if package.starts_group %} class="group-start"{% endif %}>
+                            <td>{{ package.number }}</td>
+                            <td>
+                                <span class="manufacturer-cell">
+                                    {% if package.manufacturer.logo %}
+                                        <img class="manufacturer-logo" src="{{ package.manufacturer.logo.url }}" alt="">
+                                    {% else %}
+                                        <span class="manufacturer-logo manufacturer-initials" aria-hidden="true">{{ package.manufacturer.name|slice:":2"|upper }}</span>
+                                    {% endif %}
+                                    {{ package.manufacturer.name }}
+                                </span>
+                            </td>
+                            <td>{{ package.amount|floatformat:"-2" }}</td>
+                            <td>{{ product.unit_plural }}</td>
+                            <td><strong>{{ package.price|floatformat:"2g" }}</strong></td>
+                            <td class="table-actions">
+                                <a class="soft-button soft-blue" href="{% url 'product-package-edit' product.pk package.pk %}">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/></svg>
+                                    Edit
+                                </a>
+                                <form
+                                    method="post"
+                                    action="{% url 'product-package-delete' product.pk package.pk %}"
+                                    class="inline-form confirm-form"
+                                    data-confirm="Remove the {{ package.amount|floatformat:'-2' }} {{ product.unit_plural }} package from {{ package.manufacturer.name }}?"
+                                >
+                                    {% csrf_token %}
+                                    <button type="submit" class="soft-button soft-red">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>
+                                        Delete
+                                    </button>
+                                </form>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr>
+                            <td colspan="6" class="empty-table">
+                                No package sizes yet. Add one for each size and manufacturer.
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+</div></details>

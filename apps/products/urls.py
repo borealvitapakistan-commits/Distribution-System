@@ -14,6 +14,8 @@ from .views import (
     ProductPackageFormView,
     ProductRetailPricesView,
     ProductUpdateView,
+    ProductActionsView,
+    ProductDeleteView,
     RetailPriceSheetView,
     ShopifyImportView,
 )
@@ -44,6 +46,12 @@ urlpatterns = [
         "owner/products/",
         ProductListView.as_view(),
         name="product-list",
+    ),
+    path(
+        "owner/products/actions/", ProductActionsView.as_view(), name="product-actions",
+    ),
+    path(
+        "owner/products/<uuid:pk>/delete/", ProductDeleteView.as_view(), name="product-delete",
     ),
     path(
         "owner/products/new/",

@@ -66,6 +66,13 @@ class StockMovementListView(OwnerRequiredMixin, ListView):
         if channel in StockMovement.Channel.values:
             movements = movements.filter(channel=channel)
 
+        product_id = self.request.GET.get("product")
+        if product_id:
+            try:
+                movements = movements.filter(product_id=product_id)
+            except ValidationError:
+                return movements.none()
+
         return movements
 
     def get_context_data(self, **kwargs):
@@ -82,7 +89,9 @@ class ReceiveStockView(OwnerRequiredMixin, View):
         return render(
             request,
             self.template_name,
-            {"form": ReceiveStockForm()},
+            {"form": ReceiveStockForm(initial={
+                "product": request.GET.get("product"), "to_location": request.GET.get("location"),
+            })},
         )
 
     def post(self, request):

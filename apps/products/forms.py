@@ -8,6 +8,7 @@ from apps.core.models import Brand
 from apps.manufacturers.models import Manufacturer
 
 from .catalog import PRODUCT_UNITS, default_unit
+from .description import sanitize_description
 from .models import (
     BottleSize,
     Ingredient,
@@ -105,8 +106,12 @@ class ProductForm(forms.ModelForm):
         ]
         labels = {
             "body_html": "Description",
+            "name": "Title",
+            "base_retail_price": "Price",
+            "weight_grams": "Weight (g)",
         }
         widgets = {
+            "active": forms.Select(choices=[("True", "Active"), ("False", "On hold")]),
             "indications": forms.Textarea(
                 attrs={"rows": 3}
             ),
@@ -175,6 +180,9 @@ class ProductForm(forms.ModelForm):
         add = data.pop("gallery_photos", None) or []
         remove = data.pop("remove_photos", None) or []
         return data, add, remove
+
+    def clean_body_html(self):
+        return sanitize_description(self.cleaned_data.get("body_html", ""))
 
 
 class ProductIngredientForm(forms.ModelForm):

@@ -667,3 +667,166 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 });
+
+// Product catalog selection and the unified product editor.
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-product-selection]").forEach((form) => {
+        const boxes = [...form.querySelectorAll('input[name="products"]')];
+        const toggle = form.querySelector("[data-select-all]");
+        function update() {
+            const count = boxes.filter(box => box.checked).length;
+            form.querySelector("[data-selection-count]").textContent = count
+                ? `${count} selected` : "Select products to manage them together";
+            form.querySelectorAll("[data-selection-action]").forEach(button => button.disabled = count === 0);
+            toggle.checked = count > 0 && count === boxes.length;
+            toggle.indeterminate = count > 0 && count < boxes.length;
+        }
+        form.addEventListener("change", update);
+        update();
+        // Restore accurate selection after browser back/forward navigation.
+        window.addEventListener("pageshow", update);
+    });
+
+    const form = document.querySelector("[data-product-editor]");
+    if (!form) return;
+    let dirty = false;
+    let submitting = false;
+    function markDirty() {
+        dirty = true;
+        const state = form.querySelector("[data-save-state]");
+        state.textContent = "Unsaved changes";
+        state.classList.add("is-dirty");
+    }
+    form.addEventListener("input", markDirty);
+    form.addEventListener("change", markDirty);
+    form.addEventListener("submit", () => { submitting = true; });
+    window.addEventListener("beforeunload", event => {
+        if (dirty && !submitting) {
+            event.preventDefault();
+            event.returnValue = "";
+        }
+    });
+    function openDetails(element) {
+        let detail = element.closest("details");
+        while (detail) {
+            detail.open = true;
+            detail = detail.parentElement.closest("details");
+        }
+    }
+    form.addEventListener("invalid", event => openDetails(event.target), true);
+    form.querySelectorAll(".field-error, .errorlist").forEach(openDetails);
+
+    const status = form.querySelector('[name="active"]');
+    status?.addEventListener("change", () => {
+        const badge = form.querySelector("[data-status-badge]");
+        if (!badge) return;
+        const active = status.value !== "False";
+        badge.textContent = active ? "Active" : "On hold";
+        badge.className = `pc-status ${active ? "pc-status-active" : "pc-status-hold"}`;
+    });
+
+    const rich = form.querySelector("[data-rich-editor]");
+    if (rich) {
+        const source = rich.querySelector("textarea");
+        const visual = rich.querySelector("[data-rich-visual]");
+        const toolbar = rich.querySelector("[data-rich-toolbar]");
+        const sourceButton = rich.querySelector("[data-rich-source]");
+        let sourceMode = false;
+        source.hidden = true;
+        visual.hidden = false;
+        toolbar.hidden = false;
+        const allowed = new Set(["P", "DIV", "SPAN", "BR", "STRONG", "B", "EM", "I", "U", "S", "UL", "OL", "LI", "H2", "H3", "H4", "BLOCKQUOTE", "A", "TABLE", "THEAD", "TBODY", "TR", "TH", "TD"]);
+        const blocked = new Set(["SCRIPT", "STYLE", "IFRAME", "OBJECT", "SVG", "MATH", "TEMPLATE"]);
+        function safeHtml(value) {
+            const parsed = new DOMParser().parseFromString(value, "text/html");
+            const output = document.createElement("div");
+            function copy(node, parent) {
+                if (node.nodeType === Node.TEXT_NODE) {
+                    parent.append(document.createTextNode(node.textContent));
+                    return;
+                }
+                if (node.nodeType !== Node.ELEMENT_NODE || blocked.has(node.tagName)) return;
+                let next = parent;
+                if (allowed.has(node.tagName)) {
+                    next = document.createElement(node.tagName.toLowerCase());
+                    if (node.tagName === "A") {
+                        const href = node.getAttribute("href") || "";
+                        try {
+                            if (href && ["https:", "http:", "mailto:"].includes(new URL(href, location.href).protocol)) {
+                                next.setAttribute("href", href);
+                                next.setAttribute("rel", "noopener noreferrer");
+                            }
+                        } catch (_) { /* Keep the link text when its URL is invalid. */ }
+                    }
+                    parent.append(next);
+                }
+                node.childNodes.forEach(child => copy(child, next));
+            }
+            parsed.body.childNodes.forEach(node => copy(node, output));
+            return output.innerHTML;
+        }
+        const sync = () => { if (!sourceMode) source.value = visual.innerHTML; };
+        visual.addEventListener("input", sync);
+        visual.addEventListener("paste", event => {
+            event.preventDefault();
+            const html = event.clipboardData.getData("text/html");
+            if (html) document.execCommand("insertHTML", false, safeHtml(html));
+            else document.execCommand("insertText", false, event.clipboardData.getData("text/plain"));
+            sync();
+            markDirty();
+        });
+        toolbar.querySelectorAll("[data-rich-command]").forEach(button => {
+            button.addEventListener("mousedown", event => event.preventDefault());
+            button.addEventListener("click", () => {
+                if (sourceMode) return;
+                visual.focus();
+                document.execCommand(button.dataset.richCommand, false, null);
+                sync();
+                markDirty();
+            });
+        });
+        sourceButton.addEventListener("click", () => {
+            if (sourceMode) {
+                visual.innerHTML = safeHtml(source.value);
+                sourceMode = false;
+                sync();
+            } else {
+                sync();
+                sourceMode = true;
+            }
+            visual.hidden = sourceMode;
+            source.hidden = !sourceMode;
+            sourceButton.setAttribute("aria-pressed", String(sourceMode));
+            toolbar.querySelectorAll("[data-rich-command]").forEach(button => button.disabled = sourceMode);
+            (sourceMode ? source : visual).focus();
+        });
+        rich.querySelector("label").addEventListener("click", event => {
+            if (!sourceMode) { event.preventDefault(); visual.focus(); }
+        });
+        form.addEventListener("submit", sync);
+    }
+
+    const preview = form.querySelector("[data-media-preview]");
+    const objectUrls = [];
+    for (const name of ["image", "gallery_photos"]) {
+        const input = form.querySelector(`input[type="file"][name="${name}"]`);
+        input?.addEventListener("change", () => {
+            preview.querySelectorAll(`[data-client-preview="${name}"]`).forEach(item => item.remove());
+            if (name === "image" && input.files.length) preview.querySelector(".pc-media-main")?.remove();
+            [...input.files].filter(file => file.type.startsWith("image/")).forEach(file => {
+                const tile = document.createElement("div");
+                tile.className = `pc-media-item${name === "image" ? " pc-media-main" : ""}`;
+                tile.dataset.clientPreview = name;
+                const image = document.createElement("img");
+                const url = URL.createObjectURL(file);
+                objectUrls.push(url);
+                image.src = url;
+                image.alt = file.name;
+                tile.append(image);
+                if (name === "image") preview.prepend(tile);
+                else preview.insertBefore(tile, preview.querySelector(".pc-media-add"));
+            });
+        });
+    }
+    window.addEventListener("pagehide", () => objectUrls.forEach(url => URL.revokeObjectURL(url)));
+});

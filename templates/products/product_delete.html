@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Delete products{% endblock %}
+{% block content %}
+<div class="pc-shell pc-delete-review">
+    <div class="pc-heading"><div><a class="pc-back" href="{% url 'product-list' %}">← Products</a><h1>Delete {{ review.rows|length }} product{{ review.rows|length|pluralize }}?</h1><p>Review what happens before you confirm.</p></div></div>
+    {% if error %}<div class="form-errors" role="alert">{{ error }}</div>{% endif %}
+    <section class="pc-card pc-card-body">
+        {% for row in review.rows %}<div class="pc-deletion-row"><div><strong>{{ row.product.name }}</strong><span class="pc-product-sku">{{ row.product.sku }}</span></div><span class="pc-status {% if row.history %}pc-status-hold{% else %}pc-status-delete{% endif %}">{% if row.history %}Archive{% else %}Delete permanently{% endif %}</span></div>
+        {% if row.history %}<p class="pc-muted">This product has {% for entry in row.history %}{{ entry.count }} {{ entry.label }}{% if not forloop.last %}, {% endif %}{% endfor %}. Its history and stock records will be preserved.</p>{% endif %}{% endfor %}
+        <p class="pc-muted">Archived products are removed from the product list. Products without history are permanently deleted, including their images, ingredients, and package prices.</p>
+        <form method="post" action="{% url 'product-actions' %}">
+            {% csrf_token %}<input type="hidden" name="action" value="delete"><input type="hidden" name="review_token" value="{{ review.token }}">
+            {% for row in review.rows %}<input type="hidden" name="products" value="{{ row.product.pk }}">{% endfor %}
+            <label class="pc-confirm-check"><input type="checkbox" name="confirmed" value="yes" required> I have reviewed these products and confirm their removal.</label>
+            <div class="pc-actions pc-delete-actions"><a class="button button-secondary" href="{% url 'product-list' %}">Cancel</a><button type="submit" class="button button-danger">Confirm removal</button></div>
+        </form>
+    </section>
+</div>
+{% endblock %}

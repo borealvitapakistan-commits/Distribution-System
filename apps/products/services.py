@@ -7,6 +7,7 @@ from django.db import transaction
 
 from apps.accounts.services import require_owner
 from apps.audit.services import record_audit_event
+from .description import sanitize_description
 
 from .models import (
     BottleSize,
@@ -232,6 +233,8 @@ def validate_ingredient_rows(actor, product, ingredients_rows):
 @transaction.atomic
 def create_product(*, actor, ingredients=None, **data):
     require_owner(actor)
+    if "body_html" in data:
+        data["body_html"] = sanitize_description(data["body_html"])
 
     product = Product(
         created_by=actor,
@@ -276,6 +279,8 @@ def update_product(
     **data,
 ):
     require_owner(actor)
+    if "body_html" in data:
+        data["body_html"] = sanitize_description(data["body_html"])
 
     product = (
         Product.objects

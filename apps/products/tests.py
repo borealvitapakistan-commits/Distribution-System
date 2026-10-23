@@ -182,12 +182,13 @@ class ProductListPageTests(TestCase):
             ],
         )
 
-    def test_list_shows_unit_and_size_but_no_bottle_prices(self):
+    def test_list_focuses_on_product_status_and_inventory(self):
         response = self.client.get("/owner/products/")
 
-        self.assertContains(response, "<td>capsule</td>", html=True)
-        self.assertContains(response, "<td>60 units</td>", html=True)
-        self.assertContains(response, "<td>200 ml</td>", html=True)
+        self.assertContains(response, "0 in stock", count=3)
+        self.assertContains(response, "pc-product-table")
+        self.assertContains(response, 'aria-label="Select Ashwagandha"')
+        self.assertNotContains(response, "<td>capsule</td>", html=True)
         self.assertNotContains(response, "caps</th>")
 
     def test_category_tile_filters_and_counts(self):

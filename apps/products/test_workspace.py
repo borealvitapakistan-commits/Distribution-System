@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.test import TestCase
+from django.urls import reverse
 
 from apps.accounts.models import User
 from apps.audit.models import AuditEvent
@@ -82,3 +83,75 @@ class ProductWorkspaceRulesTests(TestCase):
             apply_product_action(actor=self.owner, product_ids=[self.product.pk, "bad"], action="hold")
         self.product.refresh_from_db()
         self.assertTrue(self.product.active)
+
+    def test_formatted_description_is_sanitized_and_safe_to_edit(self):
+        from .description import sanitize_description
+
+        dirty = '<p onclick="bad()">Good <strong>text</strong><script>alert(1)</script><img src=x onerror=bad()><a href="java&#115;cript:bad()">link</a></p>'
+        cleaned = sanitize_description(dirty)
+        self.assertIn('<strong>text</strong>', cleaned)
+        for text in ('onclick', 'script', '<img', 'alert(', 'javascript:'):
+            self.assertNotIn(text, cleaned)
+        self.assertEqual(sanitize_description(cleaned), cleaned)
+        product = create_product(actor=self.owner, sku="HTML-SAFE", name="Safe", body_html=dirty)
+        self.assertEqual(product.body_html, cleaned)
+
+    def test_list_inventory_sort_and_pagination(self):
+        self.balance("Stock", 5)
+        create_product(actor=self.owner, sku="SECOND", name="Another product")
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("product-list"), {"sort":"-inventory"})
+        self.assertEqual(list(response.context["products"])[0].pk, self.product.pk)
+        self.assertEqual(response.context["page_obj"].paginator.count, 2)
+        self.assertContains(response, "5 in stock")
+
+    def test_delete_page_and_bulk_action_require_review_before_mutation(self):
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse("product-delete", args=[self.product.pk]))
+        token = response.context["review"]["token"]
+        payload = {"products":[self.product.pk], "action":"delete", "review_token":token}
+        response = self.client.post(reverse("product-actions"), payload)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(Product.objects.filter(pk=self.product.pk).exists())
+        payload["confirmed"] = "yes"
+        self.assertRedirects(self.client.post(reverse("product-actions"), payload), reverse("product-list"))
+        self.assertFalse(Product.objects.filter(pk=self.product.pk).exists())
+
+    def test_product_actions_require_owner_and_csrf(self):
+        from django.test import Client
+
+        self.assertEqual(self.client.post(reverse("product-actions")).status_code, 302)
+        self.client.force_login(User.objects.create_user(email="other@workspace.test", role="DISTRIBUTOR"))
+        self.assertEqual(self.client.get(reverse("product-delete", args=[self.product.pk])).status_code, 403)
+        self.assertEqual(self.client.post(reverse("product-actions")).status_code, 403)
+        client = Client(enforce_csrf_checks=True)
+        client.force_login(self.owner)
+        self.assertEqual(client.post(reverse("product-actions"), {"products":[self.product.pk], "action":"hold"}).status_code, 403)
+
+    def test_product_page_saves_details_without_leaving_the_page(self):
+        from .forms import ProductForm
+
+        self.client.force_login(self.owner)
+        form = ProductForm(instance=self.product)
+        data = {name: value if value is not None else "" for name, value in form.initial.items()
+                if name in form.fields and name not in ("image", "allow_fractional_quantity")}
+        data.update({"name":"Updated supplement", "base_retail_price":"125.50", "active":"False",
+                     "ingredients-TOTAL_FORMS":"0", "ingredients-INITIAL_FORMS":"0",
+                     "ingredients-MIN_NUM_FORMS":"0", "ingredients-MAX_NUM_FORMS":"1000"})
+        response = self.client.post(reverse("product-detail", args=[self.product.pk]), data)
+        self.assertRedirects(response, reverse("product-detail", args=[self.product.pk]))
+        self.product.refresh_from_db()
+        self.assertEqual(self.product.name, "Updated supplement")
+        self.assertEqual(self.product.base_retail_price, Decimal("125.50"))
+        self.assertFalse(self.product.active)
+
+    def test_invalid_editor_submission_keeps_values_and_ingredient_errors(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("product-detail", args=[self.product.pk]), {
+            "name":"Keep this title", "sku":"WORKSPACE", "base_retail_price":"-1",
+            "ingredients-TOTAL_FORMS":"1", "ingredients-INITIAL_FORMS":"0",
+            "ingredients-0-strength":"orphaned strength", "ingredients-0-sort_order":"0",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["form"]["name"].value(), "Keep this title")
+        self.assertContains(response, "Please check the highlighted fields.")

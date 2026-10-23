@@ -8,12 +8,10 @@ from django.db.models import Count, Q
 from django.db.models.functions import Lower
 from django.http import Http404, HttpResponse
 from django.shortcuts import redirect, render
-from django.utils.html import linebreaks
 from django.urls import reverse_lazy
 from django.views import View
 from django.views.generic import (
     CreateView,
-    DetailView,
     ListView,
 )
 
@@ -23,6 +21,9 @@ from apps.accounts.mixins import (
 )
 
 from . import shopify, shopify_import
+from .description import sanitize_description
+from .lifecycle import apply_product_action, deletion_review
+from .workspace import inventory_summary, with_inventory
 from .catalog import category_style, size_label, unit_label, unit_plural
 from .forms import (
     CategoryForm,
@@ -119,6 +120,7 @@ class IngredientCreateView(OwnerRequiredMixin, CreateView):
 class ProductListView(OwnerRequiredMixin, ListView):
     template_name = "products/product_list.html"
     context_object_name = "products"
+    paginate_by = 50
 
     SORTS = {
         "name": ("Product Name", ("name_lower", "sku")),
@@ -127,6 +129,7 @@ class ProductListView(OwnerRequiredMixin, ListView):
         "unit": ("Unit", ("unit_of_measure", "name_lower")),
         "size": ("Size", ("size", "name_lower")),
         "status": ("Status", ("-active", "name_lower")),
+        "inventory": ("Inventory", ("inventory_available", "name_lower")),
     }
 
     def _params(self):
@@ -148,7 +151,7 @@ class ProductListView(OwnerRequiredMixin, ListView):
 
     def get_queryset(self):
         params = self._params()
-        queryset = (
+        queryset = with_inventory(
             self._all_products()
             .select_related("category")
             .prefetch_related("package_prices")
@@ -261,6 +264,8 @@ class ProductListView(OwnerRequiredMixin, ListView):
                     (key, label) for key, (label, _fields) in self.SORTS.items()
                 ],
                 "current_sort": current.lstrip("-"),
+                "active_count": self._all_products().filter(active=True).count(),
+                "hold_count": self._all_products().filter(active=False).count(),
             }
         )
         return context
@@ -291,58 +296,12 @@ class DistributorProductListView(DistributorRequiredMixin, ListView):
         )
 
 
-class ProductDetailView(OwnerRequiredMixin, DetailView):
-    template_name = "products/product_detail.html"
-    context_object_name = "product"
+class ProductDetailView(OwnerRequiredMixin, View):
+    def get(self, request, pk):
+        return ProductUpdateView.as_view()(request, pk=pk)
 
-    def get_queryset(self):
-        return (
-            Product.objects
-            .for_user(self.request.user)
-            .select_related("category")
-            .prefetch_related(
-                "ingredients__ingredient",
-                "bottle_prices",
-                "retail_prices",
-                "gallery",
-                "package_prices__manufacturer",
-            )
-        )
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        product = self.object
-        product.tone, product.icon = category_style(product.category)
-        product.unit_label = unit_label(product)
-        product.unit_plural = unit_plural(product)
-
-        packages = list(product.package_prices.all())
-        for number, package in enumerate(packages, start=1):
-            package.number = number
-            package.starts_group = number > 1 and package.amount != packages[number - 2].amount
-
-        photos = [product.image] if product.image else []
-        photos += [photo.image for photo in product.gallery.all()]
-
-        description = product.body_html.strip()
-        if description and "<" not in description:
-            description = linebreaks(description, autoescape=True)
-
-        context.update(
-            {
-                "packages": packages,
-                "photos": photos,
-                "description": description,
-                "benefits": [
-                    line.strip().lstrip("-•*").strip()
-                    for line in product.key_benefits.splitlines()
-                    if line.strip()
-                ],
-                "bottle_price_form": ProductBottlePricesForm(product=product),
-                "retail_price_form": ProductRetailPricesForm(product=product),
-            }
-        )
-        return context
+    def post(self, request, pk):
+        return ProductUpdateView.as_view()(request, pk=pk)
 
 
 class ProductPackageFormView(OwnerRequiredMixin, View):
@@ -473,6 +432,33 @@ class ProductBottlePricesView(OwnerRequiredMixin, View):
 
 
 class ProductEditorMixin:
+    def render_editor(self, request, template, context):
+        form = context["form"]
+        product = context.get("object")
+        def fields(names):
+            return [form[name] for name in names.split() if name in form.fields]
+        context.update({
+            "product": product,
+            "description": sanitize_description(form["body_html"].value() or ""),
+            "identity_fields": fields("sku barcode unit_of_measure size units_per_case allow_fractional_quantity default_reorder_point default_reorder_quantity"),
+            "price_fields": fields("base_retail_price compare_at_price currency"),
+            "shipping_fields": fields("weight_grams hs_code"),
+            "supplement_fields": fields("generic_name form pack_size serving_size strength_basis shelf_life_months key_benefits other_ingredients allergen_info indications"),
+            "extra_fields": fields("brand brand_name tags enlistment_number handle"),
+            "inventory": inventory_summary(product) if product else None,
+            "benefits": [line.strip().lstrip("-•*").strip() for line in (product.key_benefits if product else "").splitlines() if line.strip()],
+        })
+        if product:
+            product.unit_plural = unit_plural(product)
+            packages = list(product.package_prices.select_related("manufacturer"))
+            for number, package in enumerate(packages, 1):
+                package.number = number
+                package.starts_group = number > 1 and package.amount != packages[number - 2].amount
+            context.update({"packages": packages,
+                            "bottle_price_form": ProductBottlePricesForm(product=product),
+                            "retail_price_form": ProductRetailPricesForm(product=product)})
+        return render(request, template, context)
+
     def get_ingredient_formset(self, *, instance, data=None):
         return ProductIngredientFormSet(
             data=data,
@@ -489,7 +475,7 @@ class ProductCreateView(OwnerRequiredMixin, ProductEditorMixin, View):
             instance=form.instance
         )
 
-        return render(
+        return self.render_editor(
             request,
             self.template_name,
             {
@@ -508,8 +494,10 @@ class ProductCreateView(OwnerRequiredMixin, ProductEditorMixin, View):
             data=request.POST,
         )
 
-        if not form.is_valid() or not formset.is_valid():
-            return render(
+        valid_form = form.is_valid()
+        valid_ingredients = formset.is_valid()
+        if not valid_form or not valid_ingredients:
+            return self.render_editor(
                 request,
                 self.template_name,
                 {
@@ -535,7 +523,7 @@ class ProductCreateView(OwnerRequiredMixin, ProductEditorMixin, View):
             ValidationError,
         ) as exc:
             form.add_error(None, exc)
-            return render(
+            return self.render_editor(
                 request,
                 self.template_name,
                 {
@@ -579,7 +567,7 @@ class ProductUpdateView(OwnerRequiredMixin, ProductEditorMixin, View):
             instance=product
         )
 
-        return render(
+        return self.render_editor(
             request,
             self.template_name,
             {
@@ -605,8 +593,10 @@ class ProductUpdateView(OwnerRequiredMixin, ProductEditorMixin, View):
             data=request.POST,
         )
 
-        if not form.is_valid() or not formset.is_valid():
-            return render(
+        valid_form = form.is_valid()
+        valid_ingredients = formset.is_valid()
+        if not valid_form or not valid_ingredients:
+            return self.render_editor(
                 request,
                 self.template_name,
                 {
@@ -634,7 +624,7 @@ class ProductUpdateView(OwnerRequiredMixin, ProductEditorMixin, View):
             ValidationError,
         ) as exc:
             form.add_error(None, exc)
-            return render(
+            return self.render_editor(
                 request,
                 self.template_name,
                 {
@@ -666,6 +656,49 @@ class ProductCSVExportView(OwnerRequiredMixin, View):
         )
 
         return response
+
+
+class ProductActionsView(OwnerRequiredMixin, View):
+    def post(self, request):
+        ids = request.POST.getlist("products")
+        action = request.POST.get("action")
+        try:
+            if not ids or len(ids) > 100 or len(set(ids)) != len(ids):
+                raise ValidationError("Select between 1 and 100 products.")
+            products = list(Product.objects.for_user(request.user).filter(pk__in=ids).order_by("pk"))
+            if len(products) != len(ids):
+                raise ValidationError("Some products are no longer available. Refresh the list.")
+        except (ValidationError, ValueError) as exc:
+            messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("product-list")
+        if action == "delete" and request.POST.get("confirmed") != "yes":
+            return render(request, "products/product_delete.html", {"review": deletion_review(products)})
+        try:
+            result = apply_product_action(
+                actor=request.user, product_ids=ids, action=action,
+                token=request.POST.get("review_token"),
+            )
+        except ValidationError as exc:
+            if action == "delete":
+                products = list(Product.objects.for_user(request.user).filter(pk__in=ids).order_by("pk"))
+                return render(request, "products/product_delete.html", {
+                    "review": deletion_review(products), "error": " ".join(exc.messages),
+                })
+            messages.error(request, " ".join(exc.messages))
+        else:
+            if action == "delete":
+                messages.success(request, f"{result['deleted']} product(s) deleted. {result['archived']} archived to preserve their history.")
+            else:
+                messages.success(request, "Selected products are now active." if action == "active" else "Selected products are now on hold.")
+        return redirect("product-list")
+
+
+class ProductDeleteView(OwnerRequiredMixin, View):
+    def get(self, request, pk):
+        product = Product.objects.for_user(request.user).filter(pk=pk).first()
+        if product is None:
+            raise Http404
+        return render(request, "products/product_delete.html", {"review": deletion_review([product])})
 
 
 def ingredient_rows(formset):

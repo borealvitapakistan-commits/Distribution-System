@@ -1,130 +1,74 @@
 {% extends "base.html" %}
-
-{% block title %}
-    {% if object %}Edit Product{% else %}New Product{% endif %}
-{% endblock %}
-
+{% block title %}{% if object %}{{ object.name }}{% else %}Add product{% endif %}{% endblock %}
 {% block content %}
-<div class="page-header">
-    <div>
-        <p class="eyebrow">Products</p>
-        <h1>
-            {% if object %}Edit Product{% else %}New Product{% endif %}
-        </h1>
-        <p>
-            SKU and ingredient changes are validated by the product service.
-        </p>
-    </div>
-
-    <a
-        class="button button-secondary"
-        href="{% url 'product-list' %}"
-    >
-        Back
-    </a>
-</div>
-
-<section class="panel form-panel">
-    <form method="post" class="form-layout" enctype="multipart/form-data">
+<div class="pc-shell pc-editor">
+    <form method="post" enctype="multipart/form-data" id="productEditor" data-product-editor>
         {% csrf_token %}
-
-        {% if form.non_field_errors %}
-            <div class="form-errors">
-                {{ form.non_field_errors }}
-            </div>
-        {% endif %}
-
-        <div class="form-grid">
-            {% for field in form %}
-                <div class="form-group">
-                    <label for="{{ field.id_for_label }}">
-                        {{ field.label }}
-                    </label>
-
-                    {{ field }}
-
-                    {% for error in field.errors %}
-                        <span class="field-error">
-                            {{ error }}
-                        </span>
-                    {% endfor %}
-                </div>
-            {% endfor %}
+        <div class="pc-heading pc-editor-heading">
+            <div><a class="pc-back" href="{% url 'product-list' %}">← Products</a><div class="pc-title"><h1>{% if object %}{{ object.name }}{% else %}Add product{% endif %}</h1>{% if object %}<span class="pc-status {% if object.active %}pc-status-active{% else %}pc-status-hold{% endif %}" data-status-badge>{% if object.active %}Active{% else %}On hold{% endif %}</span>{% endif %}</div></div>
+            <div class="pc-actions"><span class="pc-save-state" data-save-state>{% if object %}All changes saved{% else %}New product{% endif %}</span><a class="button button-secondary button-small" href="{% url 'product-list' %}">Cancel</a><button type="submit" class="button button-primary button-small">Save</button></div>
         </div>
-
-        <hr>
-
-        <h2>Ingredients</h2>
-
-        {{ ingredient_formset.management_form }}
-
-        {% if ingredient_formset.non_form_errors %}
-            <div class="form-errors">
-                {{ ingredient_formset.non_form_errors }}
-            </div>
-        {% endif %}
-
-        {% for ingredient_form in ingredient_formset %}
-            <div class="form-grid nested-form">
-                <div class="form-group">
-                    <label>Ingredient</label>
-                    {{ ingredient_form.ingredient }}
-                </div>
-
-                <div class="form-group">
-                    <label>Strength</label>
-                    {{ ingredient_form.strength }}
-                </div>
-
-                <div class="form-group">
-                    <label>Unit</label>
-                    {{ ingredient_form.unit }}
-                </div>
-
-                <div class="form-group">
-                    <label>Medicinal</label>
-                    {{ ingredient_form.is_medicinal }}
-                </div>
-
-                <div class="form-group">
-                    <label>Extract ratio</label>
-                    {{ ingredient_form.extract_ratio }}
-                </div>
-
-                <div class="form-group">
-                    <label>Equivalent to</label>
-                    {{ ingredient_form.equivalent_to }}
-                </div>
-
-                <div class="form-group">
-                    <label>Order</label>
-                    {{ ingredient_form.sort_order }}
-                </div>
-
-                {% if ingredient_form.DELETE %}
-                    <div class="form-group">
-                        <label>Remove</label>
-                        {{ ingredient_form.DELETE }}
+        {% if form.errors or ingredient_formset.errors or ingredient_formset.non_form_errors %}<div class="form-errors" role="alert"><strong>Please check the highlighted fields.</strong>{{ form.non_field_errors }}{{ ingredient_formset.non_form_errors }}</div>{% endif %}
+        <div class="pc-editor-layout">
+            <div class="pc-editor-main">
+                <section class="pc-card pc-card-body pc-core-details">
+                    {% include "products/_editor_field.html" with field=form.name %}
+                    <div class="form-group pc-description" data-rich-editor>
+                        <label for="{{ form.body_html.id_for_label }}" id="descriptionLabel">Description</label>
+                        <div class="pc-rich-frame">
+                            <div class="pc-editor-toolbar" data-rich-toolbar hidden role="toolbar" aria-label="Description formatting">
+                                <button type="button" data-rich-command="bold" aria-label="Bold"><strong>B</strong></button>
+                                <button type="button" data-rich-command="italic" aria-label="Italic"><em>I</em></button>
+                                <button type="button" data-rich-command="underline" aria-label="Underline"><u>U</u></button>
+                                <span class="pc-toolbar-divider"></span>
+                                <button type="button" data-rich-command="insertUnorderedList" aria-label="Bullet list">☷</button>
+                                <button type="button" data-rich-command="insertOrderedList" aria-label="Numbered list">1.</button>
+                                <button type="button" data-rich-command="removeFormat" aria-label="Clear formatting">T̸</button>
+                                <button type="button" data-rich-source aria-pressed="false" class="pc-source-button" aria-label="Edit description HTML">&lt;/&gt;</button>
+                            </div>
+                            <div class="pc-rich-visual" contenteditable="true" role="textbox" aria-labelledby="descriptionLabel" aria-multiline="true" data-rich-visual hidden>{{ description|safe }}</div>
+                            {{ form.body_html }}
+                        </div>
+                        {% for error in form.body_html.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
                     </div>
-                {% endif %}
-
-                {% for hidden in ingredient_form.hidden_fields %}
-                    {{ hidden }}
-                {% endfor %}
+                    <div class="pc-media-section"><h2>Media</h2>
+                        <div class="pc-media-grid" data-media-preview>
+                            {% if object.image %}<div class="pc-media-item pc-media-main"><img src="{{ object.image.url }}" alt="{{ object.name }}"></div>{% elif object.shopify_image_url %}<div class="pc-media-item pc-media-main"><img src="{{ object.shopify_image_url }}" alt="{{ object.name }}"></div>{% endif %}
+                            {% for photo in object.gallery.all %}<div class="pc-media-item"><img src="{{ photo.image.url }}" alt="{{ object.name }} photo {{ forloop.counter }}"></div>{% endfor %}
+                            <label class="pc-media-add" for="id_gallery_photos"><span aria-hidden="true">＋</span><strong>Add media</strong><small>Images</small></label>
+                        </div>
+                        <div class="pc-media-controls">{% include "products/_editor_field.html" with field=form.image %}{% include "products/_editor_field.html" with field=form.gallery_photos %}</div>
+                        {% if form.remove_photos %}<details class="pc-photo-removal"><summary>Remove existing photos</summary>{{ form.remove_photos }}{{ form.remove_photos.errors }}</details>{% endif %}
+                    </div>
+                    {% include "products/_editor_field.html" with field=form.category %}
+                </section>
+                <section class="pc-card pc-card-body"><h2>Price</h2><div class="pc-fields pc-price-fields">{% for field in price_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></section>
+                <section class="pc-card pc-inventory-card">
+                    <div class="pc-card-header"><h2>Inventory</h2>{% if object %}<a class="pc-text-link" href="{% url 'inventory-add' %}?product={{ object.pk }}">＋ Add stock</a>{% endif %}</div>
+                    {% if object %}
+                    <div class="table-wrapper"><table class="pc-inventory-table"><thead><tr><th>Location</th><th>Unavailable</th><th>In transit</th><th>Available</th><th>On hand</th></tr></thead><tbody>
+                        {% for row in inventory.rows %}<tr><td><a href="{% url 'location-detail' row.location.pk %}">{{ row.location.name }}</a>{% if not row.location.active %}<small class="pc-product-sku">Inactive location</small>{% endif %}</td><td>{{ row.unavailable|floatformat:"-4g" }}</td><td>{{ row.in_transit|floatformat:"-4g" }}</td><td>{{ row.available|floatformat:"-4g" }}</td><td>{{ row.on_hand|floatformat:"-4g" }}</td></tr>{% empty %}<tr><td colspan="5" class="empty-table">No warehouses yet. <a class="pc-text-link" href="{% url 'location-create' %}">Add a warehouse</a> to start tracking stock.</td></tr>{% endfor %}
+                    </tbody><tfoot><tr><th>Total</th><th>{{ inventory.totals.unavailable|floatformat:"-4g" }}</th><th>{{ inventory.totals.in_transit|floatformat:"-4g" }}</th><th>{{ inventory.totals.available|floatformat:"-4g" }}</th><th>{{ inventory.totals.on_hand|floatformat:"-4g" }}</th></tr></tfoot></table></div>
+                    <div class="pc-card-strip"><a href="{% url 'stock-movement-list' %}?product={{ object.pk }}">View stock history ↗</a><span>In transit: stock shipped to distributors.</span></div>
+                    {% else %}<p class="pc-card-body pc-muted">Save this product to add stock and see inventory by location.</p>{% endif %}
+                    <details class="pc-inline-details" {% if not object %}open{% endif %}><summary>SKU, barcode &amp; inventory settings</summary><div class="pc-fields pc-card-body">{% for field in identity_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
+                </section>
+                <section class="pc-card pc-card-body"><h2>Shipping</h2><div class="pc-fields">{% for field in shipping_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></section>
+                <details class="pc-card pc-disclosure"><summary>Supplement details</summary><div class="pc-disclosure-content pc-fields">{% for field in supplement_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
+                <details class="pc-card pc-disclosure" data-ingredients><summary>Ingredients</summary><div class="pc-disclosure-content" data-formset data-formset-prefix="ingredients">
+                    {{ ingredient_formset.management_form }}
+                    <div data-formset-rows>{% for ingredient_form in ingredient_formset %}<div class="pc-ingredient-row">{% for hidden in ingredient_form.hidden_fields %}{{ hidden }}{% endfor %}<div class="pc-fields">{% for field in ingredient_form.visible_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div>{{ ingredient_form.non_field_errors }}</div>{% endfor %}</div>
+                    <template data-formset-empty-form><div class="pc-ingredient-row">{% for hidden in ingredient_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}<div class="pc-fields">{% for field in ingredient_formset.empty_form.visible_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></div></template>
+                    <button type="button" class="button button-secondary button-small" data-formset-add>＋ Add ingredient</button><a class="pc-text-link" href="{% url 'ingredient-create' %}">Create ingredient</a>
+                </div></details>
+                <details class="pc-card pc-disclosure"><summary>Additional details</summary><div class="pc-disclosure-content pc-fields">{% for field in extra_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
             </div>
-
-            {% for error in ingredient_form.non_field_errors %}
-                <span class="field-error">
-                    {{ error }}
-                </span>
-            {% endfor %}
-        {% endfor %}
-
-        <div class="form-actions">
-            <button class="button button-primary" type="submit">
-                Save Product
-            </button>
+            <aside class="pc-editor-aside"><section class="pc-card pc-card-body"><h2>Status</h2>{% include "products/_editor_field.html" with field=form.active %}<p class="pc-muted">Active products are available for new orders. Put a product on hold to stop new orders.</p></section>
+                {% if object %}<section class="pc-card pc-card-body"><h2>Inventory overview</h2><dl class="pc-stock-summary"><div><dt>Available</dt><dd>{{ inventory.totals.available|floatformat:"-4g" }}</dd></div><div><dt>On hand</dt><dd>{{ inventory.totals.on_hand|floatformat:"-4g" }}</dd></div><div><dt>In transit</dt><dd>{{ inventory.totals.in_transit|floatformat:"-4g" }}</dd></div></dl></section>{% endif %}
+            </aside>
         </div>
+        <div class="pc-editor-bottom"><span class="pc-muted">{% if object %}{{ object.sku }}{% else %}Complete the product details, then save.{% endif %}</span><button type="submit" class="button button-primary">Save product</button></div>
     </form>
-</section>
+    {% if object %}{% include "products/_package_tools.html" %}<div class="pc-danger-zone"><a class="button button-secondary pc-delete-text" href="{% url 'product-delete' object.pk %}">Delete product</a></div>{% endif %}
+</div>
 {% endblock %}
