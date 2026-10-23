@@ -2,7 +2,9 @@
 
 Updated: 2026-10-23
 
-- Completed plan: `phases/01-partners/01-02-PLAN.md`.
+- Completed plan: `phases/01-partners/01-03-PLAN.md`.
+- Removed manufacturer preset payment-before-shipping terms from forms/admin and order advance suggestions; per-order advance entry starts blank.
+- Latest validation: 24 manufacturer/order/payment-flow tests passed; rendered screens and migration drift checks passed.
 - Partners sidebar navigation is complete. Manufacturer deletion now reviews linked products with per-product reassign, hold, or delete choices.
 - User decision: archive records with history, preserving orders, stock, and sales.
 - Migrations: manufacturer `0017` and product `0011` archive timestamps applied locally after backup.
