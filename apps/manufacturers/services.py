@@ -2,13 +2,12 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from django.utils.text import slugify
 
 from apps.accounts.services import require_owner
 from apps.audit.services import record_audit_event
-from apps.products.models import BottleSize
+from apps.products.models import BottleSize, Product
 from apps.products.services import save_bottle_price
 from apps.batches.services import (
     cancel_pending_batches_for_order,
@@ -24,6 +23,7 @@ from .models import (
     OrderRevision,
     OrderRevisionLine,
 )
+from .deletion import delete_manufacturer
 
 
 def _manufacturer_payload(manufacturer):
@@ -63,7 +63,7 @@ def update_manufacturer(*, actor, manufacturer_id, **data):
 
     manufacturer = (
         Manufacturer.objects.select_for_update()
-        .filter(pk=manufacturer_id)
+        .filter(pk=manufacturer_id, archived_at__isnull=True)
         .first()
     )
     if manufacturer is None:
@@ -86,37 +86,19 @@ def update_manufacturer(*, actor, manufacturer_id, **data):
     return manufacturer
 
 
-@transaction.atomic
-def delete_manufacturer(*, actor, manufacturer_id):
-    require_owner(actor)
-    manufacturer = (
-        Manufacturer.objects.for_user(actor).select_for_update()
-        .filter(pk=manufacturer_id).first()
-    )
-    if manufacturer is None:
-        raise ValidationError("Manufacturer was not found.")
-
-    record_audit_event(
-        user=actor,
-        action="manufacturer.deleted",
-        instance=manufacturer,
-        before_data=_manufacturer_payload(manufacturer),
-    )
-    try:
-        manufacturer.delete()
-    except ProtectedError as exc:
-        raise ValidationError(
-            "Cannot delete this manufacturer because it is linked to products, "
-            "package prices, or orders. You can retire it by editing it and "
-            "turning off Active."
-        ) from exc
-
-
 def _as_decimal(value):
     try:
         return Decimal(value)
     except (InvalidOperation, TypeError):
         raise ValidationError("Value must be a number.")
+
+
+def _validate_new_order(manufacturer, rows):
+    if not Manufacturer.objects.filter(pk=manufacturer.pk, active=True, archived_at__isnull=True).exists():
+        raise ValidationError("Choose an active manufacturer for a new order.")
+    product_ids = {row["product"].pk for row in rows}
+    if Product.objects.filter(pk__in=product_ids, active=True, archived_at__isnull=True).count() != len(product_ids):
+        raise ValidationError("Products on hold or deleted cannot be added to a new order.")
 
 
 def _validate_order_items(items, *, require_price=True):
@@ -327,6 +309,7 @@ def create_manufacturer_order(
     require_owner(actor)
 
     rows = _validate_order_items(items)
+    _validate_new_order(manufacturer, rows)
 
     order = ManufacturerOrder(
         manufacturer=manufacturer,
@@ -413,6 +396,7 @@ def create_request_to_quote(
     require_owner(actor)
 
     rows = _validate_order_items(items, require_price=False)
+    _validate_new_order(manufacturer, rows)
 
     order = ManufacturerOrder(
         manufacturer=manufacturer,

@@ -27,7 +27,7 @@ class ProductQuerySet(OwnerOnlyQuerySet):
         if not active_user(user):
             return self.none()
 
-        queryset = self.filter(active=True)
+        queryset = self.filter(archived_at__isnull=True)
 
         if user.is_owner:
             return queryset
@@ -35,7 +35,7 @@ class ProductQuerySet(OwnerOnlyQuerySet):
         if not is_approved_distributor(user):
             return self.none()
 
-        return queryset
+        return queryset.filter(active=True)
 
 
 class ProductIngredientQuerySet(models.QuerySet):

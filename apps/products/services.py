@@ -280,7 +280,7 @@ def update_product(
     product = (
         Product.objects
         .select_for_update()
-        .filter(pk=product_id)
+        .filter(pk=product_id, archived_at__isnull=True)
         .first()
     )
 

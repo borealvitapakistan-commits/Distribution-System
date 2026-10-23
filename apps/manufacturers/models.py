@@ -19,6 +19,7 @@ class Manufacturer(AuditedModel):
     notes = models.TextField(blank=True)
     logo = models.ImageField(upload_to="manufacturers/", null=True, blank=True)
     active = models.BooleanField(default=True)
+    archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     upfront_payment_percentage = models.DecimalField(
         max_digits=5,

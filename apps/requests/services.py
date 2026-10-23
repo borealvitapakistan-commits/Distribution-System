@@ -9,6 +9,7 @@ from apps.agreements.models import discounted_price
 from apps.agreements.services import agreement_in_force
 from apps.audit.services import record_audit_event
 from apps.distributor_inventory.services import receive_stock as distributor_receive_stock
+from apps.products.models import Product
 from apps.owner_inventory.services import (
     release_stock_from_transit,
     ship_stock_to_transit,
@@ -28,6 +29,12 @@ def _as_decimal(quantity):
         return Decimal(quantity)
     except (InvalidOperation, TypeError):
         raise ValidationError("Quantity must be a number.")
+
+
+def _validate_available_products(rows):
+    product_ids = {row["product"].pk for row in rows}
+    if Product.objects.filter(pk__in=product_ids, active=True, archived_at__isnull=True).count() != len(product_ids):
+        raise ValidationError("Products on hold or deleted cannot be added to a new order.")
 
 
 def _validate_items(items):
@@ -253,6 +260,7 @@ def create_purchase_order(*, actor, items, message=""):
     require_approved_distributor(actor)
 
     rows = _validate_items(items)
+    _validate_available_products(rows)
 
     distributor_profile = actor.distributor_profile
 
@@ -312,6 +320,7 @@ def create_request_to_quote(*, actor, items, message=""):
     require_approved_distributor(actor)
 
     rows = _validate_items(items)
+    _validate_available_products(rows)
     distributor_profile = actor.distributor_profile
     agreement = agreement_in_force(distributor_profile)
 

@@ -236,6 +236,7 @@ class Product(AuditedModel):
         default=False
     )
     active = models.BooleanField(default=True)
+    archived_at = models.DateTimeField(null=True, blank=True, db_index=True)
     shopify_product_id = models.CharField(
         max_length=100,
         blank=True,
