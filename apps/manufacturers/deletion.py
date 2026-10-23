@@ -14,25 +14,12 @@ from django.utils import timezone
 from apps.accounts.services import require_owner
 from apps.audit.services import record_audit_event
 from apps.products.models import Product, ProductPackagePrice
+from apps.products.lifecycle import product_history as _history
 
 from .models import Manufacturer
 
 
 REVIEW_SIGNER = signing.Signer(salt="manufacturer-deletion-review")
-
-
-def _history(product):
-    """Keep any record used outside the product's own catalog metadata."""
-    history = []
-    for relation in product._meta.related_objects:
-        model = relation.related_model
-        if model._meta.app_label == "products":
-            continue
-        count = model._base_manager.filter(**{relation.field.name: product.pk}).count()
-        if count:
-            label = model._meta.verbose_name if count == 1 else model._meta.verbose_name_plural
-            history.append({"label": str(label), "count": count})
-    return history
 
 
 def review_manufacturer(manufacturer):
