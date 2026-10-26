@@ -23,6 +23,23 @@
         </p>
     </div>
 
+    <div class="mo-header-actions">
+    <details class="mo-actions mo-slack">
+        <summary class="button button-secondary">Share to Slack ▾</summary>
+        <div class="mo-actions-menu mo-slack-menu">
+            {% if slack_enabled %}
+                <form method="post" action="{% url 'manufacturer-order-share-slack' order.pk %}">
+                    {% csrf_token %}
+                    <label for="slackNote">Note for the team (optional)</label>
+                    <textarea id="slackNote" name="note" rows="3" maxlength="1000" placeholder="e.g. They raised the 60-capsule price. Can we push back?"></textarea>
+                    <p class="mo-slack-help">Posts the products, sizes, quantities, prices and total, with a link back to this order.</p>
+                    <button type="submit" class="button button-primary button-small">Post to Slack</button>
+                </form>
+            {% else %}
+                <p class="mo-slack-help">Slack isn't connected yet. Create an incoming webhook for your channel in Slack, then add <code>SLACK_WEBHOOK_URL=…</code> to the <code>.env</code> file and restart the app.</p>
+            {% endif %}
+        </div>
+    </details>
     <details class="mo-actions">
         <summary class="button button-secondary">More options ▾</summary>
         <div class="mo-actions-menu">
@@ -30,6 +47,10 @@
             <a href="{% url 'manufacturer-order-pdf' order.pk %}?download=1">Download {{ order.document_title }} (manufacturer copy)</a>
             <a href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team" target="_blank">View our copy (price changes highlighted)</a>
             <a href="{% url 'manufacturer-order-pdf' order.pk %}?copy=team&download=1">Download our copy</a>
+            {% if not order.is_quote and order.advance_percent and order.balance_percent %}
+                <a href="{% url 'manufacturer-order-pdf' order.pk %}?part=advance&download=1">Download advance page ({{ order.advance_percent|floatformat:"-2" }}%)</a>
+                <a href="{% url 'manufacturer-order-pdf' order.pk %}?part=balance&download=1">Download balance page ({{ order.balance_percent|floatformat:"-2" }}%)</a>
+            {% endif %}
             {% if can_edit_quote %}
                 <a href="{% url 'manufacturer-order-edit' order.pk %}">Edit Request to Quote</a>
             {% endif %}
@@ -51,11 +72,33 @@
                 <a href="{% url 'manufacturer-order-record-pdf' order.pk %}">Download full order record (PDF)</a>
             {% endif %}
             <a href="{% url 'manufacturer-detail' order.manufacturer.pk %}">Manufacturer details</a>
+            {% if can_delete %}
+                <form method="post" action="{% url 'manufacturer-order-delete' order.pk %}" class="confirm-form mo-delete-form" data-confirm="Delete {{ order.po_number }}? Its products, prices and history on this order will be removed. This can't be undone.">
+                    {% csrf_token %}
+                    <button type="submit" class="mo-delete-button">Delete {{ order.document_title }}</button>
+                </form>
+            {% endif %}
         </div>
     </details>
+    </div>
 </div>
 
 {% include "manufacturers/_stage_tracker.html" %}
+
+{% if not order.is_quote and order.advance_percent and order.balance_percent %}
+    <dialog class="download-choice" data-download-choice>
+        <form method="dialog">
+            <h2>Download {{ order.po_number }}</h2>
+            <p>This Purchase Order has two pages: the advance ({{ order.advance_percent|floatformat:"-2" }}%) and the balance ({{ order.balance_percent|floatformat:"-2" }}%). How do you want them?</p>
+            <div class="download-choice-options">
+                <a class="download-option" data-choice="single" href="#"><strong>Single PDF</strong><span>Both pages in one file</span></a>
+                <a class="download-option" data-choice="zip" href="#"><strong>ZIP file</strong><span>Two separate PDFs in one zip</span></a>
+                <button type="button" class="download-option" data-choice="separate"><strong>Separate files</strong><span>Two PDFs, downloaded one after the other</span></button>
+            </div>
+            <button class="button button-secondary button-small" value="cancel">Cancel</button>
+        </form>
+    </dialog>
+{% endif %}
 
 {% if not actions_on_document %}
 <div class="flow-layout flow-layout-single">
@@ -140,7 +183,7 @@
 </h2>
 
 <section
-    class="doc-sheet"
+    class="doc-sheet doc-a4"
     style="--doc-color: {{ brand.primary_color }}; --doc-soft: {{ brand.primary_color_soft }};"
 >
     {% if order.is_quote and order.quoted_at %}
@@ -195,17 +238,7 @@
 
                 <div class="doc-description">
                     <strong>{{ item.product.name }}</strong>
-                    <span class="doc-hint">
-                        {{ item.get_bottle_size_display|default:"No bottle size" }} · {{ item.product.sku }}
-                        {% if item.batch %}
-                            · Batch {{ item.batch.code }}
-                            {% if item.batch.status == "CANCELLED" %}(cancelled){% elif item.batch.status == "RECEIVED" %}(received){% else %}(pending){% endif %}
-                        {% endif %}
-                        {% if item.source_purchase_order_item %}
-                            · Restocking
-                            <a href="{% url 'owner-purchase-order-detail' item.source_purchase_order_item.purchase_order.pk %}">{{ item.source_purchase_order_item.purchase_order.po_number }}</a>
-                        {% endif %}
-                    </span>
+                    {% if item.bottle_size %}<span class="doc-hint">{{ item.get_bottle_size_display }}</span>{% endif %}
                 </div>
 
                 <div class="doc-figure">
@@ -249,6 +282,11 @@
                 <div class="doc-totals-row"><span>Tax ({{ order.tax_percentage }}%)</span><strong>{{ order.tax_amount|floatformat:"2g" }}</strong></div>
             {% endif %}
             <div class="doc-grand">{{ order.grand_total|floatformat:"2g" }}</div>
+            {% if not order.is_quote and order.advance_percent %}
+                <div class="doc-totals-row doc-advance-row"><span>Advance ({{ order.advance_percent|floatformat:"-2" }}%)</span><strong>{{ order.advance_amount|floatformat:"2g" }}</strong></div>
+                {% if order.balance_percent %}<div class="doc-totals-row"><span>Balance ({{ order.balance_percent|floatformat:"-2" }}%)</span><strong>{{ order.balance_amount|floatformat:"2g" }}</strong></div>{% endif %}
+            {% endif %}
+            {% if order.grand_total %}<div class="doc-in-words">{{ order.grand_total|in_words }}</div>{% endif %}
         </div>
     </div>
 

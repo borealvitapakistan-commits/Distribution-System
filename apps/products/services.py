@@ -17,6 +17,7 @@ from .models import (
     ProductCategory,
     ProductImage,
     ProductIngredient,
+    ProductManufacturer,
     ProductPackagePrice,
     ProductRetailPrice,
 )
@@ -59,13 +60,20 @@ def product_data(product):
         "sku": product.sku,
         "name": product.name,
         "active": product.active,
+        "manufacturer_id": str(product.manufacturer_id) if product.manufacturer_id else None,
         "category_id":(
             str(product.category_id)
             if product.category_id
             else None
         ),
         "base_retail_price": str(product.base_retail_price),
-        "currency": product.currency
+        "currency": product.currency,
+        "label_product_name": product.label_product_name,
+        "label_dose": product.label_dose,
+        "label_cautions": product.label_cautions,
+        "label_other": product.label_other,
+        "label_file": product.label_file.name if product.label_file else "",
+        "bottle_image": product.bottle_image.name if product.bottle_image else "",
     }
 
 
@@ -244,7 +252,8 @@ def create_product(*, actor, ingredients=None, **data):
 
     product.full_clean()
     product.save()
-
+    if product.manufacturer_id:
+        allocate_manufacturer(actor=actor, product=product, manufacturer=product.manufacturer)
 
     links = validate_ingredient_rows(
         actor,
@@ -313,6 +322,8 @@ def update_product(
     product.updated_by = actor
     product.full_clean()
     product.save()
+    if product.manufacturer_id:
+        allocate_manufacturer(actor=actor, product=product, manufacturer=product.manufacturer)
 
     if ingredients is not None:
         links = validate_ingredient_rows(
@@ -648,6 +659,7 @@ def save_package_price(*, actor, product, manufacturer, amount, price, package=N
     package.updated_by = actor
     package.full_clean()
     package.save()
+    allocate_manufacturer(actor=actor, product=product, manufacturer=manufacturer)
 
     record_audit_event(
         user=actor,
@@ -663,6 +675,155 @@ def save_package_price(*, actor, product, manufacturer, amount, price, package=N
     )
 
     return package
+
+
+def allocate_manufacturer(*, actor, product, manufacturer):
+    ProductManufacturer.objects.get_or_create(
+        product=product, manufacturer=manufacturer,
+        defaults={"created_by": actor, "updated_by": actor},
+    )
+
+
+@transaction.atomic
+def set_product_manufacturers(*, actor, product, manufacturers):
+    """Allocates the product to exactly these Manufacturers. Removing a
+    Manufacturer also removes its package sizes and prices for the
+    product; the primary manufacturer moves to one still allocated."""
+    require_owner(actor)
+
+    wanted = {manufacturer.pk: manufacturer for manufacturer in manufacturers}
+    current = set(product.allocations.values_list("manufacturer_id", flat=True))
+    removed = current - set(wanted)
+    added = set(wanted) - current
+
+    ProductPackagePrice.objects.filter(product=product, manufacturer_id__in=removed).delete()
+    product.allocations.filter(manufacturer_id__in=removed).delete()
+    for manufacturer_id in added:
+        allocate_manufacturer(actor=actor, product=product, manufacturer=wanted[manufacturer_id])
+
+    if product.manufacturer_id not in wanted:
+        product.manufacturer = min(wanted.values(), key=lambda m: m.name.lower()) if wanted else None
+        product.updated_by = actor
+        product.save(update_fields=["manufacturer", "updated_by", "updated_at"])
+
+    if added or removed:
+        record_audit_event(
+            user=actor,
+            action="products.manufacturers_allocated",
+            instance=product,
+            before_data={"manufacturer_ids": sorted(map(str, current))},
+            after_data={"manufacturer_ids": sorted(map(str, wanted))},
+        )
+
+
+PACKAGE_RETAIL_FIELDS = ("retail_mode", "markup_type", "markup_value", "retail_price")
+
+
+@transaction.atomic
+def save_manufacturer_packages(*, actor, product, manufacturer, rows):
+    """Replaces one Manufacturer's package sizes for this product.
+    rows: [{"amount", "price", "retail_mode", "markup_type", "markup_value",
+    "retail_price"}, ...] — only amount and price are required. A linked
+    retail price is recalculated from the manufacturer price and markup."""
+    require_owner(actor)
+
+    amounts = [row["amount"] for row in rows]
+    if len(set(amounts)) != len(amounts):
+        raise ValidationError("Each size can only be listed once per manufacturer.")
+
+    allocate_manufacturer(actor=actor, product=product, manufacturer=manufacturer)
+    existing = {
+        package.amount: package
+        for package in ProductPackagePrice.objects.select_for_update().filter(
+            product=product, manufacturer=manufacturer,
+        )
+    }
+
+    def number(value):
+        return None if value is None else f"{Decimal(value).normalize():f}"
+
+    def snapshot(package):
+        return {"price": number(package.price), "retail_mode": package.retail_mode,
+                "markup_type": package.markup_type, "markup_value": number(package.markup_value),
+                "retail_price": number(package.retail_price)}
+
+    before = {number(amount): snapshot(package) for amount, package in existing.items()}
+
+    ProductPackagePrice.objects.filter(
+        pk__in=[package.pk for amount, package in existing.items() if amount not in amounts]
+    ).delete()
+    after = {}
+    for row in rows:
+        package = existing.get(row["amount"]) or ProductPackagePrice(
+            product=product, manufacturer=manufacturer, amount=row["amount"], created_by=actor,
+        )
+        package.price = row["price"]
+        for field in PACKAGE_RETAIL_FIELDS:
+            if field in row:
+                setattr(package, field, row[field])
+        if package.retail_mode == ProductPackagePrice.RetailMode.LINKED:
+            package.retail_price = package.linked_retail_price()
+        after[number(row["amount"])] = snapshot(package)
+        if package.pk and before.get(number(row["amount"])) == after[number(row["amount"])]:
+            continue
+        package.updated_by = actor
+        package.full_clean()
+        package.save()
+
+    if before != after:
+        record_audit_event(
+            user=actor,
+            action="products.manufacturer_packages_saved",
+            instance=product,
+            before_data={"manufacturer_id": str(manufacturer.pk), "packages": before},
+            after_data={"manufacturer_id": str(manufacturer.pk), "packages": after},
+        )
+
+
+def save_manufacturer_price(*, actor, product, manufacturer, amount, price):
+    """Records a manufacturer's price for one size (e.g. from a quote or a
+    purchase order), keeping the size's retail settings. A linked retail
+    price moves with it; a fixed one stays."""
+    package = ProductPackagePrice.objects.filter(
+        product=product, manufacturer=manufacturer, amount=amount,
+    ).first()
+    if package is None:
+        package = ProductPackagePrice(product=product, manufacturer=manufacturer, amount=amount, created_by=actor)
+    before = None if package.pk is None else str(package.price)
+    package.price = price
+    package.updated_by = actor
+    package.full_clean()
+    package.save()
+    allocate_manufacturer(actor=actor, product=product, manufacturer=manufacturer)
+    record_audit_event(
+        user=actor, action="products.manufacturer_price_saved", instance=product,
+        before_data={"manufacturer_id": str(manufacturer.pk), "amount": str(amount), "price": before},
+        after_data={"manufacturer_id": str(manufacturer.pk), "amount": str(amount), "price": str(price),
+                    "retail_price": None if package.retail_price is None else str(package.retail_price)},
+    )
+    return package
+
+
+def manufacturer_price_map(manufacturers=None):
+    """{manufacturer_id: {product_id: {size: {"cost", "retail"}}}} plus
+    {manufacturer_id: [allocated product ids]} — handed to the purchase
+    order form so picking a product fills in that manufacturer's price."""
+    prices, allocated = {}, {}
+    packages = ProductPackagePrice.objects.all()
+    links = ProductManufacturer.objects.all()
+    if manufacturers is not None:
+        packages = packages.filter(manufacturer__in=manufacturers)
+        links = links.filter(manufacturer__in=manufacturers)
+    for row in packages.values("manufacturer_id", "product_id", "amount", "price", "retail_price"):
+        size = f"{row['amount'].normalize():f}"
+        prices.setdefault(str(row["manufacturer_id"]), {}).setdefault(str(row["product_id"]), {})[size] = {
+            "cost": str(row["price"]),
+            "retail": None if row["retail_price"] is None else str(row["retail_price"]),
+        }
+        allocated.setdefault(str(row["manufacturer_id"]), set()).add(str(row["product_id"]))
+    for manufacturer_id, product_id in links.values_list("manufacturer_id", "product_id"):
+        allocated.setdefault(str(manufacturer_id), set()).add(str(product_id))
+    return {"prices": prices, "allocated": {key: sorted(value) for key, value in allocated.items()}}
 
 
 @transaction.atomic

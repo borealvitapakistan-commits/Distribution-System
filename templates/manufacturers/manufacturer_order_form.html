@@ -1,18 +1,24 @@
 {% extends "base.html" %}
 
 {% block title %}
-    {% if order %}Edit {{ order.po_number }}{% else %}New Request to Quote{% endif %}
+    {% if order %}Edit {{ order.po_number }}{% elif mode == "po" %}New Purchase Order{% else %}New Request to Quote{% endif %}
 {% endblock %}
 
 {% block content %}
-<form method="post" id="moForm" novalidate>
+<form method="post" id="moForm" novalidate data-mode="{{ mode|default:'rtq' }}">
     {% csrf_token %}
 
     <div class="page-header">
         <div>
-            <p class="eyebrow">Stage 1 of 4 · Request to Quote{% if order %} · {{ order.po_number }}{% endif %}</p>
-            <h1>{% if order %}Change your Request to Quote{% else %}Ask a manufacturer for prices{% endif %}</h1>
-            <p>Fill in the document below the way you'd write it on paper. Nothing is ordered or paid yet.</p>
+            {% if mode == "po" %}
+                <p class="eyebrow">Purchase Order · agreed prices</p>
+                <h1>Order from a manufacturer</h1>
+                <p>Prices you've already agreed fill in by themselves. Save it, then print or download it and give it to the manufacturer. <a href="{% url 'manufacturer-order-create' %}">Need prices first? Send a Request to Quote instead.</a></p>
+            {% else %}
+                <p class="eyebrow">Stage 1 of 4 · Request to Quote{% if order %} · {{ order.po_number }}{% endif %}</p>
+                <h1>{% if order %}Change your Request to Quote{% else %}Ask a manufacturer for prices{% endif %}</h1>
+                <p>Fill in the document below the way you'd write it on paper. Nothing is ordered or paid yet.{% if not order %} <a href="{% url 'manufacturer-po-create' %}">Prices already agreed? Make a Purchase Order instead.</a>{% endif %}</p>
+            {% endif %}
         </div>
         <div class="fin-downloads">
             <a class="button button-secondary" href="{% if order %}{% url 'manufacturer-order-detail' order.pk %}{% else %}{% url 'manufacturer-order-list' %}{% endif %}">Cancel</a>
@@ -23,9 +29,15 @@
     </div>
 
     <ol class="entry-steps">
-        <li><span>1</span><div><strong>Choose who it's for</strong><small>The manufacturer and your brand.</small></div></li>
-        <li><span>2</span><div><strong>Add the products</strong><small>How many bottles, and the price you'd like — or leave the price empty and let them quote.</small></div></li>
-        <li><span>3</span><div><strong>Save it</strong><small>Then download it and send it to the manufacturer.</small></div></li>
+        {% if mode == "po" %}
+            <li><span>1</span><div><strong>Choose the manufacturer</strong><small>Only products allocated to it can be ordered.</small></div></li>
+            <li><span>2</span><div><strong>Pick sizes and bottles</strong><small>Saved prices fill in; change any price for this order.</small></div></li>
+            <li><span>3</span><div><strong>Save and print</strong><small>With your logo, terms, notes, and a place to sign and stamp.</small></div></li>
+        {% else %}
+            <li><span>1</span><div><strong>Choose who it's for</strong><small>The manufacturer and your brand.</small></div></li>
+            <li><span>2</span><div><strong>Add the products</strong><small>How many bottles, and the price you'd like — or leave the price empty and let them quote.</small></div></li>
+            <li><span>3</span><div><strong>Save it</strong><small>Then download it and send it to the manufacturer.</small></div></li>
+        {% endif %}
     </ol>
 
     <div class="entry-who">
@@ -33,7 +45,7 @@
             <label for="{{ form.manufacturer.id_for_label }}">Manufacturer <span class="required">*</span></label>
             {{ form.manufacturer }}
             {% for error in form.manufacturer.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
-            <small>Who you're asking for prices. Not in the list? <a href="{% url 'manufacturer-create' %}" target="_blank" rel="noopener">Add a manufacturer</a>, then refresh this page.</small>
+            <small>{% if mode == "po" %}Who you're ordering from.{% else %}Who you're asking for prices.{% endif %} Not in the list? <a href="{% url 'manufacturer-create' %}" target="_blank" rel="noopener">Add a manufacturer</a>, then refresh this page.</small>
         </div>
         <div class="form-group">
             <label for="{{ form.brand.id_for_label }}">Brand <span class="required">*</span></label>
@@ -45,7 +57,7 @@
 
     {% if form.errors or formset.total_error_count or formset.non_form_errors or service_error %}
         <div class="form-errors">
-            {% if order %}The changes weren't saved{% else %}The Request to Quote wasn't saved{% endif %}
+            {% if order %}The changes weren't saved{% elif mode == "po" %}The Purchase Order wasn't saved{% else %}The Request to Quote wasn't saved{% endif %}
             — please fix the fields marked below.
             {% for error in form.brand.errors %}<br>Brand: {{ error }}{% endfor %}
             {% for error in formset.non_form_errors %}<br>{{ error }}{% endfor %}
@@ -60,7 +72,7 @@
         id="docSheet"
         {% if brand %}style="--doc-color: {{ brand.primary_color }}; --doc-soft: {{ brand.primary_color_soft }};"{% endif %}
     >
-        {% include "manufacturers/_doc_head.html" with doc_title="Request to Quote" doc_number=order.po_number doc_date=order.created_at|default:today %}
+        {% if mode == "po" %}{% include "manufacturers/_doc_head.html" with doc_title="Purchase Order" doc_number=order.po_number doc_date=today %}{% else %}{% include "manufacturers/_doc_head.html" with doc_title="Request to Quote" doc_number=order.po_number doc_date=order.created_at|default:today %}{% endif %}
 
         <div class="doc-parties doc-parties-edit">
             <div data-party="vendor">
@@ -80,7 +92,7 @@
         </div>
         <p class="doc-hint doc-parties-hint">
             Filled in from the manufacturer and brand you chose. Change anything here for this
-            Request to Quote only — the manufacturer's and brand's own details stay as they are.
+            {% if mode == "po" %}Purchase Order{% else %}Request to Quote{% endif %} only — the manufacturer's and brand's own details stay as they are.
         </p>
 
         {{ formset.management_form }}
@@ -90,6 +102,7 @@
                 <h2>Products</h2>
                 <button class="button button-secondary button-small" type="button" id="moUseAllSaved" title="Fill every empty price with the price you usually pay, where one is saved">Fill empty prices from my price list</button>
             </div>
+            <p class="doc-hint mo-maker-empty" id="moMakerEmpty" hidden></p>
             <div class="doc-row doc-row-head">
                 <span>#</span>
                 <span>Product and bottle size</span>
@@ -110,12 +123,18 @@
 
         <div class="doc-foot">
             <div class="doc-terms">
+                {% if mode == "po" %}
+                    <label class="doc-label" for="{{ form.advance_percent.id_for_label }}">Advance %</label>
+                    <div class="mo-advance">{{ form.advance_percent }}<span>% of the total, paid in advance</span></div>
+                    {% for error in form.advance_percent.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
+                {% endif %}
                 <span class="doc-label">Terms and conditions</span>
                 {{ form.terms }}
+                {% if mode == "po" %}<div class="doc-hint">Written from the advance % above. Change the wording for this order if needed.</div>{% endif %}
 
-                <span class="doc-label">{{ form.message.label }}</span>
+                <span class="doc-label">{% if mode == "po" %}Notes{% else %}{{ form.message.label }}{% endif %}</span>
                 {{ form.message }}
-                <div class="doc-hint">{{ form.message.help_text }}</div>
+                <div class="doc-hint">{% if mode == "po" %}Printed at the bottom of the Purchase Order.{% else %}{{ form.message.help_text }}{% endif %}</div>
             </div>
 
             <div class="doc-totals">
@@ -133,7 +152,7 @@
         </div>
         <div class="entry-bar-actions">
             <a class="button button-secondary" href="{% if order %}{% url 'manufacturer-order-detail' order.pk %}{% else %}{% url 'manufacturer-order-list' %}{% endif %}">Cancel</a>
-            <button class="button button-primary" type="submit" data-doc-save>{% if order %}Save changes{% else %}Save Request to Quote{% endif %}</button>
+            <button class="button button-primary" type="submit" data-doc-save>{% if order %}Save changes{% elif mode == "po" %}Save Purchase Order{% else %}Save Request to Quote{% endif %}</button>
         </div>
     </div>
 </form>
@@ -143,7 +162,11 @@
 </template>
 
 {{ bottle_prices|json_script:"moBottlePrices" }}
+{{ manufacturer_prices|json_script:"moManufacturerPrices" }}
+{{ standard_sizes|json_script:"moStandardSizes" }}
+{{ advance_defaults|json_script:"moAdvanceDefaults" }}
 {{ product_prices|json_script:"moProductPrices" }}
+{{ product_labels|json_script:"moProductLabels" }}
 {{ sheet_data|json_script:"docSheetData" }}
 
 <script>
@@ -153,6 +176,8 @@
 
     var savedPrices = JSON.parse(document.getElementById("moBottlePrices").textContent || "{}");
     var productPrices = JSON.parse(document.getElementById("moProductPrices").textContent || "{}");
+    var productLabels = JSON.parse(document.getElementById("moProductLabels").textContent || "{}");
+    var makerData = JSON.parse(document.getElementById("moManufacturerPrices").textContent || "{}");
     var sheetData = JSON.parse(document.getElementById("docSheetData").textContent || "{}");
     var sheet = document.getElementById("docSheet");
     var rowsContainer = document.getElementById("moRows");
@@ -229,17 +254,150 @@
         }
     }
 
+    // Purchase Order: the advance % starts at the manufacturer's usual
+    // one, and the terms are written from it — unless typed by hand.
+    var advanceDefaults = JSON.parse(document.getElementById("moAdvanceDefaults").textContent || "{}");
+    var termsInput = form.querySelector("textarea[name='terms']");
+    var advanceInput = form.querySelector("input[name='advance_percent']");
+
+    function termsFor(advance) {
+        advance = Math.min(Math.max(parseFloat(advance) || 0, 0), 100);
+        var fmt = function (n) { return String(Math.round(n * 100) / 100); };
+        if (advance <= 0) { return "Full payment after receiving the products."; }
+        if (advance >= 100) { return "100% advance payment before production."; }
+        return fmt(advance) + "% advance with this Purchase Order.\n" +
+            fmt(100 - advance) + "% balance on completion of production, before dispatch.";
+    }
+
+    function applyTerms(fromChange) {
+        if (!poMode || !termsInput || !advanceInput || !vendorSelect) { return; }
+        if (fromChange === "vendor" || advanceInput.value === "") {
+            advanceInput.value = advanceDefaults[vendorSelect.value] || "0";
+        }
+        var suggested = termsFor(advanceInput.value);
+        var untouched = !termsInput.value.trim() || termsInput.value === termsInput.dataset.suggested;
+        if (untouched) { termsInput.value = suggested; }
+        termsInput.dataset.suggested = suggested;
+    }
+    if (termsInput) {
+        termsInput.addEventListener("input", function () { termsInput.dataset.suggested = ""; });
+    }
+    if (advanceInput) {
+        advanceInput.addEventListener("input", function () { applyTerms("advance"); });
+    }
+
     function formatMoney(amount) {
         return amount.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2});
+    }
+
+    // The chosen manufacturer's sizes and prices for a product:
+    // {size: {cost, retail}}, or {} when none are set up.
+    function makerSizes(productId) {
+        var maker = vendorSelect ? vendorSelect.value : "";
+        return ((makerData.prices || {})[maker] || {})[productId] || {};
+    }
+
+    function makerPriceFor(row) {
+        var product = row.querySelector("select[name$='-product']");
+        var size = row.querySelector("select[name$='-bottle_size']");
+        if (!product || !product.value || !size || !size.value) { return null; }
+        return makerSizes(product.value)[size.value] || null;
     }
 
     function savedPriceFor(row) {
         var product = row.querySelector("select[name$='-product']");
         var size = row.querySelector("select[name$='-bottle_size']");
         if (!product || !product.value) { return null; }
-        // The price saved for this bottle size, else the product's own price.
+        // This manufacturer's price for the size, else our older saved
+        // price for the size, else the product's own price.
+        var maker = makerPriceFor(row);
+        if (maker) { return maker.cost; }
         var sized = size && size.value ? (savedPrices[product.value] || {})[size.value] : null;
         return sized || productPrices[product.value] || null;
+    }
+
+    var poMode = form.dataset.mode === "po";
+    if (poMode) {
+        form.querySelectorAll("input[name$='-unit_price']").forEach(function (input) { input.placeholder = "Price"; });
+        emptyRowTemplate.innerHTML = emptyRowTemplate.innerHTML.replace('placeholder="Optional"', 'placeholder="Price"');
+    }
+    var standardSizes = JSON.parse(document.getElementById("moStandardSizes").textContent || "[]").map(String);
+    var CUSTOM = "__custom";
+
+    function makerNameText() {
+        return vendorSelect && vendorSelect.value ? vendorSelect.options[vendorSelect.selectedIndex].text : "";
+    }
+
+    function allocatedProducts() {
+        return (makerData.allocated || {})[vendorSelect ? vendorSelect.value : ""] || [];
+    }
+
+    // Only products allocated to the chosen manufacturer are offered — no
+    // manufacturer, no products. A product already on the line stays listed.
+    function filterProducts(row) {
+        var select = row.querySelector("select[name$='-product']");
+        if (!select) { return; }
+        var allocated = allocatedProducts();
+        Array.prototype.forEach.call(select.options, function (option) {
+            var hide = Boolean(option.value) && allocated.indexOf(option.value) === -1 && option.value !== select.value;
+            option.hidden = hide;
+            option.disabled = hide;
+        });
+    }
+
+    function refreshMakerNotice() {
+        var notice = document.getElementById("moMakerEmpty");
+        if (!vendorSelect || !vendorSelect.value) {
+            notice.textContent = "Choose a manufacturer above to see the products allocated to it.";
+        } else if (!allocatedProducts().length) {
+            notice.textContent = "No products are allocated to " + makerNameText() +
+                " yet. Open a product, tick " + makerNameText() + " under Manufacturers, and save.";
+        } else {
+            notice.textContent = "";
+        }
+        notice.hidden = !notice.textContent;
+    }
+
+    // Sizes: the usual ones (30–120), every size this manufacturer has a
+    // saved price for (e.g. 240), and "Custom size…". Sizes with a saved
+    // price show it.
+    function fillSizes(row) {
+        var product = row.querySelector("select[name$='-product']");
+        var select = row.querySelector("select[name$='-bottle_size']");
+        if (!product || !select) { return; }
+        var saved = product.value ? makerSizes(product.value) : {};
+        var current = select.value === CUSTOM ? "" : select.value;
+        var sizes = standardSizes.concat(Object.keys(saved));
+        if (current) { sizes.push(current); }
+        sizes = sizes.filter(function (size, index) { return sizes.indexOf(size) === index; })
+            .sort(function (a, b) { return a - b; });
+        select.replaceChildren();
+        select.appendChild(new Option("Bottle size", ""));
+        sizes.forEach(function (size) {
+            var price = saved[size];
+            select.appendChild(new Option(size + " capsules" + (price ? " — Rs " + formatMoney(parseFloat(price.cost)) : ""), size));
+        });
+        select.appendChild(new Option("Custom size…", CUSTOM));
+        var savedSizes = Object.keys(saved);
+        select.value = current || (savedSizes.length === 1 ? savedSizes[0] : "");
+    }
+
+    function useCustomSize(row) {
+        var select = row.querySelector("select[name$='-bottle_size']");
+        var input = row.querySelector("[data-custom-size]");
+        var size = parseInt((input.value || "").replace(/[^0-9]/g, ""), 10);
+        input.hidden = true;
+        input.value = "";
+        if (!size || size > 32767) {
+            select.value = "";
+            return;
+        }
+        if (!Array.prototype.some.call(select.options, function (o) { return o.value === String(size); })) {
+            select.insertBefore(new Option(size + " capsules", String(size)), select.querySelector("option[value='" + CUSTOM + "']"));
+        }
+        select.value = String(size);
+        refreshSavedPrice(row);
+        computeTotals();
     }
 
     // The system (saved) price is only used when asked for: each line offers
@@ -282,19 +440,45 @@
             priceInput.dataset.autofilled = "";
         }
 
+        // The manufacturer's own price fills in by itself; it can still be
+        // changed for this order. A typed price is never replaced.
+        var maker = makerPriceFor(row);
+        if (maker && priceInput.value === "") {
+            priceInput.value = maker.cost;
+            priceInput.dataset.autofilled = maker.cost;
+        }
+
         if (button) {
             var alreadyUsed = saved !== null && priceInput.value !== "" &&
                 parseFloat(priceInput.value) === parseFloat(saved);
             button.hidden = saved === null || alreadyUsed;
-            button.textContent = saved !== null ? "Use my usual price (" + saved + ")" : "";
+            button.textContent = saved === null ? ""
+                : priceInput.value === "" ? "Use saved price (" + saved + ")"
+                : "Put original price (" + saved + ")";
         }
 
         if (hint) {
             if (!product || !product.value) {
                 hint.textContent = "Choose a product above";
             } else {
-                var name = product.options[product.selectedIndex].text;
-                hint.textContent = name + (saved !== null ? " · you usually pay " + saved : " · no saved price");
+                var name = productLabels[product.value] || product.options[product.selectedIndex].text;
+                var makerName = makerNameText();
+                if (makerName && allocatedProducts().indexOf(product.value) === -1) {
+                    hint.textContent = name + " · not allocated to " + makerName + (poMode ? " — remove this line or allocate it on the product page" : "");
+                } else if (maker) {
+                    hint.textContent = name + " · " + makerName + " price " + maker.cost +
+                        (maker.retail ? " · our retail " + maker.retail : " · no retail price set");
+                } else {
+                    var sizeSelect2 = row.querySelector("select[name$='-bottle_size']");
+                    var offered = Object.keys(makerSizes(product.value)).sort(function (a, b) { return a - b; });
+                    if (offered.length && sizeSelect2 && !sizeSelect2.value) {
+                        hint.textContent = name + " · pick a size: " + makerName + " has " +
+                            offered.map(function (size) { return size + " (" + makerSizes(product.value)[size].cost + ")"; }).join(", ");
+                    } else {
+                        hint.textContent = name + (saved !== null ? " · you usually pay " + saved : " · no saved price") +
+                            (makerName ? " · no " + makerName + " price for this size yet" : "");
+                    }
+                }
             }
         }
     }
@@ -314,7 +498,7 @@
             if (deleteBox && deleteBox.checked) { return; }
 
             if (priceInput.value === "") {
-                totalEl.textContent = product && product.value ? "To quote" : "—";
+                totalEl.textContent = product && product.value ? (poMode ? "Price needed" : "To quote") : "—";
                 if (product && product.value) { unpriced += 1; }
                 return;
             }
@@ -329,7 +513,9 @@
 
         var note = document.getElementById("moUnpriced");
         note.hidden = unpriced === 0;
-        note.textContent = unpriced ? "+ " + unpriced + " product(s) for them to price" : "";
+        note.textContent = unpriced
+            ? (poMode ? unpriced + " product(s) still need a price" : "+ " + unpriced + " product(s) for them to price")
+            : "";
 
         var chosen = 0;
         rowsContainer.querySelectorAll("[data-line]").forEach(function (row) {
@@ -343,7 +529,7 @@
         document.getElementById("moBarDetail").textContent = !chosen
             ? "Add at least one product to save."
             : unpriced
-                ? unpriced + " left for the manufacturer to price"
+                ? (poMode ? unpriced + " still need a price" : unpriced + " left for the manufacturer to price")
                 : "Every price filled in";
     }
 
@@ -354,6 +540,8 @@
         var row = wrapper.firstElementChild;
         rowsContainer.appendChild(row);
         totalFormsInput.value = index + 1;
+        filterProducts(row);
+        fillSizes(row);
         refreshSavedPrice(row);
         computeTotals();
         row.querySelector("select[name$='-product']").focus();
@@ -376,10 +564,32 @@
     });
 
     form.addEventListener("change", function (event) {
-        if (event.target === vendorSelect) { applyVendor(true); }
+        if (event.target === vendorSelect) {
+            applyVendor(true);
+            applyTerms("vendor");
+            refreshMakerNotice();
+            rowsContainer.querySelectorAll("[data-line]").forEach(function (line) {
+                filterProducts(line);
+                fillSizes(line);
+                refreshSavedPrice(line);
+            });
+        }
         if (event.target === brandSelect) { applyBrand(true); }
 
         var row = event.target.closest("[data-line]");
+        if (row && event.target.matches("select[name$='-product']")) {
+            fillSizes(row);
+        }
+        if (row && event.target.matches("select[name$='-bottle_size']") && event.target.value === CUSTOM) {
+            var custom = row.querySelector("[data-custom-size]");
+            custom.hidden = false;
+            custom.focus();
+            return;
+        }
+        if (row && event.target.matches("[data-custom-size]")) {
+            useCustomSize(row);
+            return;
+        }
         if (row && event.target.matches("select[name$='-product'], select[name$='-bottle_size']")) {
             refreshSavedPrice(row);
         }
@@ -405,7 +615,27 @@
         computeTotals();
     });
 
-    rowsContainer.querySelectorAll("[data-line]").forEach(refreshSavedPrice);
+    rowsContainer.querySelectorAll("[data-line]").forEach(function (row) {
+        filterProducts(row);
+        fillSizes(row);
+        refreshSavedPrice(row);
+    });
+    refreshMakerNotice();
+    applyTerms(false);
+
+    rowsContainer.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" && event.target.matches("[data-custom-size]")) {
+            event.preventDefault();
+            useCustomSize(event.target.closest("[data-line]"));
+        }
+    });
+
+    // Never send the "Custom size…" placeholder itself.
+    form.addEventListener("submit", function () {
+        form.querySelectorAll("select[name$='-bottle_size']").forEach(function (select) {
+            if (select.value === CUSTOM) { select.value = ""; }
+        });
+    });
     applyVendor(false);
     applyBrand(false);
     computeTotals();

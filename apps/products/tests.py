@@ -185,6 +185,8 @@ class ProductListPageTests(TestCase):
     def test_list_focuses_on_product_status_and_inventory(self):
         response = self.client.get("/owner/products/")
 
+        self.assertContains(response, "Unassigned products")
+        response = self.client.get("/owner/products/manufacturers/unassigned/")
         self.assertContains(response, "0 in stock", count=3)
         self.assertContains(response, "pc-product-table")
         self.assertContains(response, 'aria-label="Select Ashwagandha"')
@@ -212,7 +214,7 @@ class ProductListPageTests(TestCase):
         self.assertEqual(self.names(response), ["Ashwagandha", "Neo40", "Immunity Liquid"])
 
     def test_rows_link_to_the_product(self):
-        response = self.client.get("/owner/products/")
+        response = self.client.get("/owner/products/manufacturers/unassigned/")
         self.assertContains(response, f'data-href="/owner/products/{self.ashwagandha.pk}/"')
 
     def test_product_form_only_offers_unit_ml_gram(self):
@@ -437,8 +439,8 @@ class ProductPageTests(TestCase):
 
         page = self.client.get(self.url)
         self.assertContains(page, "Herbiotics")
-        self.assertContains(page, "1,050.00")
-        self.assertContains(page, "<td>capsules</td>", html=True)
+        self.assertContains(page, 'value="1050"')
+        self.assertContains(page, "Size (capsules)")
 
         self.client.post(
             f"{self.url}packages/{package.pk}/edit/",
@@ -476,7 +478,7 @@ class ProductPageTests(TestCase):
             data = {
                 name: ("" if value is None else value)
                 for name, value in form.initial.items()
-                if name in form.fields and name not in ("image", "allow_fractional_quantity")
+                if name in form.fields and name not in ("image", "label_file", "bottle_image", "allow_fractional_quantity")
             }
             data.update(
                 {

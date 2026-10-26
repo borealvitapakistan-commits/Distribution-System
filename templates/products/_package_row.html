@@ -1,0 +1,15 @@
+<div class="pc-package-row" data-package-row data-retail-mode="{{ package.retail_mode|default:'FIXED' }}">
+    <label><span>Size ({{ product.unit_plural }})</span><input type="number" name="amount" value="{{ package.amount|floatformat:'-2u' }}" min="0.01" step="any" required></label>
+    <label><span>Manufacturer price</span><input type="number" name="price" value="{{ package.price|floatformat:'-2u' }}" min="0" step="0.01" required data-cost></label>
+    <label><span>Retail price is</span><select name="retail_mode" data-retail-mode-select>
+        <option value="FIXED"{% if package.retail_mode != "LINKED" %} selected{% endif %}>Fixed</option>
+        <option value="LINKED"{% if package.retail_mode == "LINKED" %} selected{% endif %}>Linked</option>
+    </select></label>
+    <label class="pc-markup" data-markup><span>Markup</span><span class="pc-markup-inputs"><input type="number" name="markup_value" value="{{ package.markup_value|default:0|floatformat:'-2u' }}" min="0" step="0.01" data-markup-value><select name="markup_type" data-markup-type aria-label="Markup type">
+        <option value="PERCENT"{% if package.markup_type != "AMOUNT" %} selected{% endif %}>%</option>
+        <option value="AMOUNT"{% if package.markup_type == "AMOUNT" %} selected{% endif %}>PKR</option>
+    </select></span></label>
+    <label><span>Our retail price</span><input type="number" name="retail_price" value="{% if package.retail_price is not None %}{{ package.retail_price|floatformat:'-2u' }}{% endif %}" min="0" step="0.01" placeholder="Not set" data-retail></label>
+    <span class="pc-package-margin" data-margin aria-live="polite"></span>
+    <button type="button" class="soft-button soft-red pc-package-remove" data-remove-row aria-label="Remove size">✕</button>
+</div>

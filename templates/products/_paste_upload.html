@@ -1,0 +1,12 @@
+<div class="form-group pc-paste-upload{% if field.errors %} pc-field-invalid{% endif %}" data-paste-upload>
+    <span class="pc-media-label">{{ field.label }}</span>
+    <div class="pc-paste-zone" tabindex="0" role="button" data-paste-zone aria-label="{{ hint }}">
+        <div class="pc-paste-preview" data-paste-preview>
+            {% if current %}{% if is_pdf %}<a href="{{ current.url }}" target="_blank" rel="noopener" class="pc-paste-file">PDF · {{ current.name|cut:"products/labels/" }}</a>{% else %}<img src="{{ current.url }}" alt="{{ field.label }}">{% endif %}{% endif %}
+        </div>
+        <span class="pc-paste-hint">{{ hint }}</span>
+    </div>
+    {{ field }}
+    {% if current %}<label class="pc-clear-image"><input type="checkbox" name="{{ field.html_name }}-clear"> Remove {{ field.label|lower }}</label>{% endif %}
+    {% for error in field.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+</div>

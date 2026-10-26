@@ -18,9 +18,10 @@
         </p>
     </div>
 
-    <a class="button button-primary" href="{% url 'manufacturer-order-create' %}">
-        + Ask a Manufacturer for Prices
-    </a>
+    <div class="mo-new-actions">
+        <a class="button button-secondary" href="{% url 'manufacturer-order-create' %}" title="When prices still need to be agreed">Request to Quote</a>
+        <a class="button button-primary" href="{% url 'manufacturer-po-create' %}" title="Order at prices you've already agreed">+ New Purchase Order</a>
+    </div>
 </div>
 
 <nav class="list-tabs" aria-label="Show orders">

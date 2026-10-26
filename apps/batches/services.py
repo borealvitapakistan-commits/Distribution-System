@@ -16,7 +16,14 @@ def _code_part(text, fallback):
 
 
 def _next_sequence(prefix):
-    return Batch.objects.filter(code__startswith=f"{prefix}-").count() + 1
+    """One past the highest number used so far — not a count, so a deleted
+    batch (e.g. from a deleted order) never makes a code repeat."""
+    numbers = [
+        int(code[len(prefix) + 1:])
+        for code in Batch.objects.filter(code__startswith=f"{prefix}-").values_list("code", flat=True)
+        if code[len(prefix) + 1:].isdigit()
+    ]
+    return max(numbers, default=0) + 1
 
 
 def generate_batch_code(*, brand, product):

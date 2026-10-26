@@ -190,7 +190,7 @@ class ManufacturerOrderTests(TestCase):
     def test_creates_order_with_po_number_and_totals(self):
         order = self.make_order()
 
-        self.assertTrue(order.po_number.startswith("MO-"))
+        self.assertTrue(order.po_number.startswith("PO-"))
         self.assertEqual(order.status, ManufacturerOrder.Status.SENT)
         self.assertEqual(order.subtotal, Decimal("600.00"))
         self.assertEqual(order.tax_amount, Decimal("30.00"))
@@ -1082,13 +1082,18 @@ class RequestToQuoteFlowTests(TestCase):
         self.assertEqual(lines[(self.vitamin_d.pk, 60)].price_highlight, "")
         self.assertIsNotNone(order.quoted_at)
 
+        from apps.products.models import ProductPackagePrice
+
+        # A ticked quoted price becomes this manufacturer's price for that size.
         saved = {
-            (row.product_id, row.bottle_size): row.price
-            for row in ProductBottlePrice.objects.all()
+            (row.product_id, int(row.amount)): row.price
+            for row in ProductPackagePrice.objects.filter(manufacturer=self.manufacturer)
         }
         self.assertEqual(saved[(self.ashwagandha.pk, 60)], Decimal("20"))
         self.assertNotIn((self.ashwagandha.pk, 120), saved)
-        self.assertEqual(saved[(self.vitamin_d.pk, 60)], Decimal("10"))
+        self.assertNotIn((self.vitamin_d.pk, 60), saved)
+        # Our older saved prices are left alone.
+        self.assertEqual(ProductBottlePrice.objects.get(product=self.vitamin_d, bottle_size=60).price, Decimal("10"))
 
     def test_confirm_needs_quote_then_creates_batches(self):
         from .services import confirm_purchase_order, record_manufacturer_quote
@@ -1506,10 +1511,17 @@ class RequestToQuoteFlowTests(TestCase):
                 {"product": self.vitamin_d, "bottle_size": 60, "quantity": "1", "unit_price": "25"},
             ],
         )
+        from apps.products.models import ProductPackagePrice
+
         self.assertEqual(
-            ProductBottlePrice.objects.get(product=self.ashwagandha, bottle_size=60).price, Decimal("19")
+            ProductPackagePrice.objects.get(
+                product=self.ashwagandha, manufacturer=self.manufacturer, amount=60,
+            ).price,
+            Decimal("19"),
         )
-        # Not ticked: the saved price stays as it was.
+        self.assertTrue(self.ashwagandha.allocations.filter(manufacturer=self.manufacturer).exists())
+        # Not ticked: nothing is saved for it.
+        self.assertFalse(ProductPackagePrice.objects.filter(product=self.vitamin_d).exists())
         self.assertEqual(
             ProductBottlePrice.objects.get(product=self.vitamin_d, bottle_size=60).price, Decimal("10")
         )
@@ -1542,8 +1554,17 @@ class RequestToQuoteFlowTests(TestCase):
         response = self.client.post(reverse("manufacturer-order-create"), data)
         self.assertEqual(response.status_code, 302)
         self.assertEqual(
-            ProductBottlePrice.objects.get(product=self.vitamin_d, bottle_size=60).price, Decimal("30")
+            ProductPackagePrice.objects.get(
+                product=self.vitamin_d, manufacturer=self.manufacturer, amount=60,
+            ).price,
+            Decimal("30"),
         )
+
+        # Any size the manufacturer offers works, not only 30/60/90/120.
+        data["items-0-bottle_size"] = "45"
+        response = self.client.post(reverse("manufacturer-order-create"), data)
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(ProductPackagePrice.objects.filter(product=self.vitamin_d, amount=45).exists())
 
     def test_tracker_has_four_phases(self):
         from .services import confirm_purchase_order, record_counter_offer

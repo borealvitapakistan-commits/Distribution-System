@@ -2,6 +2,9 @@ from django.urls import path
 
 from .views import (
     ConfirmPurchaseOrderView,
+    ManufacturerOrderDeleteView,
+    ManufacturerPurchaseOrderCreateView,
+    ShareManufacturerOrderToSlackView,
     ManufacturerOrderEditView,
     ManufacturerOrderQuoteView,
     ManufacturerCreateView,
@@ -34,6 +37,11 @@ urlpatterns = [
         "owner/manufacturer-orders/",
         ManufacturerOrderListView.as_view(),
         name="manufacturer-order-list",
+    ),
+    path(
+        "owner/manufacturer-orders/new-po/",
+        ManufacturerPurchaseOrderCreateView.as_view(),
+        name="manufacturer-po-create",
     ),
     path(
         "owner/manufacturer-orders/new/",
@@ -79,6 +87,16 @@ urlpatterns = [
         "owner/manufacturer-orders/<uuid:pk>/received/",
         ManufacturerOrderReceiveView.as_view(),
         name="manufacturer-order-received",
+    ),
+    path(
+        "owner/manufacturer-orders/<uuid:pk>/delete/",
+        ManufacturerOrderDeleteView.as_view(),
+        name="manufacturer-order-delete",
+    ),
+    path(
+        "owner/manufacturer-orders/<uuid:pk>/share-slack/",
+        ShareManufacturerOrderToSlackView.as_view(),
+        name="manufacturer-order-share-slack",
     ),
     path(
         "owner/manufacturer-orders/<uuid:pk>/advance/",

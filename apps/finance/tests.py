@@ -479,7 +479,7 @@ class FinanceLedgerTests(TestCase):
         row = next(row for row in product_price_rows() if row.product == self.product)
 
         self.assertEqual(row.manufacturer_price, Decimal("200.000"))
-        self.assertTrue(row.price_source.startswith("Order MO-"))
+        self.assertTrue(row.price_source.startswith("Order PO-"))
         self.assertEqual(row.manufacturer_name, "Glorious Laboratories")
 
     def test_report_filters_narrow_sales_and_leave_out_expenses(self):

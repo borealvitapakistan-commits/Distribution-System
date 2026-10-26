@@ -4,6 +4,7 @@
     <div class="doc-description">
         {{ line.product }}
         {{ line.bottle_size }}
+        <input type="text" inputmode="numeric" class="doc-line-input mo-custom-size" data-custom-size placeholder="Capsules per bottle, e.g. 240" aria-label="Custom bottle size" hidden>
         <span class="doc-hint" data-line-hint>Choose a product above</span>
         {% for error in line.product.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
         {% for error in line.bottle_size.errors %}<span class="doc-errors">{{ error }}</span>{% endfor %}
@@ -18,8 +19,8 @@
 
     <div class="doc-figure">
         <span class="doc-cell-label">Unit price</span>
-        {{ line.unit_price }}
-        <button type="button" class="doc-use-price" data-use-saved-price hidden></button>
+        <span class="mo-price-wrap">{{ line.unit_price }}<span class="mo-currency" aria-hidden="true">PKR</span></span>
+        <button type="button" class="doc-use-price mo-put-original" data-use-saved-price hidden></button>
         <label class="doc-save-price" title="{{ line.save_price.help_text }}">
             {{ line.save_price }} Remember this price
         </label>

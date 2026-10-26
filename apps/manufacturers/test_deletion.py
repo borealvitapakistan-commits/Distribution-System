@@ -261,7 +261,11 @@ class ManufacturerResolutionTests(TestCase):
         self.assertEqual(self.product.manufacturer_id, self.target.pk)
         self.assertFalse(second.active)
         self.assertIsNone(second.manufacturer_id)
-        self.assertContains(self.client.get(reverse("product-list")), second.name)
+        self.assertContains(
+            self.client.get(reverse("product-manufacturer-products", args=["unassigned"])), second.name,
+        )
+        self.assertFalse(second.allocations.exists())
+        self.assertTrue(self.product.allocations.filter(manufacturer=self.target).exists())
 
     def test_stale_submission_refreshes_review_and_requires_reconfirmation(self):
         self.client.force_login(self.owner)

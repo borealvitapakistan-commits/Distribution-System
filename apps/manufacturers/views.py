@@ -1,3 +1,6 @@
+import io
+import uuid
+import zipfile
 from datetime import timedelta
 from decimal import Decimal
 
@@ -14,7 +17,9 @@ from django.views.generic import DetailView, ListView
 from apps.accounts.mixins import OwnerRequiredMixin
 from apps.core.models import Brand
 from apps.core.utils import render_pdf
-from apps.products.services import bottle_price_map, product_price_map
+from .slack import share_order_to_slack, slack_enabled
+from apps.products.models import Product
+from apps.products.services import bottle_price_map, manufacturer_price_map, product_price_map
 
 from .forms import (
     CounterOfferForm,
@@ -33,12 +38,14 @@ from .forms import (
 from .models import Manufacturer, ManufacturerOrder, OrderRevision
 from .deletion import review_manufacturer
 from .guide import STAGES, list_status, next_step_guide
-from .record_pdf import document_pdf, order_record_pdf
+from .record_pdf import payment_pages, document_pdf, order_record_pdf
 from .services import (
     awaiting_manufacturer_reply,
     confirm_purchase_order,
     create_manufacturer,
     delete_manufacturer,
+    create_manufacturer_order,
+    delete_manufacturer_order,
     create_request_to_quote,
     record_manufacturer_quote,
     update_request_to_quote,
@@ -361,10 +368,24 @@ def document_sheet_data():
     }
 
 
+def _order_saved_prices(order):
+    """{product_id: {size: price}} for the order's lines: the
+    manufacturer's own price for that size, else our older saved price."""
+    products = order.items.values_list("product_id", flat=True)
+    prices = bottle_price_map(products=products)
+    own = manufacturer_price_map(manufacturers=[order.manufacturer])["prices"].get(str(order.manufacturer_id), {})
+    for product_id, sizes in own.items():
+        for size, price in sizes.items():
+            prices.setdefault(product_id, {})[size] = price["cost"]
+    return prices
+
+
 class RequestToQuoteFormMixin:
     """Shared by creating and editing a Request to Quote."""
 
     template_name = "manufacturers/manufacturer_order_form.html"
+
+    mode = "rtq"
 
     def render_form(self, request, form, formset, order=None, service_error=None):
         brand = None
@@ -382,16 +403,37 @@ class RequestToQuoteFormMixin:
                 "order": order,
                 "service_error": service_error,
                 "bottle_prices": bottle_price_map(),
+                "manufacturer_prices": manufacturer_price_map(),
                 "product_prices": product_price_map(),
                 "sheet_data": document_sheet_data(),
                 "brand": brand,
                 "today": timezone.localdate(),
+                "mode": self.mode,
+                "product_labels": {
+                    str(pk): f"{sku} - {name}"
+                    for pk, sku, name in Product.objects.filter(active=True).values_list("pk", "sku", "name")
+                },
+                "standard_sizes": [30, 40, 50, 60, 70, 80, 90, 120],
+                "advance_defaults": {
+                    str(maker.pk): f"{maker.upfront_payment_percentage.normalize():f}"
+                    for maker in Manufacturer.objects.filter(active=True, archived_at__isnull=True)
+                },
             },
         )
 
 
 class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, View):
     """Step one: a new Request to Quote."""
+
+    @staticmethod
+    def _requested_manufacturer(request):
+        """?manufacturer=<id> — e.g. from a product page's "Order" link."""
+        try:
+            return Manufacturer.objects.filter(
+                pk=uuid.UUID(request.GET.get("manufacturer", "")), active=True, archived_at__isnull=True,
+            ).first()
+        except ValueError:
+            return None
 
     def get(self, request):
         formset_kwargs = {"instance": ManufacturerOrder()}
@@ -419,6 +461,7 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
                 initial={
                     "brand": Brand.objects.filter(active=True).first(),
                     "terms": last_terms or "",
+                    "manufacturer": self._requested_manufacturer(request),
                 }
             ),
             ManufacturerOrderItemFormSet(**formset_kwargs),
@@ -451,6 +494,55 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
             request,
             f"Request to Quote {order.po_number} created. Download it and send it "
             "to the manufacturer, then enter the prices when they come back.",
+        )
+        return redirect("manufacturer-order-detail", pk=order.pk)
+
+
+def default_payment_terms(manufacturer, advance=None):
+    """The usual payment terms for a manufacturer, from its advance %
+    (or the one given for this order)."""
+    advance = (manufacturer.upfront_payment_percentage if advance is None else Decimal(advance)).normalize()
+    if advance <= 0:
+        return "Full payment after receiving the products."
+    if advance >= 100:
+        return "100% advance payment before production."
+    return (
+        f"{advance:f}% advance with this Purchase Order.\n"
+        f"{(100 - advance):f}% balance on completion of production, before dispatch."
+    )
+
+
+class ManufacturerPurchaseOrderCreateView(ManufacturerOrderCreateView):
+    """The direct route: a Purchase Order at agreed prices, no Request to
+    Quote. Only products allocated to the manufacturer can be ordered."""
+
+    mode = "po"
+
+    def post(self, request):
+        form = ManufacturerOrderForm(request.POST)
+        formset = ManufacturerOrderItemFormSet(request.POST, instance=ManufacturerOrder())
+
+        if not form.is_valid() or not formset.is_valid():
+            return self.render_form(request, form, formset)
+
+        try:
+            order = create_manufacturer_order(
+                actor=request.user,
+                manufacturer=form.cleaned_data["manufacturer"],
+                brand=form.cleaned_data["brand"],
+                terms=form.cleaned_data["terms"],
+                note=form.cleaned_data["message"],
+                parties=form.party_details(),
+                items=manufacturer_order_item_rows(formset),
+                require_allocated=True,
+                advance_percent=form.cleaned_data.get("advance_percent"),
+            )
+        except (PermissionDenied, ValidationError) as exc:
+            return self.render_form(request, form, formset, service_error=exc)
+
+        messages.success(
+            request,
+            f"Purchase Order {order.po_number} created. Download or print it and give it to the manufacturer.",
         )
         return redirect("manufacturer-order-detail", pk=order.pk)
 
@@ -567,9 +659,7 @@ class ManufacturerOrderQuoteView(OwnerRequiredMixin, View):
         return ManufacturerQuoteForm(
             *args,
             order=order,
-            saved_prices=bottle_price_map(
-                products=order.items.values_list("product_id", flat=True)
-            ),
+            saved_prices=_order_saved_prices(order),
             latest_lines=_latest_lines(order),
         )
 
@@ -905,6 +995,11 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+        context["slack_enabled"] = slack_enabled()
+        context["can_delete"] = (
+            self.object.received_at is None and not self.object.invoice_approved_at
+            and not self.object.payments.exists()
+        )
         context["outcome_form"] = ManufacturerOrderOutcomeForm()
         context["payment_form"] = ManufacturerOrderPaymentForm()
         context["steps"] = order_steps(self.object)
@@ -1175,6 +1270,37 @@ class SetManufacturerOrderOutcomeView(OwnerRequiredMixin, View):
         return redirect("manufacturer-order-detail", pk=pk)
 
 
+class ManufacturerOrderDeleteView(OwnerRequiredMixin, View):
+    def post(self, request, pk):
+        order = _get_owner_order(request, pk)
+        try:
+            delete_manufacturer_order(actor=request.user, order_id=order.pk)
+        except (PermissionDenied, ValidationError) as exc:
+            messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+            return redirect("manufacturer-order-detail", pk=pk)
+        messages.success(request, f"{order.po_number} deleted.")
+        return redirect("manufacturer-order-list")
+
+
+class ShareManufacturerOrderToSlackView(OwnerRequiredMixin, View):
+    """Posts the order to the team's Slack channel to discuss changes."""
+
+    def post(self, request, pk):
+        order = _get_owner_order(request, pk)
+        try:
+            share_order_to_slack(
+                actor=request.user,
+                order=order,
+                link=request.build_absolute_uri(reverse("manufacturer-order-detail", args=[order.pk])),
+                note=request.POST.get("note", "")[:1000],
+            )
+        except (PermissionDenied, ValidationError) as exc:
+            messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+        else:
+            messages.success(request, f"{order.po_number} shared to Slack.")
+        return redirect("manufacturer-order-detail", pk=pk)
+
+
 class RecordManufacturerPaymentView(OwnerRequiredMixin, View):
     def post(self, request, pk):
         form = ManufacturerOrderPaymentForm(request.POST, request.FILES)
@@ -1268,12 +1394,29 @@ class ManufacturerOrderPDFView(OwnerRequiredMixin, View):
             raise Http404
 
         team_copy = request.GET.get("copy") == "team"
+        part = request.GET.get("part") if request.GET.get("part") in ("advance", "balance") else None
+
+        if request.GET.get("format") == "zip" and len(payment_pages(order)) == 2:
+            # The advance and balance pages as two separate PDFs in one zip.
+            buffer = io.BytesIO()
+            team = "-team" if team_copy else ""
+            with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                for each in ("advance", "balance"):
+                    archive.writestr(
+                        f"PO-{order.po_number}{team}-{each}.pdf",
+                        document_pdf(order, kind="current", brand=_order_brand(order),
+                                     highlight_changes=team_copy, part=each),
+                    )
+            response = HttpResponse(buffer.getvalue(), content_type="application/zip")
+            response["Content-Disposition"] = f'attachment; filename="PO-{order.po_number}{team}.zip"'
+            return response
         pdf_bytes = document_pdf(
-            order, kind="current", brand=_order_brand(order), highlight_changes=team_copy
+            order, kind="current", brand=_order_brand(order), highlight_changes=team_copy,
+            split=True, part=part,
         )
 
         kind = "RTQ" if order.is_quote else "PO"
-        suffix = "-team" if team_copy else ""
+        suffix = ("-team" if team_copy else "") + (f"-{part}" if part else "")
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         disposition = "attachment" if request.GET.get("download") else "inline"
         response["Content-Disposition"] = (

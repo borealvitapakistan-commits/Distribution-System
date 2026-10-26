@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
+from django.core.validators import FileExtensionValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 from django.utils.text import slugify
@@ -275,6 +275,33 @@ class Product(AuditedModel):
         help_text="e.g. Free from gluten, dairy and soy.",
     )
 
+    # Label claim — what is printed on the bottle label.
+    label_product_name = models.CharField(
+        "Name on label", max_length=200, blank=True,
+        help_text="The product name exactly as printed on the label.",
+    )
+    label_dose = models.TextField(
+        "Dose & directions", blank=True,
+        help_text="e.g. Take 1 capsule twice daily with food.",
+    )
+    label_cautions = models.TextField(
+        "Cautions & warnings", blank=True,
+        help_text="e.g. Not for pregnant or nursing women. Keep out of reach of children.",
+    )
+    label_other = models.TextField(
+        "Other label text", blank=True,
+        help_text="Claims, storage, manufacturer details — anything else on the label.",
+    )
+    label_file = models.FileField(
+        "Label file", upload_to="products/labels/", null=True, blank=True,
+        validators=[FileExtensionValidator(["png", "jpg", "jpeg", "webp", "pdf"])],
+        help_text="The label artwork as a PNG, JPEG or PDF.",
+    )
+    bottle_image = models.ImageField(
+        "Bottle image", upload_to="products/bottles/", null=True, blank=True,
+        help_text="A PNG or JPEG of the bottle. Shown as the product's picture.",
+    )
+
     objects = ProductQuerySet.as_manager()
 
     class Meta:
@@ -339,6 +366,23 @@ class Product(AuditedModel):
                     )
                 }
             )
+
+    @property
+    def display_image_url(self):
+        """The bottle image first, then the main image, then Shopify's."""
+        for image in (self.bottle_image, self.image):
+            if image:
+                return image.url
+        return self.shopify_image_url
+
+    @property
+    def label_is_pdf(self):
+        return bool(self.label_file) and self.label_file.name.lower().endswith(".pdf")
+
+    @property
+    def has_label_claim(self):
+        return any((self.label_product_name, self.label_dose, self.label_cautions,
+                    self.label_other, self.label_file))
 
     def __str__(self):
         return f"{self.sku} - {self.name}"
@@ -519,12 +563,55 @@ class ProductPackagePrice(AuditedModel):
         help_text="How much is in the package, in the product's unit (e.g. 60 capsules).",
     )
     price = models.DecimalField(
+        "Manufacturer price",
         max_digits=18,
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0"))],
     )
 
+    class RetailMode(models.TextChoices):
+        LINKED = "LINKED", "Linked to manufacturer price"
+        FIXED = "FIXED", "Fixed"
+
+    class MarkupType(models.TextChoices):
+        PERCENT = "PERCENT", "%"
+        AMOUNT = "AMOUNT", "PKR"
+
+    retail_mode = models.CharField(
+        max_length=10, choices=RetailMode.choices, default=RetailMode.FIXED,
+        help_text="Linked: our retail price follows the manufacturer price plus the markup. "
+                  "Fixed: our retail price only changes when we change it.",
+    )
+    markup_type = models.CharField(max_length=10, choices=MarkupType.choices, default=MarkupType.PERCENT)
+    markup_value = models.DecimalField(
+        max_digits=18, decimal_places=2, default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+    retail_price = models.DecimalField(
+        "Our retail price",
+        max_digits=18, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(Decimal("0"))],
+    )
+
     objects = OwnerOnlyQuerySet.as_manager()
+
+    def linked_retail_price(self):
+        if self.price is None:
+            return None
+        if self.markup_type == self.MarkupType.AMOUNT:
+            retail = self.price + self.markup_value
+        else:
+            retail = self.price * (1 + self.markup_value / Decimal("100"))
+        return retail.quantize(Decimal("0.01"))
+
+    def save(self, *args, **kwargs):
+        # A linked retail price is always recalculated, so it follows every
+        # manufacturer price change — from the product page, a quote or a PO.
+        if self.retail_mode == self.RetailMode.LINKED:
+            self.retail_price = self.linked_retail_price()
+            if kwargs.get("update_fields") is not None:
+                kwargs["update_fields"] = {*kwargs["update_fields"], "retail_price"}
+        super().save(*args, **kwargs)
 
     class Meta:
         ordering = ["amount", "manufacturer__name"]
@@ -537,3 +624,34 @@ class ProductPackagePrice(AuditedModel):
 
     def __str__(self):
         return f"{self.product.sku} - {self.manufacturer} - {self.amount}"
+
+
+class ProductManufacturer(AuditedModel):
+    """A Manufacturer this product is allocated to. One product can be
+    allocated to any number of Manufacturers; each one keeps its own
+    package sizes and prices (ProductPackagePrice)."""
+
+    product = models.ForeignKey(
+        Product,
+        on_delete=models.CASCADE,
+        related_name="allocations",
+    )
+    manufacturer = models.ForeignKey(
+        "manufacturers.Manufacturer",
+        on_delete=models.CASCADE,
+        related_name="product_allocations",
+    )
+
+    objects = OwnerOnlyQuerySet.as_manager()
+
+    class Meta:
+        ordering = ["manufacturer__name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["product", "manufacturer"],
+                name="unique_product_manufacturer_allocation",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.product.sku} - {self.manufacturer}"

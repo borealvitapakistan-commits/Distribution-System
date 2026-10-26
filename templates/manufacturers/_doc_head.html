@@ -14,7 +14,7 @@ optionally doc_chip, number_label.
                 LOGO
             {% endif %}
         </div>
-        <div class="doc-brand-lines" data-doc-brand-lines>{% if brand.name %}{{ brand.legal_name|default:brand.name }}{% if brand.address %}<br>{{ brand.address|linebreaksbr }}{% endif %}{% endif %}</div>
+        <div class="doc-brand-lines" data-doc-brand-lines>{% if brand.name %}{{ brand.legal_name|default:brand.name }}{% if brand.address %}<br>{{ brand.address|linebreaksbr }}{% endif %}{% if brand.phone %}<br>Phone: {{ brand.phone }}{% endif %}{% endif %}</div>
     </div>
 
     <div class="doc-title-block">

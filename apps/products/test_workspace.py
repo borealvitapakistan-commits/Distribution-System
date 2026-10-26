@@ -103,6 +103,7 @@ class ProductWorkspaceRulesTests(TestCase):
         response = self.client.get(reverse("product-list"), {"sort":"-inventory"})
         self.assertEqual(list(response.context["products"])[0].pk, self.product.pk)
         self.assertEqual(response.context["page_obj"].paginator.count, 2)
+        response = self.client.get(reverse("product-manufacturer-products",args=["unassigned"]))
         self.assertContains(response, "5 in stock")
 
     def test_delete_page_and_bulk_action_require_review_before_mutation(self):
@@ -134,7 +135,7 @@ class ProductWorkspaceRulesTests(TestCase):
         self.client.force_login(self.owner)
         form = ProductForm(instance=self.product)
         data = {name: value if value is not None else "" for name, value in form.initial.items()
-                if name in form.fields and name not in ("image", "allow_fractional_quantity")}
+                if name in form.fields and name not in ("image", "label_file", "bottle_image", "allow_fractional_quantity")}
         data.update({"name":"Updated supplement", "base_retail_price":"125.50", "active":"False",
                      "ingredients-TOTAL_FORMS":"0", "ingredients-INITIAL_FORMS":"0",
                      "ingredients-MIN_NUM_FORMS":"0", "ingredients-MAX_NUM_FORMS":"1000"})
@@ -170,7 +171,7 @@ class ProductWorkspaceRulesTests(TestCase):
             self.product.save(update_fields=["shopify_image_url"])
             form = ProductForm(instance=self.product)
             data = {name:value if value is not None else "" for name,value in form.initial.items()
-                    if name in form.fields and name not in ("image", "allow_fractional_quantity")}
+                    if name in form.fields and name not in ("image", "label_file", "bottle_image", "allow_fractional_quantity")}
             data.update({"image-clear":"on", "active":"True",
                          "ingredients-TOTAL_FORMS":"0", "ingredients-INITIAL_FORMS":"0",
                          "ingredients-MIN_NUM_FORMS":"0", "ingredients-MAX_NUM_FORMS":"1000"})

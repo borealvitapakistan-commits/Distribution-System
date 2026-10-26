@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django import forms
 from django.forms import inlineformset_factory
+from django.db.models import Q
 
 from apps.core.models import Brand
 from apps.manufacturers.models import Manufacturer
@@ -76,19 +77,11 @@ class ProductForm(forms.ModelForm):
             "handle",
             "name",
             "category",
-            "generic_name",
-            "brand_name",
-            "indications",
             "body_html",
             "tags",
             "enlistment_number",
-            "form",
-            "pack_size",
             "unit_of_measure",
             "size",
-            "units_per_case",
-            "serving_size",
-            "strength_basis",
             "base_retail_price",
             "compare_at_price",
             "weight_grams",
@@ -98,33 +91,50 @@ class ProductForm(forms.ModelForm):
             "hs_code",
             "default_reorder_point",
             "default_reorder_quantity",
-            "allow_fractional_quantity",
             "active",
             "key_benefits",
             "other_ingredients",
             "allergen_info",
+            "label_product_name",
+            "label_dose",
+            "label_cautions",
+            "label_other",
+            "label_file",
+            "bottle_image",
         ]
         labels = {
             "body_html": "Description",
             "name": "Title",
+            "size": "Size",
+            "unit_of_measure": "Measured in",
             "base_retail_price": "Price",
             "weight_grams": "Weight (g)",
         }
         widgets = {
             "active": forms.Select(choices=[("True", "Active"), ("False", "On hold")]),
-            "indications": forms.Textarea(
-                attrs={"rows": 3}
-            ),
             "body_html": forms.Textarea(
                 attrs={"rows": 4}
             ),
             "key_benefits": forms.Textarea(attrs={"rows": 4}),
             "other_ingredients": forms.Textarea(attrs={"rows": 2}),
             "allergen_info": forms.Textarea(attrs={"rows": 2}),
+            "label_dose": forms.Textarea(attrs={"rows": 3}),
+            "label_cautions": forms.Textarea(attrs={"rows": 3}),
+            "label_other": forms.Textarea(attrs={"rows": 3}),
+            "label_file": forms.FileInput(attrs={"accept": ".png,.jpg,.jpeg,.webp,.pdf,image/*,application/pdf"}),
+            "bottle_image": forms.FileInput(attrs={"accept": "image/png,image/jpeg,image/webp"}),
         }
 
     # Not Product fields — the views hand these to update_product_photos.
     PHOTO_FIELDS = ("gallery_photos", "remove_photos")
+
+    manufacturers = forms.ModelMultipleChoiceField(
+        label="Allocate to manufacturers",
+        queryset=Manufacturer.objects.none(),
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        help_text="Tick every manufacturer that makes this product. Each one gets its own sizes and prices.",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -134,6 +144,15 @@ class ProductForm(forms.ModelForm):
             .filter(active=True)
         )
         self.fields["handle"].required = False
+        allocated = (
+            list(self.instance.allocations.values_list("manufacturer_id", flat=True))
+            if self.instance.pk else []
+        )
+        self.fields["manufacturers"].queryset = Manufacturer.objects.filter(
+            Q(active=True) | Q(pk__in=allocated), archived_at__isnull=True,
+        ).order_by("name")
+        if self.instance.pk and "manufacturers" not in self.initial:
+            self.initial["manufacturers"] = allocated
 
         self.fields["gallery_photos"] = MultipleImageField(
             label="Add more photos",
@@ -161,9 +180,16 @@ class ProductForm(forms.ModelForm):
         units = list(PRODUCT_UNITS)
         if self.instance.unit_of_measure not in units:
             units.append(self.instance.unit_of_measure)
+        plain = {
+            Product.UnitOfMeasure.PIECE: "Capsules / tablets (count)",
+            Product.UnitOfMeasure.GRAM: "Grams (powder)",
+            Product.UnitOfMeasure.ML: "Millilitres (liquid)",
+        }
         self.fields["unit_of_measure"].choices = [
-            (unit, Product.UnitOfMeasure(unit).label) for unit in units
+            (unit, plain.get(unit, Product.UnitOfMeasure(unit).label)) for unit in units
         ]
+        self.fields["category"].label = "Product type"
+        self.fields["size"].widget.attrs.update({"step": "any", "min": "0", "data-size-input": ""})
 
         # Picking a category pre-selects its unit (see app.js).
         self.fields["category"].widget.attrs["data-unit-by-category"] = json.dumps(
@@ -181,6 +207,11 @@ class ProductForm(forms.ModelForm):
         if data.get("image") is False:
             data["image"] = ""
             data["shopify_image_url"] = ""
+        data.pop("manufacturers", None)
+        # The label file and bottle image use their own "Remove" boxes.
+        for name in ("label_file", "bottle_image"):
+            if self.data.get(f"{name}-clear") and not self.files.get(name):
+                data[name] = ""
         add = data.pop("gallery_photos", None) or []
         remove = data.pop("remove_photos", None) or []
         return data, add, remove

@@ -20,25 +20,35 @@ def with_inventory(queryset):
     )
 
 
-def products_for_manufacturer(queryset, manufacturer):
-    from .models import ProductPackagePrice
+def manufacturer_links(**filters):
+    """(product_id, manufacturer_id) rows for every allocation, including
+    links that only exist through a package price."""
+    from .models import ProductManufacturer, ProductPackagePrice
 
-    links = ProductPackagePrice.objects.filter(manufacturer=manufacturer).values("product_id")
-    return queryset.filter(Q(manufacturer=manufacturer) | Q(pk__in=Subquery(links)))
+    return ProductManufacturer.objects.filter(**filters).order_by().values("product_id", "manufacturer_id").union(
+        ProductPackagePrice.objects.filter(**filters).order_by().values("product_id", "manufacturer_id"),
+    )
+
+
+def _linked_product_ids(**filters):
+    from .models import ProductManufacturer, ProductPackagePrice
+
+    return Q(pk__in=Subquery(ProductManufacturer.objects.filter(**filters).values("product_id"))) | Q(
+        pk__in=Subquery(ProductPackagePrice.objects.filter(**filters).values("product_id")),
+    )
+
+
+def products_for_manufacturer(queryset, manufacturer):
+    return queryset.filter(Q(manufacturer=manufacturer) | _linked_product_ids(manufacturer=manufacturer))
 
 
 def unassigned_products(queryset):
-    from .models import ProductPackagePrice
-
-    links = ProductPackagePrice.objects.filter(manufacturer__archived_at__isnull=True).values("product_id")
     return queryset.filter(
         Q(manufacturer__isnull=True) | Q(manufacturer__archived_at__isnull=False),
-    ).exclude(pk__in=Subquery(links))
+    ).exclude(_linked_product_ids(manufacturer__archived_at__isnull=True))
 
 
 def manufacturer_groups(queryset, manufacturers):
-    from .models import ProductPackagePrice
-
     memberships = {manufacturer.pk:set() for manufacturer in manufacturers}
     products = dict(queryset.values_list("pk", "manufacturer_id"))
     assigned = set()
@@ -46,11 +56,9 @@ def manufacturer_groups(queryset, manufacturers):
         if manufacturer_id in memberships:
             memberships[manufacturer_id].add(product_id)
             assigned.add(product_id)
-    for product_id, manufacturer_id in ProductPackagePrice.objects.filter(
-        product_id__in=products, manufacturer_id__in=memberships,
-    ).values_list("product_id", "manufacturer_id"):
-        memberships[manufacturer_id].add(product_id)
-        assigned.add(product_id)
+    for row in manufacturer_links(product_id__in=products, manufacturer_id__in=memberships):
+        memberships[row["manufacturer_id"]].add(row["product_id"])
+        assigned.add(row["product_id"])
     groups = [{"manufacturer":m, "key":str(m.pk), "count":len(memberships[m.pk])} for m in manufacturers]
     if set(products) - assigned:
         groups.append({"manufacturer":None, "key":"unassigned", "count":len(set(products) - assigned)})

@@ -30,37 +30,39 @@
         </form>
         <form method="post" action="{% url 'product-actions' %}" data-product-selection>
             {% csrf_token %}
-            <div class="pc-selection-bar"><span data-selection-count>Select products to manage them together</span><div class="pc-actions">
+            <div class="pc-selection-bar"><span data-selection-count>Select products to manage them together</span><div class="pc-actions"><button type="button" class="button button-secondary button-small" data-selection-clear hidden>Clear selection</button>
                 <button type="submit" name="action" value="active" class="button button-secondary button-small" data-selection-action>Set active</button>
                 <button type="submit" name="action" value="hold" class="button button-secondary button-small" data-selection-action>Put on hold</button>
                 <button type="submit" name="action" value="delete" class="button button-secondary button-small pc-delete-text" data-selection-action>Delete</button>
             </div></div>
             <div class="table-wrapper"><table class="pc-product-table">
                 <thead><tr>
-                    <th class="pc-check"><input type="checkbox" data-select-all="products" aria-label="Select all products on this page"></th>
+                    <th class="pc-check"><input type="checkbox" data-catalog-select-all aria-label="Select displayed products"></th>
                     <th>{% include "products/_sort_header.html" with key="name" label="Product" column=columns.name %}</th>
                     <th>{% include "products/_sort_header.html" with key="status" label="Status" column=columns.status %}</th>
                     <th>{% include "products/_sort_header.html" with key="inventory" label="Inventory" column=columns.inventory %}</th>
                 </tr></thead>
-                <tbody>{% for product in products %}{% url 'product-detail' product.pk as detail_url %}
-                    <tr class="row-link" data-href="{{ detail_url }}">
-                        <td class="pc-check"><input type="checkbox" name="products" value="{{ product.pk }}" aria-label="Select {{ product.name }}"></td>
-                        <td><div class="pc-product-cell"><a href="{{ detail_url }}" tabindex="-1" aria-hidden="true" class="pc-thumbnail">
-                            {% if product.image %}<img src="{{ product.image.url }}" alt="" loading="lazy">{% elif product.shopify_image_url %}<img src="{{ product.shopify_image_url }}" alt="" loading="lazy">{% else %}{% include "_icon.html" with name="box" %}{% endif %}
-                        </a><div><a href="{{ detail_url }}" class="pc-product-name">{{ product.name }}</a><span class="pc-product-sku">{{ product.sku }}</span></div></div></td>
-                        <td>{% if product.active %}<span class="pc-status pc-status-active">Active</span>{% else %}<span class="pc-status pc-status-hold">On hold</span>{% endif %}</td>
-                        <td><span class="{% if product.inventory_available <= 0 %}pc-stock-empty{% endif %}">{{ product.inventory_available|floatformat:"-4g" }} in stock</span></td>
-                    </tr>
+                <tbody>
+                {% for group in manufacturer_groups %}
+                    <tr class="manufacturer-section-row"><td colspan="4" class="manufacturer-section-cell">
+                        <section class="manufacturer-section" data-manufacturer-group="{{ group.key }}" data-products-url="{{ group.url }}">
+                            <button type="button" class="manufacturer-toggle" data-manufacturer-toggle aria-expanded="false" aria-controls="manufacturer-products-{{ group.key }}">
+                                <span class="manufacturer-group-name">{% if group.manufacturer %}{{ group.manufacturer.name }}{% else %}Unassigned products{% endif %}</span>
+                                {% if group.manufacturer.prefix %}<span class="manufacturer-prefix">{{ group.manufacturer.prefix }}</span>{% endif %}
+                                <span class="manufacturer-count">{{ group.count }} product{{ group.count|pluralize }}</span>
+                                <svg viewBox="0 0 20 20" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 7.5 5 5 5-5"/></svg>
+                            </button>
+                            <noscript><a class="pc-text-link" href="{{ group.url }}">View {% if group.manufacturer %}{{ group.manufacturer.name }}{% else %}unassigned{% endif %} products</a></noscript>
+                            <div class="manufacturer-products" id="manufacturer-products-{{ group.key }}" inert><div class="manufacturer-products-inner"><div data-group-content aria-live="polite"></div></div></div>
+                        </section>
+                    </td></tr>
                 {% empty %}
-                    <tr><td colspan="4" class="empty-table"><strong>{% if params.q or params.status %}No products match your filters{% else %}Your products will appear here{% endif %}</strong><p>{% if params.q or params.status %}Try another search or view all products.{% else %}Add your first product or import your existing catalog.{% endif %}</p><a class="button button-secondary button-small" href="{% if params.q or params.status %}{% url 'product-list' %}{% else %}{% url 'product-create' %}{% endif %}">{% if params.q or params.status %}View all products{% else %}Add product{% endif %}</a></td></tr>
-                {% endfor %}</tbody>
+                    <tr><td colspan="4" class="empty-table"><strong>{% if params.q or params.status %}No products match your filters{% else %}Start your manufacturer catalog{% endif %}</strong><p>{% if params.q or params.status %}Try another search or view all products.{% else %}Add a manufacturer under Partners, or add your first product.{% endif %}</p><a class="button button-secondary button-small" href="{% if params.q or params.status %}{% url 'product-list' %}{% else %}{% url 'manufacturer-create' %}{% endif %}">{% if params.q or params.status %}View all products{% else %}Add manufacturer{% endif %}</a></td></tr>
+                {% endfor %}
+                </tbody>
             </table></div>
         </form>
-        <div class="pc-table-footer"><span>{% if page_obj.paginator.count %}{{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }} products{% else %}0 products{% endif %}</span><nav class="pc-pagination" aria-label="Product pages">
-            {% if page_obj.has_previous %}<a class="button button-secondary button-small" href="{% querystring page=page_obj.previous_page_number %}" aria-label="Previous page">←</a>{% endif %}
-            <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-            {% if page_obj.has_next %}<a class="button button-secondary button-small" href="{% querystring page=page_obj.next_page_number %}" aria-label="Next page">→</a>{% endif %}
-        </nav></div>
+        <div class="pc-table-footer"><span>{{ total_count }} product{{ total_count|pluralize }}</span><span>{{ manufacturer_groups|length }} manufacturer group{{ manufacturer_groups|length|pluralize }}</span></div>
     </section>
     <div class="pc-catalog-links"><a href="{% url 'product-retail-price-sheet' %}">Download price sheet</a><a href="{% url 'category-list' %}">Manage categories</a></div>
 </div>

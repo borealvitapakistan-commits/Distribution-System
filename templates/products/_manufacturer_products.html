@@ -1,0 +1,29 @@
+<div class="manufacturer-group-tools">
+    <span class="pc-muted">{% if page_obj.paginator.count %}{{ page_obj.paginator.count }} product{{ page_obj.paginator.count|pluralize }}{% else %}No products linked yet{% endif %}</span>
+    <div class="pc-actions">
+        {% if manufacturer %}<a class="pc-text-link" href="{% url 'manufacturer-edit' manufacturer.pk %}">Edit prefix</a>{% if manufacturer.active %}<a class="button button-secondary button-small" href="{% url 'product-create' %}?manufacturer={{ manufacturer.pk }}">＋ Add product</a>{% endif %}{% else %}<a class="button button-secondary button-small" href="{% url 'product-create' %}">＋ Add product</a>{% endif %}
+    </div>
+</div>
+<table class="pc-product-table manufacturer-product-table">
+    <caption class="sr-only">{% if manufacturer %}{{ manufacturer.name }}{% else %}Unassigned{% endif %} products</caption>
+    <colgroup><col class="manufacturer-check-col"><col class="manufacturer-name-col"><col class="manufacturer-status-col"><col></colgroup>
+    <tbody>{% for product in products %}
+        <tr class="row-link" data-href="{{ product.catalog_url }}">
+            <td class="pc-check"><input type="checkbox" name="products" value="{{ product.pk }}" aria-label="Select {{ product.catalog_label }}"></td>
+            <td><div class="pc-product-cell"><a href="{{ product.catalog_url }}" tabindex="-1" aria-hidden="true" class="pc-thumbnail">
+                {% if product.display_image_url %}<img src="{{ product.display_image_url }}" alt="" loading="lazy">{% else %}{% include "_icon.html" with name="box" %}{% endif %}
+            </a><div><a href="{{ product.catalog_url }}" class="pc-product-name">{{ product.catalog_label }}</a><span class="pc-product-sku">{{ product.sku }}</span></div></div></td>
+            <td>{% if product.active %}<span class="pc-status pc-status-active">Active</span>{% else %}<span class="pc-status pc-status-hold">On hold</span>{% endif %}</td>
+            <td><span class="{% if product.inventory_available <= 0 %}pc-stock-empty{% endif %}" title="Total available stock for this product across warehouses">{{ product.inventory_available|floatformat:"-4g" }} in stock</span></td>
+        </tr>
+    {% empty %}<tr><td colspan="4" class="empty-table">{% if manufacturer %}No products linked to {{ manufacturer.name }}.{% else %}No unassigned products.{% endif %}</td></tr>{% endfor %}</tbody>
+</table>
+{% if page_obj.paginator.count %}
+<div class="manufacturer-group-footer"><span class="pc-muted">Stock shown is the product’s total across locations.</span>
+    {% if page_obj.paginator.num_pages > 1 %}<nav class="pc-pagination" aria-label="{% if manufacturer %}{{ manufacturer.name }}{% else %}Unassigned{% endif %} product pages">
+        {% if page_obj.has_previous %}<a class="button button-secondary button-small" href="{{ group_url }}{% querystring page=page_obj.previous_page_number %}" data-group-page aria-label="Previous product page">←</a>{% endif %}
+        <span>{{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ page_obj.paginator.count }}</span>
+        {% if page_obj.has_next %}<a class="button button-secondary button-small" href="{{ group_url }}{% querystring page=page_obj.next_page_number %}" data-group-page aria-label="Next product page">→</a>{% endif %}
+    </nav>{% endif %}
+</div>
+{% endif %}

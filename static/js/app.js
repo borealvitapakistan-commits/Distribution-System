@@ -597,22 +597,12 @@ document.addEventListener("DOMContentLoaded", () => {
 // Clickable table rows: a click anywhere on the row opens it, except on
 // links, buttons and form controls inside it (they keep their own job).
 document.addEventListener("DOMContentLoaded", () => {
-    document.querySelectorAll("tr.row-link[data-href]").forEach((row) => {
-        row.addEventListener("click", (event) => {
-            if (event.target.closest("a, button, input, select, label")) {
-                return;
-            }
-
-            if (window.getSelection()?.toString()) {
-                return;
-            }
-
-            if (event.metaKey || event.ctrlKey) {
-                window.open(row.dataset.href, "_blank");
-            } else {
-                window.location.href = row.dataset.href;
-            }
-        });
+    document.addEventListener("click", (event) => {
+        const row = event.target.closest("tr.row-link[data-href]");
+        if (!row || event.target.closest("a, button, input, select, label")) return;
+        if (window.getSelection()?.toString()) return;
+        if (event.metaKey || event.ctrlKey) window.open(row.dataset.href, "_blank");
+        else window.location.href = row.dataset.href;
     });
 
     document.querySelectorAll("form[data-autosubmit]").forEach((form) => {
@@ -671,19 +661,51 @@ document.addEventListener("DOMContentLoaded", () => {
 // Product catalog selection and the unified product editor.
 document.addEventListener("DOMContentLoaded", () => {
     document.querySelectorAll("[data-product-selection]").forEach((form) => {
-        const boxes = [...form.querySelectorAll('input[name="products"]')];
-        const toggle = form.querySelector("[data-select-all]");
+        const selected = new Set();
+        const toggle = form.querySelector("[data-catalog-select-all]");
+        const hidden = document.createElement("div");
+        hidden.hidden = true;
+        form.append(hidden);
+        const clear = form.querySelector("[data-selection-clear]");
+        const boxes = () => [...form.querySelectorAll('input[type="checkbox"][name="products"]')];
+        const displayed = () => boxes().filter(box => box.closest("[data-manufacturer-group]")?.classList.contains("is-open"));
         function update() {
-            const count = boxes.filter(box => box.checked).length;
+            boxes().forEach(box => box.checked = selected.has(box.value));
+            const count = selected.size;
             form.querySelector("[data-selection-count]").textContent = count
                 ? `${count} selected` : "Select products to manage them together";
             form.querySelectorAll("[data-selection-action]").forEach(button => button.disabled = count === 0);
-            toggle.checked = count > 0 && count === boxes.length;
-            toggle.indeterminate = count > 0 && count < boxes.length;
+            clear.hidden = count === 0;
+            const visible = displayed();
+            toggle.disabled = visible.length === 0;
+            toggle.checked = visible.length > 0 && visible.every(box => box.checked);
+            toggle.indeterminate = visible.some(box => box.checked) && !toggle.checked;
+            hidden.replaceChildren();
+            selected.forEach(id => {
+                const input = document.createElement("input");
+                input.type = "hidden";
+                input.name = "products";
+                input.value = id;
+                hidden.append(input);
+            });
         }
-        form.addEventListener("change", update);
+        form.addEventListener("change", event => {
+            if (event.target.matches('input[type="checkbox"][name="products"]')) {
+                if (event.target.checked) selected.add(event.target.value);
+                else selected.delete(event.target.value);
+            }
+            update();
+        });
+        toggle.addEventListener("change", () => {
+            displayed().forEach(box => {
+                if (toggle.checked) selected.add(box.value);
+                else selected.delete(box.value);
+            });
+            update();
+        });
+        clear.addEventListener("click", () => { selected.clear(); update(); });
+        form.addEventListener("catalog:changed", update);
         update();
-        // Restore accurate selection after browser back/forward navigation.
         window.addEventListener("pageshow", update);
     });
 
@@ -832,4 +854,306 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
     window.addEventListener("pagehide", () => objectUrls.forEach(url => URL.revokeObjectURL(url)));
+});
+
+// Manufacturer sections load their complete product list independently.
+document.addEventListener("DOMContentLoaded", () => {
+    const requested = new URLSearchParams(location.search).get("open");
+    document.querySelectorAll("[data-manufacturer-group]").forEach((group) => {
+        const toggle = group.querySelector("[data-manufacturer-toggle]");
+        const body = group.querySelector(".manufacturer-products");
+        const content = group.querySelector("[data-group-content]");
+        const form = group.closest("form");
+        let loaded = false;
+        let loading = false;
+        let requestNumber = 0;
+        function changed() {
+            form?.dispatchEvent(new CustomEvent("catalog:changed"));
+        }
+        async function load(url) {
+            if (loading) return;
+            loading = true;
+            const current = ++requestNumber;
+            content.setAttribute("aria-busy", "true");
+            try {
+                const response = await fetch(url, {headers:{"X-Requested-With":"XMLHttpRequest"}});
+                if (response.redirected) { location.assign(response.url); return; }
+                if (!response.ok) throw new Error("Unable to load products");
+                const html = await response.text();
+                if (current !== requestNumber) return;
+                content.innerHTML = html;
+                loaded = true;
+            } catch (_) {
+                content.replaceChildren();
+                const message = document.createElement("p");
+                message.className = "pc-muted manufacturer-load-message";
+                message.textContent = "Products could not be loaded. ";
+                const retry = document.createElement("button");
+                retry.type = "button";
+                retry.className = "button button-secondary button-small";
+                retry.textContent = "Try again";
+                retry.addEventListener("click", () => load(url));
+                message.append(retry);
+                content.append(message);
+            } finally {
+                loading = false;
+                content.removeAttribute("aria-busy");
+                changed();
+            }
+        }
+        function setOpen(open) {
+            toggle.setAttribute("aria-expanded", String(open));
+            body.inert = !open;
+            group.classList.toggle("is-open", open);
+            changed();
+            if (open && !loaded && !loading) {
+                content.textContent = "Loading products…";
+                load(group.dataset.productsUrl);
+            }
+        }
+        toggle.addEventListener("click", () => setOpen(toggle.getAttribute("aria-expanded") !== "true"));
+        group.addEventListener("keydown", event => {
+            if (event.key === "Escape") { setOpen(false); toggle.focus(); }
+        });
+        content.addEventListener("click", event => {
+            const link = event.target.closest("[data-group-page]");
+            if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+            event.preventDefault();
+            load(link.href);
+        });
+        if (requested === group.dataset.manufacturerGroup) setOpen(true);
+    });
+});
+
+
+// Product page: each manufacturer's list of sizes and prices.
+document.addEventListener("DOMContentLoaded", () => {
+    const money = value => Number.isFinite(value) ? value.toFixed(2) : "";
+
+    // Linked rows: retail = manufacturer price + markup (% or PKR).
+    function updateRow(row) {
+        const linked = row.querySelector("[data-retail-mode-select]").value === "LINKED";
+        const cost = parseFloat(row.querySelector("[data-cost]").value);
+        const markup = parseFloat(row.querySelector("[data-markup-value]").value) || 0;
+        const percent = row.querySelector("[data-markup-type]").value === "PERCENT";
+        const retailInput = row.querySelector("[data-retail]");
+        row.dataset.retailMode = linked ? "LINKED" : "FIXED";
+        row.querySelector("[data-markup]").hidden = !linked;
+        if (linked) {
+            retailInput.value = Number.isFinite(cost) ? money(percent ? cost * (1 + markup / 100) : cost + markup) : "";
+        }
+        const retail = parseFloat(retailInput.value);
+        const margin = row.querySelector("[data-margin]");
+        margin.textContent = Number.isFinite(cost) && Number.isFinite(retail) && retail > 0
+            ? `Margin PKR ${money(retail - cost)} (${Math.round((retail - cost) / retail * 100)}%)`
+            : "";
+        margin.classList.toggle("is-negative", Number.isFinite(cost) && Number.isFinite(retail) && retail < cost);
+    }
+
+    document.querySelectorAll("[data-package-editor]").forEach(editor => {
+        const rows = editor.querySelector("[data-package-rows]");
+        const template = editor.querySelector("[data-package-row-template]");
+        const empty = editor.querySelector("[data-package-empty]");
+        const refresh = () => { empty.hidden = rows.children.length > 0; };
+        rows.querySelectorAll("[data-package-row]").forEach(updateRow);
+
+        editor.addEventListener("click", event => {
+            const add = event.target.closest("[data-add-size]");
+            const remove = event.target.closest("[data-remove-row]");
+            if (add) {
+                const size = add.dataset.addSize;
+                const existing = [...rows.querySelectorAll("input[name=amount]")]
+                    .find(input => size && Number(input.value) === Number(size));
+                if (existing) {
+                    existing.closest("[data-package-row]").querySelector("[data-cost]").focus();
+                    return;
+                }
+                rows.append(template.content.cloneNode(true));
+                const row = rows.lastElementChild;
+                row.querySelector("input[name=amount]").value = size;
+                updateRow(row);
+                row.querySelector(size ? "[data-cost]" : "input[name=amount]").focus();
+            } else if (remove) {
+                remove.closest("[data-package-row]").remove();
+            }
+            refresh();
+        });
+
+        editor.addEventListener("input", event => {
+            const row = event.target.closest("[data-package-row]");
+            if (!row) return;
+            // Typing our own retail price breaks the link to the manufacturer price.
+            if (event.target.matches("[data-retail]")) {
+                row.querySelector("[data-retail-mode-select]").value = "FIXED";
+            }
+            updateRow(row);
+        });
+        editor.addEventListener("change", event => {
+            const row = event.target.closest("[data-package-row]");
+            if (row) updateRow(row);
+        });
+    });
+
+    const editor = document.querySelector("[data-product-editor]");
+    editor?.addEventListener("submit", event => {
+        const removed = [...editor.querySelectorAll("input[name=manufacturers]")]
+            .filter(box => box.defaultChecked && !box.checked)
+            .map(box => box.closest("label")?.textContent.trim() || "a manufacturer");
+        if (removed.length && !window.confirm(
+            `Remove ${removed.join(", ")} from this product? Their sizes and prices for it will be deleted.`
+        )) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+        }
+    }, true);
+});
+
+
+// Label file and bottle image: paste (Ctrl/⌘+V), drop or choose a file.
+document.addEventListener("DOMContentLoaded", () => {
+    document.querySelectorAll("[data-paste-upload]").forEach(box => {
+        const zone = box.querySelector("[data-paste-zone]");
+        const input = box.querySelector("input[type=file]");
+        const preview = box.querySelector("[data-paste-preview]");
+        const allowed = (input.accept || "").split(",").map(type => type.trim().toLowerCase()).filter(Boolean);
+        const accepts = file => !allowed.length || allowed.some(type =>
+            type.startsWith(".") ? file.name.toLowerCase().endsWith(type)
+                : type.endsWith("/*") ? file.type.startsWith(type.slice(0, -1)) : file.type === type);
+
+        function show(file) {
+            preview.replaceChildren();
+            if (file.type.startsWith("image/")) {
+                const image = document.createElement("img");
+                image.src = URL.createObjectURL(file);
+                image.alt = file.name;
+                preview.append(image);
+            } else {
+                const name = document.createElement("span");
+                name.className = "pc-paste-file";
+                name.textContent = `PDF · ${file.name}`;
+                preview.append(name);
+            }
+        }
+
+        function use(file) {
+            if (!file) return;
+            if (!accepts(file)) {
+                window.alert("That file type isn't allowed here.");
+                return;
+            }
+            const transfer = new DataTransfer();
+            // Pasted screenshots arrive as "image.png" or without a name.
+            transfer.items.add(file.name ? file : new File([file], "pasted.png", {type: file.type}));
+            input.files = transfer.files;
+            input.dispatchEvent(new Event("change", {bubbles: true}));
+        }
+
+        input.addEventListener("change", () => input.files[0] && show(input.files[0]));
+        zone.addEventListener("click", () => input.click());
+        zone.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") { event.preventDefault(); input.click(); }
+        });
+        zone.addEventListener("paste", event => {
+            const file = [...(event.clipboardData?.files || [])][0];
+            if (file) { event.preventDefault(); use(file); }
+        });
+        zone.addEventListener("dragover", event => { event.preventDefault(); zone.classList.add("is-dragging"); });
+        zone.addEventListener("dragleave", () => zone.classList.remove("is-dragging"));
+        zone.addEventListener("drop", event => {
+            event.preventDefault();
+            zone.classList.remove("is-dragging");
+            use(event.dataTransfer.files[0]);
+        });
+    });
+});
+
+
+// Scrolling the page over a number box must never change its value
+// (e.g. a price jumping by 0.1): the box lets go and the page scrolls.
+document.addEventListener("wheel", event => {
+    const input = event.target;
+    if (input instanceof HTMLInputElement && input.type === "number" && document.activeElement === input) {
+        input.blur();
+    }
+}, {passive: true, capture: true});
+
+
+// Product form, Type & size: the size question follows the unit —
+// "Capsules per bottle", "Grams per pack" (powder), "ml per bottle".
+document.addEventListener("DOMContentLoaded", () => {
+    const card = document.querySelector("[data-type-size]");
+    if (!card) return;
+    const category = card.querySelector("select[name=category]");
+    const unit = card.querySelector("select[name=unit_of_measure]");
+    const label = card.querySelector("[data-size-label]");
+    const suffix = card.querySelector("[data-size-suffix]");
+    const input = card.querySelector("[data-size-input]");
+
+    function refresh() {
+        const type = category && category.value ? category.options[category.selectedIndex].text.trim().toLowerCase() : "";
+        let question, after, example;
+        if (unit.value === "GRAM") {
+            [question, after, example] = ["Grams per pack", "g", "e.g. 300"];
+        } else if (unit.value === "ML") {
+            [question, after, example] = ["ml per bottle", "ml", "e.g. 100"];
+        } else {
+            const counted = type && !["capsule", "tablet", "soft gel"].includes(type) ? "units" : (type ? `${type}s` : "capsules");
+            [question, after, example] = [`${counted[0].toUpperCase()}${counted.slice(1)} per bottle`, counted, "e.g. 60"];
+        }
+        label.textContent = question;
+        suffix.textContent = after;
+        input.placeholder = example;
+    }
+
+    category?.addEventListener("change", () => setTimeout(refresh));
+    unit.addEventListener("change", refresh);
+    refresh();
+});
+
+
+// Two-page Purchase Orders (advance + balance): downloading asks for one
+// PDF, a ZIP of two PDFs, or two separate PDFs.
+document.addEventListener("DOMContentLoaded", () => {
+    const dialog = document.querySelector("[data-download-choice]");
+    if (!dialog) return;
+    let base = null;
+
+    const withParams = (extra) => {
+        const url = new URL(base, window.location.href);
+        Object.entries(extra).forEach(([key, value]) => url.searchParams.set(key, value));
+        return url.toString();
+    };
+    const fetchFile = (href) => {
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = "";
+        document.body.append(link);
+        link.click();
+        link.remove();
+    };
+
+    document.addEventListener("click", (event) => {
+        const link = event.target.closest("a[href*='/pdf/']");
+        if (!link || link.closest("[data-download-choice]")) return;
+        const url = new URL(link.href, window.location.href);
+        if (url.searchParams.get("download") !== "1" || url.searchParams.has("part")) return;
+        event.preventDefault();
+        base = url.toString();
+        link.closest("details")?.removeAttribute("open");
+        dialog.showModal();
+    });
+
+    dialog.addEventListener("click", (event) => {
+        const option = event.target.closest("[data-choice]");
+        if (!option || !base) return;
+        event.preventDefault();
+        const choice = option.dataset.choice;
+        if (choice === "single") fetchFile(base);
+        if (choice === "zip") fetchFile(withParams({format: "zip"}));
+        if (choice === "separate") {
+            fetchFile(withParams({part: "advance"}));
+            setTimeout(() => fetchFile(withParams({part: "balance"})), 700);
+        }
+        dialog.close();
+    });
 });

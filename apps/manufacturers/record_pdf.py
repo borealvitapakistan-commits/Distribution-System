@@ -21,6 +21,7 @@ can't be read gets a page saying so, so the record never fails to build.
 
 from dataclasses import dataclass
 from decimal import Decimal
+
 from io import BytesIO
 from pathlib import PurePath
 
@@ -113,22 +114,152 @@ def _document(order, kind):
     )
 
 
-def document_pdf(order, *, kind="current", brand, highlight_changes=False):
+def payment_pages(order, part=None):
+    """The pages of a Purchase Order PDF. With an advance between 0% and
+    100% it is two pages — one for the advance we pay now, one for the
+    balance we pay later — otherwise one plain page. part ("advance" or
+    "balance") picks a single page."""
+    split = (not order.is_quote) and 0 < order.advance_percent < 100
+    if not split:
+        return [{"part": None}]
+
+    total = order.grand_total
+    paid = order.advance_paid
+    advance = paid if paid else order.advance_amount
+    advance_percent = (
+        (advance * Decimal("100") / total).quantize(Decimal("0.01")).normalize() if total else order.advance_percent
+    )
+    pages = {
+        "advance": {
+            "part": "advance",
+            "subtitle": f"Advance payment · {order.advance_percent.normalize():f}%",
+            "now_label": f"Advance now ({order.advance_percent.normalize():f}%)",
+            "now_amount": order.advance_amount,
+            "statement": (
+                f"We are paying Rs {order.advance_amount:,.2f} now as a {order.advance_percent.normalize():f}% "
+                f"advance on the order total of Rs {total:,.2f}."
+            ),
+        },
+        "balance": {
+            "part": "balance",
+            "subtitle": f"Balance payment · {(Decimal('100') - advance_percent).normalize():f}%",
+            "now_label": f"Balance now ({(Decimal('100') - advance_percent).normalize():f}%)",
+            "now_amount": total - advance,
+            "statement": (
+                f"We are paying the remaining Rs {total - advance:,.2f} "
+                f"({(Decimal('100') - advance_percent).normalize():f}%) of the order total of Rs {total:,.2f}."
+            ),
+        },
+    }
+    return [pages[part]] if part in pages else [pages["advance"], pages["balance"]]
+
+
+CM = 72 / 2.54
+STAMP_BOTTOM_CM = 1.0
+STAMP_FULL_CM = 3.7
+STAMP_MIN_CM = 2.5
+
+
+def _stamp_overlay(height_cm):
+    """One A4 page with only the company stamp box, bottom right."""
+    from reportlab.lib.units import cm
+
+    buffer = BytesIO()
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    pdf.setStrokeColor(HexColor("#9ca3af"))
+    pdf.setDash(1, 2)
+    pdf.rect(13.2 * cm, STAMP_BOTTOM_CM * cm, 6.2 * cm, height_cm * cm, stroke=1, fill=0)
+    pdf.setFillColor(HexColor("#6b7280"))
+    pdf.setFont("Helvetica", 8)
+    pdf.drawCentredString(16.3 * cm, (STAMP_BOTTOM_CM + 0.3) * cm, "Company stamp")
+    pdf.save()
+    return PdfReader(BytesIO(buffer.getvalue())).pages[0]
+
+
+def _lowest_text(page):
+    """How far up the page (in points) its lowest line of text sits."""
+    lowest = [page.mediabox.height]
+
+    def visit(text, cm, tm, font, size):
+        if text.strip():
+            lowest.append(tm[5] * cm[3] + cm[5])
+
+    page.extract_text(visitor_text=visit)
+    return min(lowest)
+
+
+def _last_page_has_products(pdf_bytes):
+    """True for a one-page document, or when the last page carries product
+    rows (its table headings are repeated there)."""
+    reader = PdfReader(BytesIO(pdf_bytes))
+    return len(reader.pages) == 1 or "Description" in reader.pages[-1].extract_text()
+
+
+def _stamped(pdf_bytes):
+    """The PDF with the company stamp drawn in the bottom-right corner of
+    its last page — as tall as the free space allows — or None when that
+    corner is too full for a stamp."""
+    reader = PdfReader(BytesIO(pdf_bytes))
+    # Leave room below the lowest text for the boxes drawn around it.
+    free_cm = (_lowest_text(reader.pages[-1]) - 24) / CM - STAMP_BOTTOM_CM
+    if free_cm < STAMP_MIN_CM:
+        return None
+    writer = PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    writer.pages[-1].merge_page(_stamp_overlay(min(STAMP_FULL_CM, free_cm)))
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def document_pdf(order, *, kind="current", brand, highlight_changes=False, part=None, split=False):
+    """split=True gives a Purchase Order with an advance its two payment
+    documents; part picks one of them. A Purchase Order's company stamp
+    goes on the last page of each document only."""
     from .views import document_table
 
     doc = _document(order, kind)
     columns, rows = document_table(doc.lines)
-    return render_pdf(
-        "manufacturers/manufacturer_order_pdf.html",
-        {
-            "order": order,
-            "doc": doc,
-            "brand": brand,
-            "columns": columns,
-            "rows": rows,
-            "highlight_changes": highlight_changes,
-        },
-    )
+    pages = payment_pages(order, part) if (split or part) else [{"part": None}]
+
+    def render(page, stamp_inline=False, break_before=None):
+        return render_pdf(
+            "manufacturers/manufacturer_order_pdf.html",
+            {
+                "order": order,
+                "doc": doc,
+                "brand": brand,
+                "columns": columns,
+                "rows": rows,
+                "highlight_changes": highlight_changes,
+                "pages": [page],
+                "stamp_inline": stamp_inline,
+                "break_before": break_before,
+            },
+        )
+
+    if order.is_quote:
+        return render(pages[0])
+
+    writer = PdfWriter()
+    for page in pages:
+        # The stamp goes in the free bottom-right corner of the last page.
+        # The last page must also show products: when the totals land on a
+        # page of their own, or leave no room for the stamp, the last one
+        # or two products move to that page with them.
+        first = render(page)
+        carry = min(2, len(doc.lines) - 1)
+        pdf_bytes = None if (carry > 0 and not _last_page_has_products(first)) else _stamped(first)
+        if pdf_bytes is None and carry > 0:
+            pdf_bytes = _stamped(render(page, break_before=len(doc.lines) - carry))
+        if pdf_bytes is None:
+            pdf_bytes = _stamped(first) or render(page, stamp_inline=True)
+        for each in PdfReader(BytesIO(pdf_bytes)).pages:
+            writer.add_page(each)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
 
 
 # ---------------------------------------------------------------------------

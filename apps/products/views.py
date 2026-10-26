@@ -1,4 +1,5 @@
 import uuid
+from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
 from django.contrib import messages
@@ -6,9 +7,10 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import transaction
 from django.db.models import Count, Q
 from django.db.models.functions import Lower
+from django.core.paginator import Paginator
 from django.http import Http404, HttpResponse
-from django.shortcuts import redirect, render
-from django.urls import reverse_lazy
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse, reverse_lazy
 from django.views import View
 from django.views.generic import (
     CreateView,
@@ -19,11 +21,13 @@ from apps.accounts.mixins import (
     DistributorRequiredMixin,
     OwnerRequiredMixin,
 )
+from apps.manufacturers.models import Manufacturer
 
 from . import shopify, shopify_import
 from .description import sanitize_description
 from .lifecycle import apply_product_action, deletion_review
-from .workspace import inventory_summary, with_inventory
+from .workspace import (inventory_summary, with_inventory, manufacturer_groups, manufacturer_links,
+                        products_for_manufacturer, unassigned_products)
 from .catalog import category_style, size_label, unit_label, unit_plural
 from .forms import (
     CategoryForm,
@@ -37,6 +41,7 @@ from .forms import (
 from .models import (
     Product,
     ProductCategory,
+    ProductPackagePrice,
 )
 from .services import (
     create_category,
@@ -46,7 +51,9 @@ from .services import (
     export_retail_price_sheet,
     set_product_bottle_prices,
     delete_package_price,
+    save_manufacturer_packages,
     save_package_price,
+    set_product_manufacturers,
     set_product_retail_prices,
     update_product,
     update_product_photos,
@@ -268,7 +275,45 @@ class ProductListView(OwnerRequiredMixin, ListView):
                 "hold_count": self._all_products().filter(active=False).count(),
             }
         )
+        manufacturers = list(Manufacturer.objects.for_user(self.request.user).filter(archived_at__isnull=True))
+        groups = manufacturer_groups(self.get_queryset(), manufacturers)
+        if params["q"] or params["status"] or params["category"]:
+            groups = [group for group in groups if group["count"]]
+        query = self.request.GET.copy()
+        for key in ("page", "open"):
+            query.pop(key, None)
+        for group in groups:
+            url = reverse("product-manufacturer-products", args=[group["key"]])
+            group["url"] = url + ("?" + query.urlencode() if query else "")
+        context["manufacturer_groups"] = groups
         return context
+
+
+class ManufacturerProductsView(ProductListView):
+    def get(self, request, manufacturer_key):
+        queryset = self.get_queryset()
+        manufacturer = None
+        if manufacturer_key == "unassigned":
+            queryset = unassigned_products(queryset)
+        else:
+            try:
+                manufacturer = get_object_or_404(
+                    Manufacturer.objects.for_user(request.user).filter(archived_at__isnull=True),
+                    pk=manufacturer_key,
+                )
+            except ValidationError as exc:
+                raise Http404 from exc
+            queryset = products_for_manufacturer(queryset, manufacturer)
+        page = Paginator(queryset, 50).get_page(request.GET.get("page"))
+        for product in page:
+            product.catalog_label = f"{product.name} ({manufacturer.product_label})" if manufacturer else product.name
+            product.catalog_url = reverse("product-detail", args=[product.pk])
+            if manufacturer:
+                product.catalog_url += f"?manufacturer={manufacturer.pk}"
+        context = {"products":page, "page_obj":page, "manufacturer":manufacturer,
+                   "group_url":reverse("product-manufacturer-products", args=[manufacturer_key])}
+        template = "products/_manufacturer_products.html" if request.headers.get("X-Requested-With") == "XMLHttpRequest" else "products/manufacturer_products.html"
+        return render(request, template, context)
 
 
 class RetailPriceSheetView(OwnerRequiredMixin, View):
@@ -380,6 +425,79 @@ class ProductPackageDeleteView(OwnerRequiredMixin, View):
         return redirect("product-detail", pk=pk)
 
 
+def package_rows(data):
+    """The size rows posted from a manufacturer's card on the product page,
+    as parallel lists: amount, price, retail_mode, markup_type,
+    markup_value and retail_price. Fully blank rows are skipped."""
+    columns = ("amount", "price", "retail_mode", "markup_type", "markup_value", "retail_price")
+    lists = {name: data.getlist(name) for name in columns}
+    count = len(lists["amount"])
+    if any(len(lists[name]) not in (0, count) for name in columns):
+        raise ValidationError("The price list was incomplete. Reload the page and try again.")
+
+    def number(text, label, required):
+        text = (text or "").strip().replace(",", "")
+        if not text:
+            if required:
+                raise ValidationError(f"Enter a {label} on every row.")
+            return None
+        try:
+            value = Decimal(text)
+        except InvalidOperation as exc:
+            raise ValidationError(f"The {label} must be a number.") from exc
+        if not value.is_finite() or value < 0:
+            raise ValidationError(f"The {label} cannot be negative.")
+        return value
+
+    rows = []
+    for index in range(count):
+        cell = {name: (lists[name][index] if lists[name] else "") for name in columns}
+        if not cell["amount"].strip() and not cell["price"].strip():
+            continue
+        amount = number(cell["amount"], "size", True)
+        if amount == 0:
+            raise ValidationError("Sizes must be above 0.")
+        row = {"amount": amount, "price": number(cell["price"], "manufacturer price", True)}
+        if lists["retail_mode"]:
+            mode = cell["retail_mode"] or ProductPackagePrice.RetailMode.FIXED
+            markup_type = cell["markup_type"] or ProductPackagePrice.MarkupType.PERCENT
+            if mode not in ProductPackagePrice.RetailMode.values or markup_type not in ProductPackagePrice.MarkupType.values:
+                raise ValidationError("Choose how the retail price is set.")
+            row.update({
+                "retail_mode": mode, "markup_type": markup_type,
+                "markup_value": number(cell["markup_value"], "markup", False) or Decimal("0"),
+                "retail_price": number(cell["retail_price"], "retail price", False),
+            })
+        rows.append(row)
+    return rows
+
+
+class ProductManufacturerPackagesView(OwnerRequiredMixin, View):
+    """Saves every size (e.g. 30, 40, 60 capsules) and price one
+    allocated manufacturer has for this product."""
+
+    def post(self, request, pk, manufacturer_pk):
+        product = Product.objects.for_user(request.user).filter(pk=pk, archived_at__isnull=True).first()
+        manufacturer = Manufacturer.objects.filter(pk=manufacturer_pk, archived_at__isnull=True).first()
+        if product is None or manufacturer is None:
+            raise Http404
+
+        try:
+            rows = package_rows(request.POST)
+            save_manufacturer_packages(actor=request.user, product=product, manufacturer=manufacturer, rows=rows)
+        except (PermissionDenied, ValidationError) as exc:
+            messages.error(request, " ".join(getattr(exc, "messages", [str(exc)])))
+        else:
+            messages.success(request, f"{manufacturer.name} sizes and prices saved.")
+
+        url = reverse("product-detail", args=[product.pk])
+        try:
+            url += f"?manufacturer={uuid.UUID(request.POST.get('context_manufacturer', ''))}"
+        except ValueError:
+            pass
+        return redirect(f"{url}#maker-{manufacturer.pk}")
+
+
 class ProductRetailPricesView(OwnerRequiredMixin, View):
     """Saves what we sell one bottle for at each bottle size."""
 
@@ -432,20 +550,58 @@ class ProductBottlePricesView(OwnerRequiredMixin, View):
 
 
 class ProductEditorMixin:
+    def manufacturer_context(self, product=None):
+        key = self.request.GET.get("manufacturer")
+        if not key:
+            return None
+        try:
+            manufacturer = get_object_or_404(
+                Manufacturer.objects.for_user(self.request.user).filter(archived_at__isnull=True), pk=key,
+            )
+        except ValidationError as exc:
+            raise Http404 from exc
+        if product is not None and not products_for_manufacturer(Product.objects.filter(pk=product.pk),manufacturer).exists():
+            raise Http404
+        return manufacturer
+
+    def editor_redirect(self, product):
+        url = reverse("product-detail", args=[product.pk])
+        manufacturer = self.manufacturer_context()
+        if manufacturer and products_for_manufacturer(Product.objects.filter(pk=product.pk),manufacturer).exists():
+            url += f"?manufacturer={manufacturer.pk}"
+        return redirect(url)
+
+    def manufacturer_pricing(self, product, packages, current=None):
+        """One card per allocated manufacturer, with its sizes and prices.
+        The manufacturer the page was opened from comes first."""
+        ids = {row["manufacturer_id"] for row in manufacturer_links(product_id=product.pk)}
+        if product.manufacturer_id:
+            ids.add(product.manufacturer_id)
+        makers = Manufacturer.objects.filter(pk__in=ids, archived_at__isnull=True).order_by("name")
+        cards = [{"manufacturer": maker, "packages": [p for p in packages if p.manufacturer_id == maker.pk],
+                  "open": current is not None and maker.pk == current.pk} for maker in makers]
+        cards.sort(key=lambda card: not card["open"])
+        if len(cards) == 1:
+            cards[0]["open"] = True
+        return cards
+
     def render_editor(self, request, template, context):
         form = context["form"]
         product = context.get("object")
+        manufacturer = self.manufacturer_context(product)
         def fields(names):
             return [form[name] for name in names.split() if name in form.fields]
         context.update({
             "product": product,
+            "context_manufacturer": manufacturer,
+            "product_display_name": f"{product.name} ({manufacturer.product_label})" if product and manufacturer else product.name if product else "Add product",
             "clear_main_image": bool(form.data.get("image-clear")) if form.is_bound else False,
             "description": sanitize_description(form["body_html"].value() or ""),
-            "identity_fields": fields("sku barcode unit_of_measure size units_per_case allow_fractional_quantity default_reorder_point default_reorder_quantity"),
+            "identity_fields": fields("sku barcode default_reorder_point default_reorder_quantity"),
             "price_fields": fields("base_retail_price compare_at_price currency"),
             "shipping_fields": fields("weight_grams hs_code"),
-            "supplement_fields": fields("generic_name form pack_size serving_size strength_basis shelf_life_months key_benefits other_ingredients allergen_info indications"),
-            "extra_fields": fields("brand brand_name tags enlistment_number handle"),
+            "supplement_fields": fields("key_benefits other_ingredients allergen_info shelf_life_months"),
+            "extra_fields": fields("brand enlistment_number tags handle"),
             "inventory": inventory_summary(product) if product else None,
             "benefits": [line.strip().lstrip("-•*").strip() for line in (product.key_benefits if product else "").splitlines() if line.strip()],
         })
@@ -458,6 +614,10 @@ class ProductEditorMixin:
             context.update({"packages": packages,
                             "bottle_price_form": ProductBottlePricesForm(product=product),
                             "retail_price_form": ProductRetailPricesForm(product=product)})
+            pricing = self.manufacturer_pricing(product, packages, manufacturer)
+            context["manufacturer_pricing"] = pricing
+            context["quick_sizes"] = [30, 40, 50, 60, 70, 80, 90, 120]
+            context["shared_product"] = len(pricing) > 1
         return render(request, template, context)
 
     def get_ingredient_formset(self, *, instance, data=None):
@@ -471,7 +631,10 @@ class ProductCreateView(OwnerRequiredMixin, ProductEditorMixin, View):
     template_name = "products/product_form.html"
 
     def get(self, request):
-        form = ProductForm()
+        manufacturer = self.manufacturer_context()
+        if manufacturer and not manufacturer.active:
+            raise Http404
+        form = ProductForm(initial={"manufacturers": [manufacturer] if manufacturer else []})
         formset = self.get_ingredient_formset(
             instance=form.instance
         )
@@ -486,6 +649,7 @@ class ProductCreateView(OwnerRequiredMixin, ProductEditorMixin, View):
         )
 
     def post(self, request):
+        self.manufacturer_context()
         form = ProductForm(
             request.POST,
             request.FILES,
@@ -516,6 +680,9 @@ class ProductCreateView(OwnerRequiredMixin, ProductEditorMixin, View):
                     ingredients=ingredient_rows(formset),
                     **data,
                 )
+                set_product_manufacturers(
+                    actor=request.user, product=product, manufacturers=form.cleaned_data["manufacturers"],
+                )
                 update_product_photos(
                     actor=request.user, product=product, add=add_photos, remove=remove_photos
                 )
@@ -538,10 +705,7 @@ class ProductCreateView(OwnerRequiredMixin, ProductEditorMixin, View):
             "Product created successfully.",
         )
 
-        return redirect(
-            "product-detail",
-            pk=product.pk,
-        )
+        return self.editor_redirect(product)
 
 
 class ProductUpdateView(OwnerRequiredMixin, ProductEditorMixin, View):
@@ -584,6 +748,8 @@ class ProductUpdateView(OwnerRequiredMixin, ProductEditorMixin, View):
         if product is None:
             raise Http404
 
+        self.manufacturer_context(product)
+
         form = ProductForm(
             request.POST,
             request.FILES,
@@ -617,6 +783,9 @@ class ProductUpdateView(OwnerRequiredMixin, ProductEditorMixin, View):
                     ingredients=ingredient_rows(formset),
                     **data,
                 )
+                set_product_manufacturers(
+                    actor=request.user, product=updated, manufacturers=form.cleaned_data["manufacturers"],
+                )
                 update_product_photos(
                     actor=request.user, product=updated, add=add_photos, remove=remove_photos
                 )
@@ -640,10 +809,7 @@ class ProductUpdateView(OwnerRequiredMixin, ProductEditorMixin, View):
             "Product updated successfully.",
         )
 
-        return redirect(
-            "product-detail",
-            pk=updated.pk,
-        )
+        return self.editor_redirect(updated)
 
 
 class ProductCSVExportView(OwnerRequiredMixin, View):
@@ -661,10 +827,10 @@ class ProductCSVExportView(OwnerRequiredMixin, View):
 
 class ProductActionsView(OwnerRequiredMixin, View):
     def post(self, request):
-        ids = request.POST.getlist("products")
+        ids = list(dict.fromkeys(request.POST.getlist("products")))
         action = request.POST.get("action")
         try:
-            if not ids or len(ids) > 100 or len(set(ids)) != len(ids):
+            if not ids or len(ids) > 100:
                 raise ValidationError("Select between 1 and 100 products.")
             products = list(Product.objects.for_user(request.user).filter(pk__in=ids).order_by("pk"))
             if len(products) != len(ids):

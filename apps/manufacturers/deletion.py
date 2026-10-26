@@ -13,7 +13,7 @@ from django.utils import timezone
 
 from apps.accounts.services import require_owner
 from apps.audit.services import record_audit_event
-from apps.products.models import Product, ProductPackagePrice
+from apps.products.models import Product, ProductManufacturer, ProductPackagePrice
 from apps.products.lifecycle import product_history as _history
 
 from .models import Manufacturer
@@ -24,7 +24,8 @@ REVIEW_SIGNER = signing.Signer(salt="manufacturer-deletion-review")
 
 def review_manufacturer(manufacturer):
     products = Product.objects.filter(
-        Q(manufacturer=manufacturer) | Q(package_prices__manufacturer=manufacturer),
+        Q(manufacturer=manufacturer) | Q(package_prices__manufacturer=manufacturer)
+        | Q(allocations__manufacturer=manufacturer),
         archived_at__isnull=True,
     ).distinct().select_related("manufacturer").prefetch_related("package_prices__manufacturer")
     rows = []
@@ -35,6 +36,7 @@ def review_manufacturer(manufacturer):
         "locations": list(manufacturer.locations.order_by("pk").values_list("pk", "updated_at")),
         "all_product_links": list(manufacturer.products.order_by("pk").values_list("pk", "updated_at")),
         "all_prices": list(manufacturer.package_prices.order_by("pk").values_list("pk", "updated_at")),
+        "all_allocations": list(manufacturer.product_allocations.order_by("pk").values_list("pk", "product_id")),
     }
     for product in products:
         packages = list(product.package_prices.all())
@@ -82,7 +84,8 @@ def delete_manufacturer(*, actor, manufacturer_id, product_actions=None, review_
         raise ValidationError("Manufacturer was not found or has already been removed.")
 
     product_ids = Product.objects.filter(
-        Q(manufacturer=manufacturer) | Q(package_prices__manufacturer=manufacturer),
+        Q(manufacturer=manufacturer) | Q(package_prices__manufacturer=manufacturer)
+        | Q(allocations__manufacturer=manufacturer),
         archived_at__isnull=True,
     ).values_list("pk", flat=True)
     list(Product.objects.filter(pk__in=product_ids).order_by("pk").select_for_update())
@@ -144,6 +147,10 @@ def delete_manufacturer(*, actor, manufacturer_id, product_actions=None, review_
                     price.manufacturer = target
                     price.updated_by = actor
                     price.save(update_fields=["manufacturer", "updated_by", "updated_at"])
+            ProductManufacturer.objects.get_or_create(
+                product=product, manufacturer=target,
+                defaults={"created_by": actor, "updated_by": actor},
+            )
             product.manufacturer = target
             audit_action = "product.manufacturer_reassigned"
         elif action == "delete" and row["history"]:
@@ -162,6 +169,7 @@ def delete_manufacturer(*, actor, manufacturer_id, product_actions=None, review_
             else:
                 audit_action = "product.put_on_hold"
 
+        ProductManufacturer.objects.filter(product=product, manufacturer=manufacturer).delete()
         product.updated_by = actor
         outcome = {
             "product_id": product_id, "name": product.name, "action": action,

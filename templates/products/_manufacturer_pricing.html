@@ -1,0 +1,32 @@
+<section class="pc-maker-pricing">
+    <div class="pc-maker-pricing-header">
+        <h2>Manufacturer sizes &amp; prices</h2>
+        <p class="pc-muted">Each manufacturer has its own sizes and prices. Change the allocated manufacturers in the sidebar.</p>
+    </div>
+    {% for card in manufacturer_pricing %}
+        <details class="pc-card pc-disclosure pc-maker-card" id="maker-{{ card.manufacturer.pk }}" {% if card.open %}open{% endif %}>
+            <summary>
+                <span class="pc-maker-name">{{ card.manufacturer.name }}{% if card.manufacturer.prefix %} <small>({{ card.manufacturer.prefix }})</small>{% endif %}</span>
+                <span class="pc-maker-summary">{% for package in card.packages %}{{ package.amount|floatformat:"-2" }}{% if not forloop.last %} · {% endif %}{% empty %}No sizes yet{% endfor %}{% if card.packages %} {{ product.unit_plural }}{% endif %}</span>
+            </summary>
+            <form method="post" action="{% url 'product-manufacturer-packages' product.pk card.manufacturer.pk %}" class="pc-disclosure-content" data-package-editor>
+                {% csrf_token %}
+                {% if context_manufacturer %}<input type="hidden" name="context_manufacturer" value="{{ context_manufacturer.pk }}">{% endif %}
+                <div class="pc-size-chips" aria-label="Quick add a size">
+                    <span class="pc-muted">Quick add:</span>
+                    {% for size in quick_sizes %}<button type="button" class="pc-size-chip" data-add-size="{{ size }}">{{ size }}</button>{% endfor %}
+                    <button type="button" class="pc-size-chip" data-add-size="">＋ Custom size</button>
+                </div>
+                <div class="pc-package-rows" data-package-rows>
+                    {% for package in card.packages %}{% include "products/_package_row.html" %}{% endfor %}
+                </div>
+                <p class="pc-muted pc-package-empty" data-package-empty {% if card.packages %}hidden{% endif %}>No sizes yet. Use Quick add to add one.</p>
+                <template data-package-row-template>{% include "products/_package_row.html" with package=None %}</template>
+                <p class="pc-muted pc-package-help">Linked: our retail price follows the manufacturer price plus your markup, so it updates whenever the manufacturer price changes. Fixed: each price only changes when you change it. Typing a retail price switches the row to Fixed.</p>
+                <div class="pc-package-actions"><button type="submit" class="button button-primary button-small">Save {{ card.manufacturer.name }} prices</button>{% if card.manufacturer.active and product.active %}<a class="button button-secondary button-small" href="{% url 'manufacturer-po-create' %}?product={{ product.pk }}&amp;manufacturer={{ card.manufacturer.pk }}">Order from {{ card.manufacturer.name }}</a>{% endif %}</div>
+            </form>
+        </details>
+    {% empty %}
+        <div class="pc-card pc-card-body pc-muted">This product isn't allocated to a manufacturer yet. Tick manufacturers under <strong>Manufacturers</strong> in the sidebar and save. Their size and price lists then appear here.</div>
+    {% endfor %}
+</section>

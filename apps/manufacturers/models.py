@@ -9,7 +9,20 @@ from django.db.models.functions import Lower
 from apps.core.models import AuditedModel
 from apps.core.payments import AdvanceFinalPaymentsMixin, PaymentKind
 from apps.core.querysets import OwnerManagedQuerySet
-from apps.products.models import BottleSize
+
+
+def bottle_size_label(size, product=None):
+    """e.g. "30 capsules", "300 g", "100 ml" — in the product's own unit."""
+    if not size:
+        return ""
+    unit = "capsules"
+    if product is not None:
+        from apps.products.catalog import unit_plural
+
+        unit = unit_plural(product)
+        if unit == "units":
+            unit = "capsules"
+    return f"{size} {unit}"
 
 
 class Manufacturer(AuditedModel):
@@ -92,7 +105,7 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         blank=True,
     )
 
-    po_number = models.CharField(max_length=20, unique=True, editable=False)
+    po_number = models.CharField(max_length=50, unique=True, editable=False)
 
     status = models.CharField(
         max_length=20,
@@ -147,6 +160,15 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         decimal_places=2,
         default=Decimal("0.00"),
         validators=[MinValueValidator(Decimal("0"))],
+    )
+
+    advance_percent = models.DecimalField(
+        "Advance %",
+        max_digits=5,
+        decimal_places=2,
+        default=Decimal("0.00"),
+        validators=[MinValueValidator(Decimal("0")), MaxValueValidator(Decimal("100"))],
+        help_text="How much of the total is paid in advance, as printed on the Purchase Order.",
     )
 
     shipping_amount = models.DecimalField(
@@ -272,6 +294,19 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
         return self.subtotal + self.tax_amount + self.shipping_amount
 
     @property
+    def advance_amount(self):
+        """The advance printed on the Purchase Order (advance_percent of the total)."""
+        return (self.grand_total * self.advance_percent / Decimal("100")).quantize(Decimal("0.01"))
+
+    @property
+    def balance_amount(self):
+        return self.grand_total - self.advance_amount
+
+    @property
+    def balance_percent(self):
+        return Decimal("100") - self.advance_percent
+
+    @property
     def total_paid(self):
         return sum(
             (payment.amount for payment in self.payments.all()),
@@ -321,10 +356,10 @@ class ManufacturerOrderItem(AuditedModel):
     )
 
     bottle_size = models.PositiveSmallIntegerField(
-        choices=BottleSize.choices,
         null=True,
         blank=True,
-        help_text="Capsules per bottle. Blank for products not sold by capsule count.",
+        validators=[MinValueValidator(1)],
+        help_text="Capsules per bottle (any size the manufacturer offers). Blank for products not sold by capsule count.",
     )
 
     quantity = models.DecimalField(
@@ -360,6 +395,9 @@ class ManufacturerOrderItem(AuditedModel):
                 name="unique_product_size_per_manufacturer_order",
             ),
         ]
+
+    def get_bottle_size_display(self):
+        return bottle_size_label(self.bottle_size, self.product)
 
     @property
     def line_total(self):
@@ -537,9 +575,9 @@ class OrderRevisionLine(AuditedModel):
     )
 
     bottle_size = models.PositiveSmallIntegerField(
-        choices=BottleSize.choices,
         null=True,
         blank=True,
+        validators=[MinValueValidator(1)],
     )
 
     quantity = models.DecimalField(max_digits=18, decimal_places=4)
@@ -556,6 +594,9 @@ class OrderRevisionLine(AuditedModel):
         default=False,
         help_text="This line was dropped from the order at this step.",
     )
+
+    def get_bottle_size_display(self):
+        return bottle_size_label(self.bottle_size, self.product)
 
     class Meta:
         ordering = ["product__name", "bottle_size"]

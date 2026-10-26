@@ -5,7 +5,7 @@ from django.forms import inlineformset_factory
 
 from apps.core.forms import PaidQuestionForm
 from apps.core.models import Brand
-from apps.products.models import BottleSize, Product
+from apps.products.models import BottleSize, Product, ProductPackagePrice
 
 from .models import (
     Manufacturer,
@@ -117,6 +117,15 @@ class ManufacturerOrderForm(forms.Form):
         widget=forms.Textarea(attrs={"rows": 4}),
         help_text="Printed at the bottom of the document.",
     )
+    advance_percent = forms.DecimalField(
+        required=False,
+        label="Advance %",
+        min_value=Decimal("0"),
+        max_value=Decimal("100"),
+        decimal_places=2,
+        widget=forms.NumberInput(attrs={"step": "any", "class": "mo-advance-input"}),
+        help_text="Printed under the total with the amount. Starts at the manufacturer's usual advance.",
+    )
     message = forms.CharField(
         required=False,
         label="Message to the manufacturer",
@@ -155,7 +164,7 @@ class ManufacturerOrderItemForm(forms.ModelForm):
     save_price = forms.BooleanField(
         required=False,
         label="Remember this price",
-        help_text="Keep this price for this product and bottle size, so it's filled in next time.",
+        help_text="Save this as the manufacturer's price for this product and size, so it's filled in next time.",
     )
 
     class Meta:
@@ -184,7 +193,19 @@ class ManufacturerOrderItemForm(forms.ModelForm):
 
         self.fields["product"].queryset = Product.objects.filter(active=True)
         self.fields["product"].empty_label = "Choose a product…"
-        self.fields["bottle_size"].choices = [("", "Bottle size (optional)")] + list(BottleSize.choices)
+        # Just the name in the list; the hint under the line shows the SKU.
+        self.fields["product"].label_from_instance = lambda product: product.name
+        sizes = {int(size) for size in BottleSize.values}
+        sizes |= {
+            int(amount) for amount in ProductPackagePrice.objects.values_list("amount", flat=True).distinct()
+            if amount == amount.to_integral_value() and amount <= 32767
+        }
+        current = self["bottle_size"].value()
+        if str(current or "").isdigit():
+            sizes.add(int(current))
+        self.fields["bottle_size"].widget = forms.Select(
+            choices=[("", "Bottle size (optional)")] + [(size, f"{size} capsules") for size in sorted(sizes)],
+        )
         self.fields["unit_price"].required = False
         self.fields["source_purchase_order_item"].required = False
         self.fields["quantity"] = bottle_quantity_field(

@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}{% if manufacturer %}{{ manufacturer.name }}{% else %}Unassigned{% endif %} products{% endblock %}
+{% block content %}<div class="pc-shell"><div class="pc-heading"><div><a class="pc-back" href="{% url 'product-list' %}">← Products</a><h1>{% if manufacturer %}{{ manufacturer.name }}{% else %}Unassigned{% endif %} products</h1></div></div><section class="pc-card">{% include "products/_manufacturer_products.html" %}</section></div>{% endblock %}

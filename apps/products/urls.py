@@ -12,16 +12,19 @@ from .views import (
     ProductListView,
     ProductPackageDeleteView,
     ProductPackageFormView,
+    ProductManufacturerPackagesView,
     ProductRetailPricesView,
     ProductUpdateView,
     ProductActionsView,
     ProductDeleteView,
+    ManufacturerProductsView,
     RetailPriceSheetView,
     ShopifyImportView,
 )
 
 
 urlpatterns = [
+    path("owner/products/manufacturers/<str:manufacturer_key>/", ManufacturerProductsView.as_view(), name="product-manufacturer-products"),
     path(
         "distributor/products/",
         DistributorProductListView.as_view(),
@@ -87,6 +90,11 @@ urlpatterns = [
         "owner/products/retail-price-sheet.csv",
         RetailPriceSheetView.as_view(),
         name="product-retail-price-sheet",
+    ),
+    path(
+        "owner/products/<uuid:pk>/manufacturers/<uuid:manufacturer_pk>/packages/",
+        ProductManufacturerPackagesView.as_view(),
+        name="product-manufacturer-packages",
     ),
     path(
         "owner/products/<uuid:pk>/packages/new/",

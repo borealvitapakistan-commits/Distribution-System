@@ -1,14 +1,25 @@
-<!DOCTYPE html>
+{% load money_filters %}<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8">
 <style>
-    @page { size: A4; margin: 1.4cm 1.6cm 1.6cm 1.6cm; }
+    /* First page: the full header in the page itself. Later pages (a long
+       order): our logo, address and phone at the top, then the table
+       headings again. A Purchase Order keeps room at the bottom for the
+       company stamp, which is drawn on the last page only. */
+    @page { size: A4; margin: 1.0cm 1.6cm 1.1cm 1.6cm; }
+    @page later {
+        size: A4; margin: 6.0cm 1.6cm 1.1cm 1.6cm;
+        @frame later_header { -pdf-frame-content: later_header; left: 1.6cm; width: 17.8cm; top: 1.0cm; height: 5.0cm; }
+    }
+    .continued { color: #9ca3af; font-size: 8pt; padding-top: 2px; }
+    table.stamp-inline { width: 100%; margin-top: 14px; }
+    td.stamp-inline-box { border: 1px dashed #9ca3af; color: #6b7280; font-size: 8pt; text-align: center; padding-top: 86px; padding-bottom: 6px; }
     body { font-family: Helvetica, Arial, sans-serif; font-size: 9pt; color: #374151; }
     .top-bar { background-color: {{ brand.primary_color }}; height: 6px; font-size: 1pt; }
     .brand-name { font-size: 20pt; font-weight: bold; color: {{ brand.primary_color }}; }
     .brand-lines { color: #6b7280; font-size: 8.5pt; line-height: 1.5; }
-    h1 { font-size: 24pt; color: {{ brand.primary_color }}; margin: 14px 0 12px 0; }
+    h1 { font-size: 22pt; color: {{ brand.primary_color }}; margin: 8px 0 8px 0; }
     .label { font-weight: bold; color: #374151; font-size: 10pt; padding-bottom: 2px; }
     .muted { color: #6b7280; }
     .party-name { font-weight: bold; color: #4b5563; }
@@ -23,6 +34,7 @@
     table.items td { padding: 5px 4px; font-size: 8.5pt; }
     table.items .num { text-align: right; }
     table.items .product { font-weight: bold; color: #4b5563; }
+    table.items .size { font-size: 7.5pt; font-style: italic; }
     tr.stripe td { background-color: #f3f4f6; }
     tr.changed td { background-color: #fdba74; color: #7c2d12; }
     tr.new td { background-color: #fff176; color: #5f5300; }
@@ -33,34 +45,64 @@
     .message-gap { height: 14px; font-size: 1pt; }
     .terms-title { color: {{ brand.primary_color }}; font-weight: bold; text-decoration: underline; padding-bottom: 3px; }
     table.totals { width: 100%; }
-    table.totals td { padding: 3px 0; }
+    table.totals td { padding: 2px 0; }
     table.totals .value { text-align: right; font-weight: bold; color: #111827; }
     table.totals .key { color: {{ brand.primary_color }}; }
-    .grand { font-size: 20pt; font-weight: bold; color: {{ brand.primary_color }}; text-align: right; padding-top: 18px; }
+    .grand { font-size: 20pt; font-weight: bold; color: {{ brand.primary_color }}; text-align: right; padding-top: 8px; }
     .legend { font-size: 8pt; color: #6b7280; margin-top: 6px; }
     .legend-swatch { background-color: #fff176; padding: 0 6px; }
+    .part-title { font-size: 12pt; color: #374151; }
+    table.totals td.muted-key { color: #9ca3af; font-size: 7.5pt; }
+    table.totals td.muted-value { color: #9ca3af; font-size: 7.5pt; font-weight: normal; }
+    .grand-now { font-size: 28pt; }
+    .now-label { text-align: right; color: {{ brand.primary_color }}; font-weight: bold; font-size: 11pt; padding-top: 6px; }
+    table.statement td { font-size: 9pt; font-weight: bold; color: #111827; }
+    .in-words { font-size: 7.5pt; color: #6b7280; text-align: right; padding-top: 4px; }
+    table.sign { width: 100%; }
+    table.sign td { vertical-align: top; font-size: 8.5pt; }
+    .sign-line { border-top: 1px solid #374151; padding-top: 4px; }
+    .sign-caption { padding-top: 4px; }
 </style>
 </head>
 <body>
+<div id="later_header">
+    <div class="top-bar">&nbsp;</div>
+    <table class="meta" style="margin-top: 14px;">
+        <tr>
+            <td>
+                {% if brand.logo %}<img src="{{ brand.logo.url }}" style="height: 56px;">{% else %}<div class="brand-name">{{ brand.name|default:"" }}</div>{% endif %}
+                <div class="brand-lines">
+                    {{ brand.legal_name|default:brand.name }}<br>
+                    {% if brand.address %}{{ brand.address|linebreaksbr }}{% endif %}
+                    {% if brand.phone %}<br>Phone: {{ brand.phone }}{% endif %}
+                </div>
+                <div class="continued">{{ doc.title }} {{ order.po_number }}{% if pages.0.part %} · {{ pages.0.subtitle }}{% endif %} · continued</div>
+            </td>
+        </tr>
+    </table>
+</div>
+{% for page in pages %}
+<pdf:nexttemplate name="later" />
     <div class="top-bar">&nbsp;</div>
 
     <table class="meta" style="margin-top: 14px;">
         <tr>
             <td>
                 {% if brand.logo %}
-                    <img src="{{ brand.logo.url }}" style="height: 48px;">
+                    <img src="{{ brand.logo.url }}" style="height: 56px;">
                 {% else %}
                     <div class="brand-name">{{ brand.name|default:"" }}</div>
                 {% endif %}
                 <div class="brand-lines">
                     {{ brand.legal_name|default:brand.name }}<br>
                     {% if brand.address %}{{ brand.address|linebreaksbr }}{% endif %}
+                    {% if brand.phone %}<br>Phone: {{ brand.phone }}{% endif %}
                 </div>
             </td>
         </tr>
     </table>
 
-    <h1>{{ doc.title }}</h1>
+    <h1>{{ doc.title }}{% if page.part %} <span class="part-title">· {{ page.subtitle }}</span>{% endif %}</h1>
 
     <table class="meta">
         <tr>
@@ -105,30 +147,23 @@
     <div class="rule">&nbsp;</div>
 
     <table class="items" repeat="1">
-        <thead>
-            <tr>
-                <th width="6%">Sr#</th>
-                <th>Product</th>
-                <th width="8%" class="num">Qty</th>
-                {% for column in columns %}
-                    <th width="12%" class="num">{{ column.label }}</th>
-                {% endfor %}
-                <th width="14%" class="num">Total price</th>
-            </tr>
-        </thead>
+        {% include "manufacturers/_po_pdf_items_head.html" %}
         <tbody>
-            {% for row in rows %}
-                <tr class="{% if highlight_changes and row.highlight %}{{ row.highlight }}{% elif forloop.counter|divisibleby:2 %}stripe{% endif %}">
+            {% for line in doc.lines %}
+                {% if forloop.counter0 == break_before %}
+        </tbody>
+    </table>
+    <pdf:nextpage />
+    <table class="items" repeat="1">
+        {% include "manufacturers/_po_pdf_items_head.html" %}
+        <tbody>
+                {% endif %}
+                <tr class="{% if highlight_changes and line.price_highlight %}{{ line.price_highlight }}{% elif forloop.counter|divisibleby:2 %}stripe{% endif %}">
                     <td>{{ forloop.counter }}</td>
-                    <td class="product">{{ row.product.name }}</td>
-                    <td class="num">{% if row.quantity is not None %}{{ row.quantity|floatformat:"-4" }}{% endif %}</td>
-                    {% for cell in row.cells %}
-                        <td class="num">
-                            {% if cell.item and cell.item.unit_price is not None %}{{ cell.item.unit_price|floatformat:"3g" }}{% endif %}
-                            {% if cell.item and cell.show_quantity %}<br><span class="muted">x {{ cell.item.quantity|floatformat:"-4" }}</span>{% endif %}
-                        </td>
-                    {% endfor %}
-                    <td class="num">{% if row.total is not None %}{{ row.total|floatformat:"2g" }}{% endif %}</td>
+                    <td><span class="product">{{ line.product.name }}</span>{% if line.bottle_size %}<br><span class="muted size">{{ line.get_bottle_size_display }}</span>{% endif %}</td>
+                    <td class="num">{{ line.quantity|floatformat:"-4" }}</td>
+                    <td class="num">{% if line.unit_price is not None %}{{ line.unit_price|floatformat:"2g" }}{% else %}<span class="muted">to quote</span>{% endif %}</td>
+                    <td class="num">{% if line.unit_price is not None %}{{ line.line_total|floatformat:"2g" }}{% endif %}</td>
                 </tr>
             {% endfor %}
         </tbody>
@@ -150,14 +185,20 @@
                         </td></tr>
                     </table>
                 {% endif %}
+                {% if page.part %}
+                    <div class="message-gap">&nbsp;</div>
+                    <table class="terms statement"><tr><td>{{ page.statement }}</td></tr></table>
+                {% endif %}
             </td>
             <td width="8%"></td>
             <td width="42%">
                 <table class="totals">
+                    {% if not page.part or doc.shipping_amount or doc.tax_percentage %}
                     <tr>
                         <td class="key">Subtotal</td>
                         <td class="value">{{ doc.subtotal|floatformat:"2g" }}</td>
                     </tr>
+                    {% endif %}
                     {% if doc.shipping_amount %}
                         <tr>
                             <td class="key">Shipping</td>
@@ -171,7 +212,33 @@
                         </tr>
                     {% endif %}
                 </table>
+{% if page.part %}
+                    <table class="totals">
+                        <tr><td class="key muted-key">Order total</td><td class="value muted-value">{{ doc.grand_total|floatformat:"2g" }}</td></tr>
+                    </table>
+                    <div class="now-label">{{ page.now_label }}</div>
+                    <div class="grand grand-now">{{ page.now_amount|floatformat:"2g" }}</div>
+                    <div class="in-words">{{ page.now_amount|in_words }}</div>
+                    {% if stamp_inline %}<table class="stamp-inline"><tr><td class="stamp-inline-box">Company stamp</td></tr></table>{% endif %}
+                {% else %}
                 <div class="grand">{{ doc.grand_total|floatformat:"2g" }}</div>
+                {% if not order.is_quote and order.advance_percent %}
+                    <table class="totals" style="margin-top: 8px; border-top: 1px solid #d1d5db;">
+                        <tr>
+                            <td class="key">Advance ({{ order.advance_percent|floatformat:"-2" }}%)</td>
+                            <td class="value">{{ order.advance_amount|floatformat:"2g" }}</td>
+                        </tr>
+                        {% if order.balance_percent %}
+                            <tr>
+                                <td class="key">Balance ({{ order.balance_percent|floatformat:"-2" }}%)</td>
+                                <td class="value">{{ order.balance_amount|floatformat:"2g" }}</td>
+                            </tr>
+                        {% endif %}
+                    </table>
+                {% endif %}
+                {% if doc.grand_total %}<div class="in-words">{{ doc.grand_total|in_words }}</div>{% endif %}
+                {% if stamp_inline %}<table class="stamp-inline"><tr><td class="stamp-inline-box">Company stamp</td></tr></table>{% endif %}
+                {% endif %}
             </td>
         </tr>
     </table>
@@ -179,11 +246,15 @@
         <div class="message-gap">&nbsp;</div>
         <table class="terms message">
             <tr><td>
-                <span class="terms-title">Message</span><br>
+                <span class="terms-title">{% if order.is_quote %}Message{% else %}Notes{% endif %}</span><br>
                 {{ doc.message|linebreaksbr }}
             </td></tr>
         </table>
     {% endif %}
 
+
+
+{% if not forloop.last %}<pdf:nextpage />{% endif %}
+{% endfor %}
 </body>
 </html>

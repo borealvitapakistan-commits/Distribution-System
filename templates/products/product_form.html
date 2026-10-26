@@ -1,13 +1,15 @@
 {% extends "base.html" %}
-{% block title %}{% if object %}{{ object.name }}{% else %}Add product{% endif %}{% endblock %}
+{% block title %}{{ product_display_name }}{% endblock %}
 {% block content %}
 <div class="pc-shell pc-editor">
     <form method="post" enctype="multipart/form-data" id="productEditor" data-product-editor>
         {% csrf_token %}
         <div class="pc-heading pc-editor-heading">
-            <div><a class="pc-back" href="{% url 'product-list' %}">← Products</a><div class="pc-title"><h1>{% if object %}{{ object.name }}{% else %}Add product{% endif %}</h1>{% if object %}<span class="pc-status {% if object.active %}pc-status-active{% else %}pc-status-hold{% endif %}" data-status-badge>{% if object.active %}Active{% else %}On hold{% endif %}</span>{% endif %}</div></div>
+            <div><a class="pc-back" href="{% url 'product-list' %}{% if context_manufacturer %}?open={{ context_manufacturer.pk }}{% endif %}">← Products</a><div class="pc-title"><h1>{{ product_display_name }}</h1>{% if object %}<span class="pc-status {% if object.active %}pc-status-active{% else %}pc-status-hold{% endif %}" data-status-badge>{% if object.active %}Active{% else %}On hold{% endif %}</span>{% endif %}</div></div>
             <div class="pc-actions"><span class="pc-save-state" data-save-state>{% if object %}All changes saved{% else %}New product{% endif %}</span><a class="button button-secondary button-small" href="{% url 'product-list' %}">Cancel</a><button type="submit" class="button button-primary button-small">Save</button></div>
         </div>
+        {% if context_manufacturer %}<p class="pc-manufacturer-context">{{ context_manufacturer.name }}{% if context_manufacturer.prefix %} · {{ context_manufacturer.prefix }}{% endif %}<a href="{% url 'manufacturer-edit' context_manufacturer.pk %}">Edit prefix</a></p>{% endif %}
+        {% if shared_product %}<p class="pc-shared-product-note">This product appears under multiple manufacturers. Editing its details updates it in every group.</p>{% endif %}
         {% if form.errors or ingredient_formset.errors or ingredient_formset.non_form_errors %}<div class="form-errors" role="alert"><strong>Please check the highlighted fields.</strong>{{ form.non_field_errors }}{{ ingredient_formset.non_form_errors }}</div>{% endif %}
         <div class="pc-editor-layout">
             <div class="pc-editor-main">
@@ -43,8 +45,28 @@
                         </div>
                         {% if form.remove_photos %}<details class="pc-photo-removal"><summary>Remove existing photos</summary>{{ form.remove_photos }}{{ form.remove_photos.errors }}</details>{% endif %}
                     </div>
-                    {% include "products/_editor_field.html" with field=form.category %}
                 </section>
+                <section class="pc-card pc-card-body pc-type-size" data-type-size><h2>Type &amp; size</h2><p class="pc-muted">What the product is, and how much is in one bottle or pack.</p>
+                    <div class="pc-fields pc-type-fields">
+                        {% include "products/_editor_field.html" with field=form.category %}
+                        {% include "products/_editor_field.html" with field=form.unit_of_measure %}
+                        <div class="form-group{% if form.size.errors %} pc-field-invalid{% endif %}">
+                            <label for="{{ form.size.id_for_label }}" data-size-label>Size</label>
+                            <div class="pc-size-input">{{ form.size }}<span data-size-suffix></span></div>
+                            {% for error in form.size.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+                        </div>
+                    </div>
+                </section>
+                <section class="pc-card pc-card-body pc-label-claim" id="label-claim"><h2>Label claim</h2><p class="pc-muted">What is printed on the bottle label.</p>
+                    <div class="pc-fields">{% include "products/_editor_field.html" with field=form.label_product_name %}{% include "products/_editor_field.html" with field=form.label_dose %}{% include "products/_editor_field.html" with field=form.label_cautions %}{% include "products/_editor_field.html" with field=form.label_other %}</div>
+                    {% include "products/_paste_upload.html" with field=form.label_file current=object.label_file is_pdf=object.label_is_pdf hint="Paste, drop or choose the label as a PNG, JPEG or PDF." %}
+                </section>
+<details class="pc-card pc-disclosure" data-ingredients><summary>Ingredients / nutrients <span class="pc-muted">(optional)</span></summary><div class="pc-disclosure-content" data-formset data-formset-prefix="ingredients">
+                    {{ ingredient_formset.management_form }}
+                    <div data-formset-rows>{% for ingredient_form in ingredient_formset %}<div class="pc-ingredient-row">{% for hidden in ingredient_form.hidden_fields %}{{ hidden }}{% endfor %}<div class="pc-fields">{% for field in ingredient_form.visible_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div>{{ ingredient_form.non_field_errors }}</div>{% endfor %}</div>
+                    <template data-formset-empty-form><div class="pc-ingredient-row">{% for hidden in ingredient_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}<div class="pc-fields">{% for field in ingredient_formset.empty_form.visible_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></div></template>
+                    <button type="button" class="button button-secondary button-small" data-formset-add>＋ Add ingredient</button><a class="pc-text-link" href="{% url 'ingredient-create' %}">Create ingredient</a>
+                </div></details>
                 <section class="pc-card pc-card-body"><h2>Price</h2><div class="pc-fields pc-price-fields">{% for field in price_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></section>
                 <section class="pc-card pc-inventory-card">
                     <div class="pc-card-header"><h2>Inventory</h2>{% if object %}<a class="pc-text-link" href="{% url 'inventory-add' %}?product={{ object.pk }}">＋ Add stock</a>{% endif %}</div>
@@ -57,21 +79,18 @@
                     <details class="pc-inline-details" {% if not object %}open{% endif %}><summary>SKU, barcode &amp; inventory settings</summary><div class="pc-fields pc-card-body">{% for field in identity_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
                 </section>
                 <section class="pc-card pc-card-body"><h2>Shipping</h2><div class="pc-fields">{% for field in shipping_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></section>
-                <details class="pc-card pc-disclosure"><summary>Supplement details</summary><div class="pc-disclosure-content pc-fields">{% for field in supplement_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
-                <details class="pc-card pc-disclosure" data-ingredients><summary>Ingredients</summary><div class="pc-disclosure-content" data-formset data-formset-prefix="ingredients">
-                    {{ ingredient_formset.management_form }}
-                    <div data-formset-rows>{% for ingredient_form in ingredient_formset %}<div class="pc-ingredient-row">{% for hidden in ingredient_form.hidden_fields %}{{ hidden }}{% endfor %}<div class="pc-fields">{% for field in ingredient_form.visible_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div>{{ ingredient_form.non_field_errors }}</div>{% endfor %}</div>
-                    <template data-formset-empty-form><div class="pc-ingredient-row">{% for hidden in ingredient_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}<div class="pc-fields">{% for field in ingredient_formset.empty_form.visible_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></div></template>
-                    <button type="button" class="button button-secondary button-small" data-formset-add>＋ Add ingredient</button><a class="pc-text-link" href="{% url 'ingredient-create' %}">Create ingredient</a>
-                </div></details>
+                <details class="pc-card pc-disclosure"><summary>More product details</summary><div class="pc-disclosure-content pc-fields">{% for field in supplement_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
+
                 <details class="pc-card pc-disclosure"><summary>Additional details</summary><div class="pc-disclosure-content pc-fields">{% for field in extra_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
             </div>
             <aside class="pc-editor-aside"><section class="pc-card pc-card-body"><h2>Status</h2>{% include "products/_editor_field.html" with field=form.active %}<p class="pc-muted">Active products are available for new orders. Put a product on hold to stop new orders.</p></section>
+                <section class="pc-card pc-card-body pc-bottle-card"><h2>Bottle</h2>{% include "products/_paste_upload.html" with field=form.bottle_image current=object.bottle_image hint="Paste, drop or choose a PNG or JPEG of the bottle." %}<p class="pc-muted">Shown as the product's picture across the app.</p></section>
+                <section class="pc-card pc-card-body pc-maker-allocation"><h2>Manufacturers</h2>{% include "products/_editor_field.html" with field=form.manufacturers %}<p class="pc-muted">{{ form.manufacturers.help_text }}{% if object %} Unticking a manufacturer removes its sizes and prices.{% endif %}</p>{% if not form.manufacturers.field.queryset.exists %}<p class="pc-muted">No manufacturers yet. <a class="pc-text-link" href="{% url 'manufacturer-create' %}">Add one</a>.</p>{% endif %}</section>
                 {% if object %}<section class="pc-card pc-card-body"><h2>Inventory overview</h2><dl class="pc-stock-summary"><div><dt>Available</dt><dd>{{ inventory.totals.available|floatformat:"-4g" }}</dd></div><div><dt>On hand</dt><dd>{{ inventory.totals.on_hand|floatformat:"-4g" }}</dd></div><div><dt>In transit</dt><dd>{{ inventory.totals.in_transit|floatformat:"-4g" }}</dd></div></dl></section>{% endif %}
             </aside>
         </div>
         <div class="pc-editor-bottom"><span class="pc-muted">{% if object %}{{ object.sku }}{% else %}Complete the product details, then save.{% endif %}</span><button type="submit" class="button button-primary">Save product</button></div>
     </form>
-    {% if object %}{% include "products/_package_tools.html" %}<div class="pc-danger-zone"><a class="button button-secondary pc-delete-text" href="{% url 'product-delete' object.pk %}">Delete product</a></div>{% endif %}
+    {% if object %}{% include "products/_manufacturer_pricing.html" %}<div class="pc-danger-zone"><a class="button button-secondary pc-delete-text" href="{% url 'product-delete' object.pk %}">Delete product</a></div>{% endif %}
 </div>
 {% endblock %}

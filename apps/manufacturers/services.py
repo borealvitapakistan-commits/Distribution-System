@@ -1,14 +1,16 @@
+import re
 from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from django.utils.text import slugify
 
 from apps.accounts.services import require_owner
 from apps.audit.services import record_audit_event
-from apps.products.models import BottleSize, Product
-from apps.products.services import save_bottle_price
+from apps.products.models import Product
+from apps.products.services import save_manufacturer_price
 from apps.batches.services import (
     cancel_pending_batches_for_order,
     create_batches_for_order,
@@ -102,6 +104,21 @@ def _validate_new_order(manufacturer, rows):
         raise ValidationError("Products on hold or deleted cannot be added to a new order.")
 
 
+def _require_allocated(manufacturer, rows):
+    from apps.products.workspace import products_for_manufacturer
+
+    allowed = set(
+        products_for_manufacturer(Product.objects.filter(pk__in=[row["product"].pk for row in rows]), manufacturer)
+        .values_list("pk", flat=True)
+    )
+    missing = sorted({row["product"].name for row in rows if row["product"].pk not in allowed})
+    if missing:
+        raise ValidationError(
+            f"Not allocated to {manufacturer.name}: {', '.join(missing)}. "
+            "Allocate them on the product page first."
+        )
+
+
 def _validate_order_items(items, *, require_price=True):
     """Each row: product, bottle_size (optional), quantity (bottles) and
     unit_price — which may be left blank on a Request to Quote, meaning
@@ -124,8 +141,11 @@ def _validate_order_items(items, *, require_price=True):
             raise ValidationError("Every row needs a product.")
 
         if bottle_size is not None:
-            bottle_size = int(bottle_size)
-            if bottle_size not in BottleSize.values:
+            try:
+                bottle_size = int(bottle_size)
+            except (TypeError, ValueError) as exc:
+                raise ValidationError("Not a valid bottle size.") from exc
+            if not 0 < bottle_size <= 32767:
                 raise ValidationError("Not a valid bottle size.")
 
         key = (product.pk, bottle_size)
@@ -257,10 +277,10 @@ def _current_lines(order):
     return [_line_snapshot(item) for item in order.items.select_related("product")]
 
 
-def _save_system_prices(*, actor, rows):
-    """Lines ticked "Save as system price" on a Request to Quote store
-    their price as our saved price for that product and bottle size —
-    the one the "Use system price" button offers next time."""
+def _save_system_prices(*, actor, manufacturer, rows):
+    """Lines ticked "Remember this price" on a Request to Quote store
+    their price as this manufacturer's price for that product and size —
+    filled in next time, and moving a linked retail price with it."""
     saved = []
 
     for row in rows:
@@ -270,10 +290,11 @@ def _save_system_prices(*, actor, rows):
             raise ValidationError(
                 f"{row['product'].name}: a saved price needs a bottle size and a price."
             )
-        save_bottle_price(
+        save_manufacturer_price(
             actor=actor,
             product=row["product"],
-            bottle_size=row["bottle_size"],
+            manufacturer=manufacturer,
+            amount=row["bottle_size"],
             price=row["unit_price"],
         )
         saved.append(row)
@@ -281,17 +302,25 @@ def _save_system_prices(*, actor, rows):
     return saved
 
 
-def _next_manufacturer_po_number():
-    last = ManufacturerOrder.objects.order_by("-created_at").first()
-    next_seq = 1
+def manufacturer_code(manufacturer):
+    """The manufacturer's prefix for order numbers (e.g. GP); without a
+    prefix, the initials of its name (Glorious Laboratories -> GL)."""
+    code = re.sub(r"[^A-Za-z0-9]", "", manufacturer.prefix or "")
+    if not code:
+        code = "".join(word[0] for word in re.findall(r"[A-Za-z0-9]+", manufacturer.name)) or "MFR"
+    return code.upper()[:20]
 
-    if last is not None:
-        try:
-            next_seq = int(last.po_number.split("-")[-1]) + 1
-        except (ValueError, IndexError):
-            next_seq = ManufacturerOrder.objects.count() + 1
 
-    return f"MO-{next_seq:05d}"
+def _next_manufacturer_po_number(manufacturer):
+    """PO-<prefix>-001, PO-<prefix>-002, … counted per manufacturer prefix."""
+    stem = f"PO-{manufacturer_code(manufacturer)}-"
+    used = [
+        int(number[len(stem):])
+        for number in ManufacturerOrder.objects.filter(po_number__startswith=stem)
+        .values_list("po_number", flat=True)
+        if number[len(stem):].isdigit()
+    ]
+    return f"{stem}{max(used, default=0) + 1:03d}"
 
 
 @transaction.atomic
@@ -304,30 +333,43 @@ def create_manufacturer_order(
     tax_percentage=0,
     shipping_amount=0,
     note="",
+    terms="",
+    parties=None,
+    require_allocated=False,
+    advance_percent=None,
 ):
     """Places a Purchase Order directly, skipping the Request to Quote
-    step — every line needs its agreed price."""
+    step — every line needs its agreed price. require_allocated (the PO
+    page) refuses products not allocated to this manufacturer."""
     require_owner(actor)
 
     rows = _validate_order_items(items)
     _validate_new_order(manufacturer, rows)
+    if require_allocated:
+        _require_allocated(manufacturer, rows)
 
     order = ManufacturerOrder(
         manufacturer=manufacturer,
         brand=brand,
-        po_number=_next_manufacturer_po_number(),
+        po_number=_next_manufacturer_po_number(manufacturer),
         status=ManufacturerOrder.Status.SENT,
         po_sent_at=timezone.now(),
         owner_note=(note or "").strip(),
+        terms=(terms or "").strip(),
+        advance_percent=(
+            manufacturer.upfront_payment_percentage if advance_percent is None else _as_decimal(advance_percent)
+        ),
         tax_percentage=_as_decimal(tax_percentage or 0),
         shipping_amount=_as_decimal(shipping_amount or 0),
         created_by=actor,
         updated_by=actor,
     )
+    _apply_party_details(order, parties)
     order.full_clean()
     order.save()
 
     lines = _create_order_lines(actor=actor, order=order, rows=rows)
+    _save_system_prices(actor=actor, manufacturer=manufacturer, rows=rows)
     create_batches_for_order(actor=actor, order=order, items=lines)
     _record_revision(
         actor=actor,
@@ -349,6 +391,58 @@ def create_manufacturer_order(
         },
     )
 
+    return order
+
+
+@transaction.atomic
+def delete_manufacturer_order(*, actor, order_id):
+    """Removes a Request to Quote or Purchase Order that is still in
+    progress — nothing received, paid or invoiced yet. Its pending batches,
+    lines and conversation history go with it."""
+    require_owner(actor)
+    order = ManufacturerOrder.objects.select_for_update().filter(pk=order_id).first()
+    if order is None:
+        raise ValidationError("Order not found.")
+    items = list(order.items.select_related("batch"))
+    received = order.received_at is not None or any(
+        getattr(item, "batch", None) is not None and item.batch.status == "RECEIVED" for item in items
+    )
+    if received:
+        raise ValidationError("Goods have been received on this order, so it can't be deleted.")
+    if order.payments.exists():
+        raise ValidationError("Payments are recorded on this order. Remove them first, then delete the order.")
+    if order.invoice_approved_at:
+        raise ValidationError("This order's invoice is approved, so it can't be deleted.")
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.order_deleted",
+        instance=order,
+        before_data={
+            "po_number": order.po_number,
+            "status": order.status,
+            "manufacturer_id": str(order.manufacturer_id),
+            "items": [
+                {"product_id": str(item.product_id), "bottle_size": item.bottle_size,
+                 "quantity": str(item.quantity),
+                 "unit_price": None if item.unit_price is None else str(item.unit_price)}
+                for item in items
+            ],
+        },
+    )
+    try:
+        with transaction.atomic():
+            for item in items:
+                batch = getattr(item, "batch", None)
+                if batch is not None:
+                    batch.delete()
+            for revision in order.revisions.all():
+                revision.lines.all().delete()
+                revision.delete()
+            order.items.all().delete()
+            order.delete()
+    except ProtectedError as exc:
+        raise ValidationError("Other records still use this order, so it can't be deleted.") from exc
     return order
 
 
@@ -402,7 +496,7 @@ def create_request_to_quote(
     order = ManufacturerOrder(
         manufacturer=manufacturer,
         brand=brand,
-        po_number=_next_manufacturer_po_number(),
+        po_number=_next_manufacturer_po_number(manufacturer),
         status=ManufacturerOrder.Status.QUOTE,
         terms=(terms or "").strip(),
         created_by=actor,
@@ -413,7 +507,7 @@ def create_request_to_quote(
     order.save()
 
     lines = _create_order_lines(actor=actor, order=order, rows=rows)
-    _save_system_prices(actor=actor, rows=rows)
+    _save_system_prices(actor=actor, manufacturer=order.manufacturer, rows=rows)
     _record_revision(
         actor=actor,
         order=order,
@@ -478,7 +572,7 @@ def update_request_to_quote(
 
     order.items.all().delete()
     lines = _create_order_lines(actor=actor, order=order, rows=rows)
-    _save_system_prices(actor=actor, rows=rows)
+    _save_system_prices(actor=actor, manufacturer=order.manufacturer, rows=rows)
 
     request = order.revisions.filter(stage=OrderRevision.Stage.REQUEST).first()
     if request is None:
@@ -595,10 +689,11 @@ def record_manufacturer_quote(
         )
 
         if str(item.pk) in save_price_item_ids and item.bottle_size:
-            save_bottle_price(
+            save_manufacturer_price(
                 actor=actor,
                 product=item.product,
-                bottle_size=item.bottle_size,
+                manufacturer=order.manufacturer,
+                amount=item.bottle_size,
                 price=item.unit_price,
             )
 

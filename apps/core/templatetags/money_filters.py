@@ -18,3 +18,11 @@ def subtract_from_100(value):
         return Decimal("100") - Decimal(str(value))
     except (InvalidOperation, TypeError):
         return value
+
+
+@register.filter
+def in_words(amount):
+    """{{ order.grand_total|in_words }} -> "Rupees ... Only"."""
+    from apps.core.amount_words import amount_in_words
+
+    return amount_in_words(amount)
