@@ -1,5 +1,11 @@
 # Current state
 
+Updated: 2026-10-29
+
+- Corrected local PO-GL-001's saved advance percentage from 0% to 30% to match its existing 30% advance / 70% balance terms. The existing PDF split logic now applies; no application code change was needed.
+- Database backed up to `data/backups/po-payment-split-20261029.sqlite3`; correction recorded in the audit log.
+- Verified actual PO through authenticated PDF endpoints: print/view and download each contain separate advance and balance sections (two pages each for this order); individual downloads and ZIP contain the correct 30% / Rs 685,950.00 and 70% / Rs 1,600,550.00 sections. Download chooser is enabled.
+
 Updated: 2026-10-23
 
 - Completed plan: `phases/01-partners/01-04-PLAN.md`.
