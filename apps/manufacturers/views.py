@@ -1395,6 +1395,8 @@ class ManufacturerOrderPDFView(OwnerRequiredMixin, View):
 
         team_copy = request.GET.get("copy") == "team"
         part = request.GET.get("part") if request.GET.get("part") in ("advance", "balance") else None
+        kind = "RTQ" if order.is_quote else "PO"
+        filename = order.po_number if order.po_number.startswith(f"{kind}-") else f"{kind}-{order.po_number}"
 
         if request.GET.get("format") == "zip" and len(payment_pages(order)) == 2:
             # The advance and balance pages as two separate PDFs in one zip.
@@ -1403,24 +1405,23 @@ class ManufacturerOrderPDFView(OwnerRequiredMixin, View):
             with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
                 for each in ("advance", "balance"):
                     archive.writestr(
-                        f"PO-{order.po_number}{team}-{each}.pdf",
+                        f"{filename}{team}-{each}.pdf",
                         document_pdf(order, kind="current", brand=_order_brand(order),
                                      highlight_changes=team_copy, part=each),
                     )
             response = HttpResponse(buffer.getvalue(), content_type="application/zip")
-            response["Content-Disposition"] = f'attachment; filename="PO-{order.po_number}{team}.zip"'
+            response["Content-Disposition"] = f'attachment; filename="{filename}{team}.zip"'
             return response
         pdf_bytes = document_pdf(
             order, kind="current", brand=_order_brand(order), highlight_changes=team_copy,
             split=True, part=part,
         )
 
-        kind = "RTQ" if order.is_quote else "PO"
         suffix = ("-team" if team_copy else "") + (f"-{part}" if part else "")
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         disposition = "attachment" if request.GET.get("download") else "inline"
         response["Content-Disposition"] = (
-            f'{disposition}; filename="{kind}-{order.po_number}{suffix}.pdf"'
+            f'{disposition}; filename="{filename}{suffix}.pdf"'
         )
 
         return response

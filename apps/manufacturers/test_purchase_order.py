@@ -80,7 +80,7 @@ class DirectPurchaseOrderTests(TestCase):
         order = ManufacturerOrder.objects.get()
         response = self.client.get(reverse("manufacturer-order-pdf", args=[order.pk]), {"download": "1"})
         self.assertEqual(response["Content-Type"], "application/pdf")
-        self.assertIn(f"PO-{order.po_number}.pdf", response["Content-Disposition"])
+        self.assertIn(f'filename="{order.po_number}.pdf"', response["Content-Disposition"])
         text = " ".join(page.extract_text() for page in PdfReader(io.BytesIO(response.content)).pages)
         for expected in ("Purchase Order", "Terms and conditions", "30% advance", "Notes", "Deliver to Lahore.",
                          "Company stamp"):
@@ -208,9 +208,22 @@ class DownloadChoiceTests(PurchaseOrderDocumentTests):
         order = self.make_order()
         response = self.client.get(reverse("manufacturer-order-pdf", args=[order.pk]), {"download": "1", "format": "zip"})
         self.assertEqual(response["Content-Type"], "application/zip")
-        self.assertIn(f"PO-{order.po_number}.zip", response["Content-Disposition"])
+        self.assertIn(f'filename="{order.po_number}.zip"', response["Content-Disposition"])
         names = zipfile.ZipFile(io.BytesIO(response.content)).namelist()
-        self.assertEqual(names, [f"PO-{order.po_number}-advance.pdf", f"PO-{order.po_number}-balance.pdf"])
+        self.assertEqual(names, [f"{order.po_number}-advance.pdf", f"{order.po_number}-balance.pdf"])
+
+    def test_individual_downloads_do_not_duplicate_the_po_prefix(self):
+        order = self.make_order()
+        for part in ("advance", "balance"):
+            for copy in ("vendor", "team"):
+                with self.subTest(part=part, copy=copy):
+                    response = self.client.get(
+                        reverse("manufacturer-order-pdf", args=[order.pk]),
+                        {"part": part, "copy": copy, "download": "1"},
+                    )
+                    suffix = f"-team-{part}" if copy == "team" else f"-{part}"
+                    self.assertEqual(response["Content-Disposition"],
+                                     f'attachment; filename="{order.po_number}{suffix}.pdf"')
 
     def test_chooser_only_shows_for_two_page_orders(self):
         split = self.make_order()
