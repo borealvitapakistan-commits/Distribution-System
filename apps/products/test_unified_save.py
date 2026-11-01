@@ -41,7 +41,7 @@ class UnifiedProductSaveTests(TestCase):
                              (Decimal("60"), Decimal(cost), Decimal("300")))
         self.assertContains(response, "Product has been saved.", count=1)
         self.assertNotContains(response, "Save First lab prices")
-        self.assertContains(response, 'type="submit" class="button button-primary', count=2)
+        self.assertContains(response, 'type="submit" class="button button-primary', count=1)
 
     def test_bad_price_rolls_back_product_and_all_manufacturer_prices(self):
         data = self.data()

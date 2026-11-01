@@ -6,7 +6,7 @@
         {% csrf_token %}
         <div class="pc-heading pc-editor-heading">
             <div><a class="pc-back" href="{% url 'product-list' %}{% if context_manufacturer %}?open={{ context_manufacturer.pk }}{% endif %}">← Products</a><div class="pc-title"><h1>{{ product_display_name }}</h1>{% if object %}<span class="pc-status {% if object.active %}pc-status-active{% else %}pc-status-hold{% endif %}" data-status-badge>{% if object.active %}Active{% else %}On hold{% endif %}</span>{% endif %}</div></div>
-            <div class="pc-actions"><span class="pc-save-state" data-save-state>{% if object %}All changes saved{% else %}New product{% endif %}</span><a class="button button-secondary button-small" href="{% url 'product-list' %}">Cancel</a><button type="submit" class="button button-primary button-small">Save</button></div>
+            <div class="pc-actions"><span class="pc-save-state" data-save-state>{% if object %}All changes saved{% else %}New product{% endif %}</span><a class="button button-secondary button-small" href="{% url 'product-list' %}">Cancel</a></div>
         </div>
         {% if context_manufacturer %}<p class="pc-manufacturer-context">{{ context_manufacturer.name }}{% if context_manufacturer.prefix %} · {{ context_manufacturer.prefix }}{% endif %}<a href="{% url 'manufacturer-edit' context_manufacturer.pk %}">Edit prefix</a></p>{% endif %}
         {% if shared_product %}<p class="pc-shared-product-note">This product appears under multiple manufacturers. Editing its details updates it in every group.</p>{% endif %}
