@@ -2,6 +2,7 @@
 
 Updated: 2026-11-01
 
+- Follow-up screenshot showed baseline whitespace still made text appear high. Balanced top/bottom item-cell padding for xhtml2pdf's visible text, preserving total row padding; regenerated and visually inspected PO-SHC-001, still one page. Commit: `9249abb`.
 - PDF product-row text now sits vertically in the middle, with descriptions left-aligned and numeric columns retaining their right alignment. Regenerated PO-SHC-001 advance PDF still fits one page. Commit: `2d23b7b`.
 - Purchase order PDFs now try tighter row spacing before adding a page; forced breaks use rendered stamp space instead of always carrying the last two rows.
 - Verified local PO-SHC-001 advance PDF fits all six products, terms, payment statement, totals and stamp on one page; inspected the rendered PDF preview.
