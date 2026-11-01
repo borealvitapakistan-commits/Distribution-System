@@ -2,6 +2,8 @@
 
 Updated: 2026-11-01
 
+- Product Save is now unified: top/bottom buttons both read Save and atomically save product details, ingredients, media, allocations and all displayed manufacturer sizes/prices. Per-manufacturer save buttons removed; bottom Save follows all pricing cards. Success stays in the editor with a bottom toast: "Product has been saved."
+- Unified-save validation: all 75 product tests pass; browser verified both buttons save details and prices, confirmation positioning, Back navigation and mobile width. Invalid pricing rolls back all database edits and keeps typed prices visible. Commit: `7fc4706`; see `phases/01-partners/01-07-SUMMARY.md`.
 - Simplified product editor: seven selectable types with automatic measurement, optional collapsed label claim with ingredient/quantity/medicinal rows, no general size/price/shipping/extra-detail inputs or SKU entry. Barcode remains optional. Manufacturer size labels follow type; retail input is fixed and independent of cost.
 - Existing hidden product and ingredient metadata is preserved. Legacy types remain stored until changed. Fixed existing ingredient-list editing uniqueness validation.
 - Validation: full suite 390 passed; browser creation without SKU, seven measurement mappings, ingredient add/save, independent price saving and desktop/mobile layouts passed in an isolated database. Migration products `0015` applied locally after `data/backups/product-editor-20261101.sqlite3` backup. Implementation: `e3ed415`; details in `phases/01-partners/01-06-SUMMARY.md`.
