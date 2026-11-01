@@ -223,7 +223,7 @@ def document_pdf(order, *, kind="current", brand, highlight_changes=False, part=
     columns, rows = document_table(doc.lines)
     pages = payment_pages(order, part) if (split or part) else [{"part": None}]
 
-    def render(page, stamp_inline=False, break_before=None):
+    def render(page, stamp_inline=False, break_before=None, compact=False):
         return render_pdf(
             "manufacturers/manufacturer_order_pdf.html",
             {
@@ -236,6 +236,7 @@ def document_pdf(order, *, kind="current", brand, highlight_changes=False, part=
                 "pages": [page],
                 "stamp_inline": stamp_inline,
                 "break_before": break_before,
+                "compact": compact,
             },
         )
 
@@ -244,15 +245,29 @@ def document_pdf(order, *, kind="current", brand, highlight_changes=False, part=
 
     writer = PdfWriter()
     for page in pages:
-        # The stamp goes in the free bottom-right corner of the last page.
-        # The last page must also show products: when the totals land on a
-        # page of their own, or leave no room for the stamp, the last one
-        # or two products move to that page with them.
+        # Measure rendered pages, including the stamp space. Try modestly
+        # tighter rows before adding a page; font sizes stay readable.
         first = render(page)
-        carry = min(2, len(doc.lines) - 1)
-        pdf_bytes = None if (carry > 0 and not _last_page_has_products(first)) else _stamped(first)
-        if pdf_bytes is None and carry > 0:
-            pdf_bytes = _stamped(render(page, break_before=len(doc.lines) - carry))
+        pdf_bytes = _stamped(first) if _last_page_has_products(first) else None
+        page_count = len(PdfReader(BytesIO(first)).pages)
+        if pdf_bytes is None or page_count > 1:
+            compact = render(page, compact=True)
+            compact_stamped = _stamped(compact) if _last_page_has_products(compact) else None
+            if compact_stamped is not None and (
+                pdf_bytes is None or len(PdfReader(BytesIO(compact)).pages) < page_count
+            ):
+                pdf_bytes = compact_stamped
+
+        if pdf_bytes is None:
+            # Keep as many rows on earlier pages as space permits. A
+            # forced break is accepted only when the resulting last page
+            # contains products, totals and a stamp together.
+            for break_before in range(len(doc.lines) - 1, 0, -1):
+                candidate = render(page, break_before=break_before)
+                if _last_page_has_products(candidate):
+                    pdf_bytes = _stamped(candidate)
+                    if pdf_bytes is not None:
+                        break
         if pdf_bytes is None:
             pdf_bytes = _stamped(first) or render(page, stamp_inline=True)
         for each in PdfReader(BytesIO(pdf_bytes)).pages:

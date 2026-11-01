@@ -253,6 +253,31 @@ class StampOnlyFooterTests(PurchaseOrderDocumentTests):
 
 
 class LastPageShowsProductsTests(StampOnlyFooterTests):
+    def test_six_products_with_full_addresses_fit_with_the_stamp(self):
+        from .services import create_manufacturer_order
+
+        self.brand.legal_name = "Boreal Vita (PRIVATE) LTD."
+        self.brand.address = "Wah cantt office: Building No C-353 , Office No -4 , lala rukh wah cantt"
+        self.brand.email = "info@borealvita.pk"
+        self.brand.save()
+        self.maker.address = "9 km, Main Sillanwali Road, Near 90 NB, Sargodha, 40100, Pakistan."
+        self.maker.email = "info@sarkarhealthcare.com"
+        self.maker.phone = "+92 313 7700405"
+        self.maker.save()
+        order = create_manufacturer_order(
+            actor=self.owner, manufacturer=self.maker, brand=self.brand, advance_percent=30,
+            terms="30% advance with this Purchase Order.\n70% balance on completion of production, before dispatch.",
+            items=[{"product": self.ashwa, "bottle_size": 30 + n, "quantity": "1000", "unit_price": "100"}
+                   for n in range(6)],
+        )
+        for part in ("advance", "balance"):
+            with self.subTest(part=part):
+                pages = self.page_texts(order, part=part)
+                self.assertEqual(len(pages), 1)
+                self.assertEqual(pages[0].count("Ashwagandha"), 6)
+                self.assertIn("Company stamp", pages[0])
+                self.assertIn("600,000.00", pages[0])
+
     def test_last_page_always_shows_products_above_the_totals(self):
         from .services import create_manufacturer_order
 

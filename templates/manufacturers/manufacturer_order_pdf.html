@@ -32,6 +32,10 @@
         padding: 6px 4px; text-align: left; border-bottom: 1.5px solid {{ brand.primary_color }};
     }
     table.items td { padding: 5px 4px; font-size: 8.5pt; }
+    {% if compact %}
+    table.items td { padding: 2px 4px; line-height: 1.15; }
+    table.items { margin-top: 8px; }
+    {% endif %}
     table.items .num { text-align: right; }
     table.items .product { font-weight: bold; color: #4b5563; }
     table.items .size { font-size: 7.5pt; font-style: italic; }
