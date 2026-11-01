@@ -107,7 +107,8 @@ class ManufacturerCatalogTests(TestCase):
         data.update({"name":"New herb","sku":"NEW-GP","manufacturers":[self.glorious.pk,self.other.pk],
                      "ingredients-TOTAL_FORMS":"0","ingredients-INITIAL_FORMS":"0"})
         response=self.client.post(url,data)
-        product=Product.objects.get(sku="NEW-GP")
+        product=Product.objects.get(name="New herb")
+        self.assertTrue(product.sku.startswith("BV-"))
         self.assertEqual(product.manufacturer_id,self.glorious.pk)
         self.assertEqual(set(product.allocations.values_list("manufacturer_id",flat=True)),{self.glorious.pk,self.other.pk})
         self.assertRedirects(response,reverse("product-detail",args=[product.pk])+f"?manufacturer={self.glorious.pk}")

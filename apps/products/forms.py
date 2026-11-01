@@ -5,10 +5,9 @@ from django import forms
 from django.forms import inlineformset_factory
 from django.db.models import Q
 
-from apps.core.models import Brand
 from apps.manufacturers.models import Manufacturer
 
-from .catalog import PRODUCT_UNITS, default_unit
+from .catalog import CATEGORIES, default_unit
 from .description import sanitize_description
 from .models import (
     BottleSize,
@@ -71,30 +70,13 @@ class ProductForm(forms.ModelForm):
     class Meta:
         model = Product
         fields = [
-            "brand",
-            "sku",
             "barcode",
-            "handle",
             "name",
             "category",
             "body_html",
-            "tags",
-            "enlistment_number",
             "unit_of_measure",
-            "size",
-            "base_retail_price",
-            "compare_at_price",
-            "weight_grams",
             "image",
-            "currency",
-            "shelf_life_months",
-            "hs_code",
-            "default_reorder_point",
-            "default_reorder_quantity",
             "active",
-            "key_benefits",
-            "other_ingredients",
-            "allergen_info",
             "label_product_name",
             "label_dose",
             "label_cautions",
@@ -139,11 +121,6 @@ class ProductForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields["brand"].queryset = (
-            Brand.objects
-            .filter(active=True)
-        )
-        self.fields["handle"].required = False
         allocated = (
             list(self.instance.allocations.values_list("manufacturer_id", flat=True))
             if self.instance.pk else []
@@ -172,24 +149,19 @@ class ProductForm(forms.ModelForm):
         if not self.instance.pk or not self.instance.gallery.exists():
             del self.fields["remove_photos"]
 
-        self.fields["category"].queryset = (
-            ProductCategory.objects
-            .filter(active=True)
+        self.fields["category"].queryset = ProductCategory.objects.filter(
+            active=True, name__in=[row[0] for row in CATEGORIES],
         )
-
-        units = list(PRODUCT_UNITS)
-        if self.instance.unit_of_measure not in units:
-            units.append(self.instance.unit_of_measure)
-        plain = {
-            Product.UnitOfMeasure.PIECE: "Capsules / tablets (count)",
-            Product.UnitOfMeasure.GRAM: "Grams (powder)",
-            Product.UnitOfMeasure.ML: "Millilitres (liquid)",
-        }
-        self.fields["unit_of_measure"].choices = [
-            (unit, plain.get(unit, Product.UnitOfMeasure(unit).label)) for unit in units
-        ]
+        self.fields["category"].label_from_instance = lambda category: (
+            "Liquid (syrup)" if category.name == "Liquid" else category.name
+        )
+        if self.instance.category_id and self.instance.category.name == "Syrup":
+            liquid = self.fields["category"].queryset.filter(name="Liquid").first()
+            if liquid:
+                self.initial["category"] = liquid.pk
+        self.fields["unit_of_measure"].widget = forms.HiddenInput()
+        self.fields["unit_of_measure"].required = False
         self.fields["category"].label = "Product type"
-        self.fields["size"].widget.attrs.update({"step": "any", "min": "0", "data-size-input": ""})
 
         # Picking a category pre-selects its unit (see app.js).
         self.fields["category"].widget.attrs["data-unit-by-category"] = json.dumps(
@@ -199,6 +171,15 @@ class ProductForm(forms.ModelForm):
                 if default_unit(category)
             }
         )
+
+    def clean(self):
+        data = super().clean()
+        category = data.get("category")
+        # Keep historical types until the user selects a replacement.
+        if category is None and self.instance.category_id and self.instance.category.name not in [row[0] for row in CATEGORIES]:
+            data["category"] = category = self.instance.category
+        data["unit_of_measure"] = default_unit(category) or self.instance.unit_of_measure or Product.UnitOfMeasure.PIECE
+        return data
 
     def split_photo_data(self):
         """(product fields, photos to add, photos to remove)."""
@@ -226,12 +207,10 @@ class ProductIngredientForm(forms.ModelForm):
         fields = [
             "ingredient",
             "strength",
-            "unit",
             "is_medicinal",
-            "extract_ratio",
-            "equivalent_to",
-            "sort_order",
         ]
+        labels = {"strength": "Quantity", "is_medicinal": "Medicinal"}
+        widgets = {"strength": forms.TextInput(attrs={"placeholder": "e.g. 500 mg"})}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

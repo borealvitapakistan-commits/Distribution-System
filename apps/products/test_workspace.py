@@ -143,7 +143,7 @@ class ProductWorkspaceRulesTests(TestCase):
         self.assertRedirects(response, reverse("product-detail", args=[self.product.pk]))
         self.product.refresh_from_db()
         self.assertEqual(self.product.name, "Updated supplement")
-        self.assertEqual(self.product.base_retail_price, Decimal("125.50"))
+        self.assertEqual(self.product.base_retail_price, Decimal("0.00"))  # Removed editor field is ignored.
         self.assertFalse(self.product.active)
 
     def test_invalid_editor_submission_keeps_values_and_ingredient_errors(self):

@@ -597,16 +597,14 @@ class ProductEditorMixin:
             "product_display_name": f"{product.name} ({manufacturer.product_label})" if product and manufacturer else product.name if product else "Add product",
             "clear_main_image": bool(form.data.get("image-clear")) if form.is_bound else False,
             "description": sanitize_description(form["body_html"].value() or ""),
-            "identity_fields": fields("sku barcode default_reorder_point default_reorder_quantity"),
-            "price_fields": fields("base_retail_price compare_at_price currency"),
-            "shipping_fields": fields("weight_grams hs_code"),
-            "supplement_fields": fields("key_benefits other_ingredients allergen_info shelf_life_months"),
-            "extra_fields": fields("brand enlistment_number tags handle"),
+            "identity_fields": fields("barcode"),
+            "measurement": {"PIECE": "Count", "ML": "Milliliters (mL)", "GRAM": "Grams (g)"}.get(form["unit_of_measure"].value(), "Count"),
             "inventory": inventory_summary(product) if product else None,
             "benefits": [line.strip().lstrip("-•*").strip() for line in (product.key_benefits if product else "").splitlines() if line.strip()],
         })
         if product:
             product.unit_plural = unit_plural(product)
+            product.package_unit = {"ML": "milliliters", "GRAM": "grams"}.get(product.unit_of_measure, product.unit_plural)
             packages = list(product.package_prices.select_related("manufacturer"))
             for number, package in enumerate(packages, 1):
                 package.number = number
@@ -883,6 +881,11 @@ def ingredient_rows(formset):
 
         row = dict(form.cleaned_data)
         row.pop("DELETE", None)
+        # These legacy values are no longer editable, but should survive
+        # saving other label details on existing products.
+        if form.instance.pk:
+            for name in ("unit", "extract_ratio", "equivalent_to", "sort_order"):
+                row[name] = getattr(form.instance, name)
         row.setdefault("sort_order", index)
         rows.append(row)
 

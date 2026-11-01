@@ -46,28 +46,22 @@
                         {% if form.remove_photos %}<details class="pc-photo-removal"><summary>Remove existing photos</summary>{{ form.remove_photos }}{{ form.remove_photos.errors }}</details>{% endif %}
                     </div>
                 </section>
-                <section class="pc-card pc-card-body pc-type-size" data-type-size><h2>Type &amp; size</h2><p class="pc-muted">What the product is, and how much is in one bottle or pack.</p>
+                <section class="pc-card pc-card-body pc-type-size" data-type-size><h2>Type &amp; size</h2><p class="pc-muted">Choose the product type. Add sizes and prices for each manufacturer below.</p>
                     <div class="pc-fields pc-type-fields">
                         {% include "products/_editor_field.html" with field=form.category %}
-                        {% include "products/_editor_field.html" with field=form.unit_of_measure %}
-                        <div class="form-group{% if form.size.errors %} pc-field-invalid{% endif %}">
-                            <label for="{{ form.size.id_for_label }}" data-size-label>Size</label>
-                            <div class="pc-size-input">{{ form.size }}<span data-size-suffix></span></div>
-                            {% for error in form.size.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
-                        </div>
-                    </div>
+                        <div class="form-group"><label>Measured in</label><p class="pc-measurement" data-measurement aria-live="polite">{{ measurement }}</p></div>
+                    </div>{{ form.unit_of_measure }}
                 </section>
-                <section class="pc-card pc-card-body pc-label-claim" id="label-claim"><h2>Label claim</h2><p class="pc-muted">What is printed on the bottle label.</p>
+                <details class="pc-card pc-disclosure pc-label-claim" id="label-claim" {% if form.label_product_name.errors or form.label_dose.errors or form.label_cautions.errors or form.label_other.errors or form.label_file.errors or ingredient_formset.total_error_count %}open{% endif %}><summary>Label claim <span class="pc-muted">(optional)</span></summary><div class="pc-disclosure-content"><p class="pc-muted">Add label text, a label file, or ingredients whenever you need them.</p>
                     <div class="pc-fields">{% include "products/_editor_field.html" with field=form.label_product_name %}{% include "products/_editor_field.html" with field=form.label_dose %}{% include "products/_editor_field.html" with field=form.label_cautions %}{% include "products/_editor_field.html" with field=form.label_other %}</div>
                     {% include "products/_paste_upload.html" with field=form.label_file current=object.label_file is_pdf=object.label_is_pdf hint="Paste, drop or choose the label as a PNG, JPEG or PDF." %}
-                </section>
-<details class="pc-card pc-disclosure" data-ingredients><summary>Ingredients / nutrients <span class="pc-muted">(optional)</span></summary><div class="pc-disclosure-content" data-formset data-formset-prefix="ingredients">
+<details class="pc-inline-details" data-ingredients {% if ingredient_formset.total_error_count %}open{% endif %}><summary>Ingredients / nutrients <span class="pc-muted">(optional)</span></summary><div class="pc-disclosure-content" data-formset data-formset-prefix="ingredients">
                     {{ ingredient_formset.management_form }}
                     <div data-formset-rows>{% for ingredient_form in ingredient_formset %}<div class="pc-ingredient-row">{% for hidden in ingredient_form.hidden_fields %}{{ hidden }}{% endfor %}<div class="pc-fields">{% for field in ingredient_form.visible_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div>{{ ingredient_form.non_field_errors }}</div>{% endfor %}</div>
                     <template data-formset-empty-form><div class="pc-ingredient-row">{% for hidden in ingredient_formset.empty_form.hidden_fields %}{{ hidden }}{% endfor %}<div class="pc-fields">{% for field in ingredient_formset.empty_form.visible_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></div></template>
                     <button type="button" class="button button-secondary button-small" data-formset-add>＋ Add ingredient</button><a class="pc-text-link" href="{% url 'ingredient-create' %}">Create ingredient</a>
-                </div></details>
-                <section class="pc-card pc-card-body"><h2>Price</h2><div class="pc-fields pc-price-fields">{% for field in price_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></section>
+                </div></details></div></details>
+                {% if not object %}<section class="pc-card pc-card-body"><h2>Manufacturer sizes &amp; prices</h2><p class="pc-muted">Choose manufacturers in the sidebar and save the product to add their sizes and prices.</p></section>{% endif %}
                 <section class="pc-card pc-inventory-card">
                     <div class="pc-card-header"><h2>Inventory</h2>{% if object %}<a class="pc-text-link" href="{% url 'inventory-add' %}?product={{ object.pk }}">＋ Add stock</a>{% endif %}</div>
                     {% if object %}
@@ -76,12 +70,8 @@
                     </tbody><tfoot><tr><th>Total</th><th>{{ inventory.totals.unavailable|floatformat:"-4g" }}</th><th>{{ inventory.totals.in_transit|floatformat:"-4g" }}</th><th>{{ inventory.totals.available|floatformat:"-4g" }}</th><th>{{ inventory.totals.on_hand|floatformat:"-4g" }}</th></tr></tfoot></table></div>
                     <div class="pc-card-strip"><a href="{% url 'stock-movement-list' %}?product={{ object.pk }}">View stock history ↗</a><span>In transit: stock shipped to distributors.</span></div>
                     {% else %}<p class="pc-card-body pc-muted">Save this product to add stock and see inventory by location.</p>{% endif %}
-                    <details class="pc-inline-details" {% if not object %}open{% endif %}><summary>SKU, barcode &amp; inventory settings</summary><div class="pc-fields pc-card-body">{% for field in identity_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
+                    <details class="pc-inline-details"><summary>Barcode (optional)</summary><div class="pc-fields pc-card-body">{% for field in identity_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
                 </section>
-                <section class="pc-card pc-card-body"><h2>Shipping</h2><div class="pc-fields">{% for field in shipping_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></section>
-                <details class="pc-card pc-disclosure"><summary>More product details</summary><div class="pc-disclosure-content pc-fields">{% for field in supplement_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
-
-                <details class="pc-card pc-disclosure"><summary>Additional details</summary><div class="pc-disclosure-content pc-fields">{% for field in extra_fields %}{% include "products/_editor_field.html" %}{% endfor %}</div></details>
             </div>
             <aside class="pc-editor-aside"><section class="pc-card pc-card-body"><h2>Status</h2>{% include "products/_editor_field.html" with field=form.active %}<p class="pc-muted">Active products are available for new orders. Put a product on hold to stop new orders.</p></section>
                 <section class="pc-card pc-card-body pc-bottle-card"><h2>Bottle</h2>{% include "products/_paste_upload.html" with field=form.bottle_image current=object.bottle_image hint="Paste, drop or choose a PNG or JPEG of the bottle." %}<p class="pc-muted">Shown as the product's picture across the app.</p></section>
@@ -89,7 +79,7 @@
                 {% if object %}<section class="pc-card pc-card-body"><h2>Inventory overview</h2><dl class="pc-stock-summary"><div><dt>Available</dt><dd>{{ inventory.totals.available|floatformat:"-4g" }}</dd></div><div><dt>On hand</dt><dd>{{ inventory.totals.on_hand|floatformat:"-4g" }}</dd></div><div><dt>In transit</dt><dd>{{ inventory.totals.in_transit|floatformat:"-4g" }}</dd></div></dl></section>{% endif %}
             </aside>
         </div>
-        <div class="pc-editor-bottom"><span class="pc-muted">{% if object %}{{ object.sku }}{% else %}Complete the product details, then save.{% endif %}</span><button type="submit" class="button button-primary">Save product</button></div>
+        <div class="pc-editor-bottom"><span class="pc-muted">Save your product details here. Manufacturer prices are saved separately.</span><button type="submit" class="button button-primary">Save product</button></div>
     </form>
     {% if object %}{% include "products/_manufacturer_pricing.html" %}<div class="pc-danger-zone"><a class="button button-secondary pc-delete-text" href="{% url 'product-delete' object.pk %}">Delete product</a></div>{% endif %}
 </div>

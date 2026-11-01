@@ -104,7 +104,7 @@ class Product(AuditedModel):
         null=True,
         blank=True,
     )
-    sku = models.CharField(max_length=80, unique=True)
+    sku = models.CharField(max_length=80, unique=True, blank=True)
     barcode = models.CharField(
         max_length=100,
         blank=True,
@@ -317,16 +317,16 @@ class Product(AuditedModel):
     def clean(self):
         super().clean()
 
-        self.sku = self.sku.strip().upper()
+        self.sku = self.sku.strip().upper() or f"BV-{self.pk.hex.upper()}"
         self.barcode = self.barcode.strip()
         self.name = self.name.strip()
         self.currency = self.currency.strip().upper()
         self.tags = self.tags.strip()
 
-        if not self.sku:
-            raise ValidationError(
-                {"sku": "SKU is required."}
-            )
+        from .catalog import default_unit
+
+        if self.category_id:
+            self.unit_of_measure = default_unit(self.category) or self.unit_of_measure
 
         if not self.name:
             raise ValidationError(

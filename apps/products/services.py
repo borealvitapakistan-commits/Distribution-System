@@ -232,7 +232,10 @@ def validate_ingredient_rows(actor, product, ingredients_rows):
         )
 
     for link in links:
-        link.full_clean()
+        # The old links still exist while an edit is validated. Duplicate
+        # ingredients within the replacement list are checked above; the
+        # database enforces uniqueness after the old list is replaced.
+        link.full_clean(validate_constraints=False)
 
     return links
 

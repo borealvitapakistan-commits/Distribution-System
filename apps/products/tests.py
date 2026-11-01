@@ -113,13 +113,13 @@ class ProductURLRenameTests(TestCase):
         response = client.get("/owner/products/")
         self.assertEqual(response.status_code, 200)
 
-    def test_product_form_includes_brand_field(self):
+    def test_product_form_omits_brand_field(self):
         client = Client()
         client.force_login(self.owner)
 
         response = client.get("/owner/products/new/")
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'name="brand"')
+        self.assertNotContains(response, 'name="brand"')
 
     def test_sidebar_says_products_not_catalog(self):
         client = Client()
@@ -217,12 +217,12 @@ class ProductListPageTests(TestCase):
         response = self.client.get("/owner/products/manufacturers/unassigned/")
         self.assertContains(response, f'data-href="/owner/products/{self.ashwagandha.pk}/"')
 
-    def test_product_form_only_offers_unit_ml_gram(self):
+    def test_product_form_derives_unit_and_omits_general_size(self):
         response = self.client.get("/owner/products/new/")
         units = [value for value, _label in response.context["form"].fields["unit_of_measure"].choices]
-        self.assertEqual(units, ["PIECE", "ML", "GRAM"])
+        self.assertTrue(response.context["form"].fields["unit_of_measure"].widget.is_hidden)
         self.assertContains(response, 'name="category"')
-        self.assertContains(response, 'name="size"')
+        self.assertNotContains(response, 'name="size"')
 
 
 def fake_shopify_product(**overrides):
@@ -464,7 +464,7 @@ class ProductPageTests(TestCase):
         response = self.client.get(self.url)
 
         self.assertEqual(response.context["benefits"], ["Helps reduce stress", "Supports focus"])
-        self.assertContains(response, "Free from gluten.")
+        self.assertNotContains(response, "Free from gluten.")
         self.assertNotContains(response, "NPN")
 
     def test_photos_can_be_added_and_removed_from_the_edit_form(self):

@@ -13,20 +13,21 @@ Unit = Product.UnitOfMeasure
 CATEGORIES = [
     ("Capsule", Unit.PIECE, "blue", "capsule"),
     ("Tablet", Unit.PIECE, "green", "tablet"),
-    ("Soft Gel", Unit.PIECE, "amber", "softgel"),
     ("Liquid", Unit.ML, "red", "bottle"),
-    ("Syrup", Unit.ML, "purple", "bottle"),
-    ("Oil", Unit.ML, "orange", "drop"),
     ("Essential Oil", Unit.ML, "violet", "dropper"),
     ("Carrier Oil", Unit.ML, "teal", "bottle"),
     ("Powder", Unit.GRAM, "rose", "powder"),
-    ("Herbal Tea", Unit.GRAM, "lime", "leaf"),
+    ("Herbal Tea", Unit.PIECE, "lime", "leaf"),
 ]
 
 # The only units a product can be measured in.
 PRODUCT_UNITS = [Unit.PIECE, Unit.ML, Unit.GRAM]
 
 _BY_NAME = {name.lower(): (unit, tone, icon) for name, unit, tone, icon in CATEGORIES}
+# Recognize historical types without offering them for new products.
+_BY_NAME.update({"syrup": (Unit.ML, "purple", "bottle"),
+                 "soft gel": (Unit.PIECE, "amber", "softgel"),
+                 "oil": (Unit.ML, "orange", "drop")})
 
 
 def category_style(category):
@@ -49,6 +50,8 @@ def unit_label(product):
     """What the Unit column says: the dosage form for counted products
     (capsule, tablet, soft gel), otherwise ml or gram."""
     if product.unit_of_measure == Unit.PIECE:
+        if product.category and product.category.name.lower() == "herbal tea":
+            return "unit"
         if product.category and default_unit(product.category) == Unit.PIECE:
             return product.category.name.lower()
         return "unit"

@@ -930,18 +930,10 @@ document.addEventListener("DOMContentLoaded", () => {
 document.addEventListener("DOMContentLoaded", () => {
     const money = value => Number.isFinite(value) ? value.toFixed(2) : "";
 
-    // Linked rows: retail = manufacturer price + markup (% or PKR).
+    // Manufacturer and retail prices are independent in the product editor.
     function updateRow(row) {
-        const linked = row.querySelector("[data-retail-mode-select]").value === "LINKED";
         const cost = parseFloat(row.querySelector("[data-cost]").value);
-        const markup = parseFloat(row.querySelector("[data-markup-value]").value) || 0;
-        const percent = row.querySelector("[data-markup-type]").value === "PERCENT";
         const retailInput = row.querySelector("[data-retail]");
-        row.dataset.retailMode = linked ? "LINKED" : "FIXED";
-        row.querySelector("[data-markup]").hidden = !linked;
-        if (linked) {
-            retailInput.value = Number.isFinite(cost) ? money(percent ? cost * (1 + markup / 100) : cost + markup) : "";
-        }
         const retail = parseFloat(retailInput.value);
         const margin = row.querySelector("[data-margin]");
         margin.textContent = Number.isFinite(cost) && Number.isFinite(retail) && retail > 0
@@ -982,10 +974,6 @@ document.addEventListener("DOMContentLoaded", () => {
         editor.addEventListener("input", event => {
             const row = event.target.closest("[data-package-row]");
             if (!row) return;
-            // Typing our own retail price breaks the link to the manufacturer price.
-            if (event.target.matches("[data-retail]")) {
-                row.querySelector("[data-retail-mode-select]").value = "FIXED";
-            }
             updateRow(row);
         });
         editor.addEventListener("change", event => {
@@ -1078,35 +1066,22 @@ document.addEventListener("wheel", event => {
 }, {passive: true, capture: true});
 
 
-// Product form, Type & size: the size question follows the unit —
-// "Capsules per bottle", "Grams per pack" (powder), "ml per bottle".
+// Product measurement follows its type; package quantities live in pricing.
 document.addEventListener("DOMContentLoaded", () => {
     const card = document.querySelector("[data-type-size]");
     if (!card) return;
     const category = card.querySelector("select[name=category]");
-    const unit = card.querySelector("select[name=unit_of_measure]");
-    const label = card.querySelector("[data-size-label]");
-    const suffix = card.querySelector("[data-size-suffix]");
-    const input = card.querySelector("[data-size-input]");
-
+    const unit = card.querySelector("[name=unit_of_measure]");
+    const measurement = card.querySelector("[data-measurement]");
+    const units = JSON.parse(category.dataset.unitByCategory || "{}");
     function refresh() {
-        const type = category && category.value ? category.options[category.selectedIndex].text.trim().toLowerCase() : "";
-        let question, after, example;
-        if (unit.value === "GRAM") {
-            [question, after, example] = ["Grams per pack", "g", "e.g. 300"];
-        } else if (unit.value === "ML") {
-            [question, after, example] = ["ml per bottle", "ml", "e.g. 100"];
-        } else {
-            const counted = type && !["capsule", "tablet", "soft gel"].includes(type) ? "units" : (type ? `${type}s` : "capsules");
-            [question, after, example] = [`${counted[0].toUpperCase()}${counted.slice(1)} per bottle`, counted, "e.g. 60"];
-        }
-        label.textContent = question;
-        suffix.textContent = after;
-        input.placeholder = example;
+        unit.value = units[category.value] || unit.value || "PIECE";
+        measurement.textContent = {PIECE: "Count", ML: "Milliliters (mL)", GRAM: "Grams (g)"}[unit.value] || "Count";
+        const type = category.selectedOptions[0]?.textContent.trim().toLowerCase();
+        const label = unit.value === "ML" ? "milliliters" : unit.value === "GRAM" ? "grams" : type === "capsule" ? "capsules" : type === "tablet" ? "tablets" : "units";
+        document.querySelectorAll("[data-package-size-label]").forEach(el => { el.textContent = `Size (${label})`; });
     }
-
-    category?.addEventListener("change", () => setTimeout(refresh));
-    unit.addEventListener("change", refresh);
+    category.addEventListener("change", refresh);
     refresh();
 });
 

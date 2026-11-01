@@ -131,7 +131,7 @@ class LabelClaimTests(TestCase):
 
 
 class SimpleProductFormTests(TestCase):
-    def test_powder_size_in_grams_and_hidden_fields_are_kept(self):
+    def test_powder_measurement_is_automatic_and_hidden_fields_are_kept(self):
         from .forms import ProductForm
         from .models import ProductCategory
 
@@ -150,8 +150,8 @@ class SimpleProductFormTests(TestCase):
         self.client.force_login(owner)
         page = self.client.get(reverse("product-detail", args=[product.pk]))
         self.assertContains(page, "Type &amp; size")
-        self.assertContains(page, "Grams (powder)")
+        self.assertNotContains(page, 'name="size"')
         self.client.post(reverse("product-detail", args=[product.pk]), data)
         product.refresh_from_db()
-        self.assertEqual((product.unit_of_measure, product.size), ("GRAM", Decimal("300")))
+        self.assertEqual((product.unit_of_measure, product.size), ("GRAM", None))
         self.assertEqual((product.generic_name, product.serving_size), ("Creatine monohydrate", "5 g"))
