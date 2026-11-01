@@ -954,7 +954,7 @@ document.addEventListener("DOMContentLoaded", () => {
             const remove = event.target.closest("[data-remove-row]");
             if (add) {
                 const size = add.dataset.addSize;
-                const existing = [...rows.querySelectorAll("input[name=amount]")]
+                const existing = [...rows.querySelectorAll("[data-package-amount]")]
                     .find(input => size && Number(input.value) === Number(size));
                 if (existing) {
                     existing.closest("[data-package-row]").querySelector("[data-cost]").focus();
@@ -962,12 +962,13 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
                 rows.append(template.content.cloneNode(true));
                 const row = rows.lastElementChild;
-                row.querySelector("input[name=amount]").value = size;
+                row.querySelector("[data-package-amount]").value = size;
                 updateRow(row);
-                row.querySelector(size ? "[data-cost]" : "input[name=amount]").focus();
+                row.querySelector(size ? "[data-cost]" : "[data-package-amount]").focus();
             } else if (remove) {
                 remove.closest("[data-package-row]").remove();
             }
+            if (add || remove) rows.dispatchEvent(new Event("change", {bubbles: true}));
             refresh();
         });
 
@@ -983,6 +984,14 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     const editor = document.querySelector("[data-product-editor]");
+    editor?.querySelectorAll('[name="manufacturers"]').forEach(checkbox => {
+        const sync = () => {
+            const card = editor.querySelector(`[data-pricing-maker="${checkbox.value}"]`);
+            card?.querySelectorAll("input, button").forEach(control => { control.disabled = !checkbox.checked; });
+        };
+        checkbox.addEventListener("change", sync);
+        sync();
+    });
     editor?.addEventListener("submit", event => {
         const removed = [...editor.querySelectorAll("input[name=manufacturers]")]
             .filter(box => box.defaultChecked && !box.checked)

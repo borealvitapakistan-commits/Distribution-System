@@ -425,12 +425,12 @@ class ProductPackageDeleteView(OwnerRequiredMixin, View):
         return redirect("product-detail", pk=pk)
 
 
-def package_rows(data):
+def package_rows(data, prefix=""):
     """The size rows posted from a manufacturer's card on the product page,
     as parallel lists: amount, price, retail_mode, markup_type,
     markup_value and retail_price. Fully blank rows are skipped."""
     columns = ("amount", "price", "retail_mode", "markup_type", "markup_value", "retail_price")
-    lists = {name: data.getlist(name) for name in columns}
+    lists = {name: data.getlist(f"{prefix}{name}") for name in columns}
     count = len(lists["amount"])
     if any(len(lists[name]) not in (0, count) for name in columns):
         raise ValidationError("The price list was incomplete. Reload the page and try again.")
@@ -550,6 +550,22 @@ class ProductBottlePricesView(OwnerRequiredMixin, View):
 
 
 class ProductEditorMixin:
+    def save_editor_prices(self, request, product, manufacturers):
+        selected = {str(maker.pk): maker for maker in manufacturers}
+        for maker_id in set(request.POST.getlist("pricing_manufacturers")):
+            # Unticking a manufacturer removes its prices. Do not let its
+            # still-rendered price card allocate it again during this save.
+            if maker_id not in selected:
+                continue
+            maker = selected[maker_id]
+            try:
+                rows = package_rows(request.POST, prefix=f"pricing-{maker_id}-")
+                save_manufacturer_packages(
+                    actor=request.user, product=product, manufacturer=maker, rows=rows,
+                )
+            except ValidationError as exc:
+                raise ValidationError(f"{maker.name}: {' '.join(exc.messages)}") from exc
+
     def manufacturer_context(self, product=None):
         key = self.request.GET.get("manufacturer")
         if not key:
@@ -613,6 +629,19 @@ class ProductEditorMixin:
                             "bottle_price_form": ProductBottlePricesForm(product=product),
                             "retail_price_form": ProductRetailPricesForm(product=product)})
             pricing = self.manufacturer_pricing(product, packages, manufacturer)
+            # Keep every typed price visible if any part of the unified
+            # submission fails, including product/ingredient validation.
+            for card in pricing:
+                maker_id = str(card["manufacturer"].pk)
+                card["prefix"] = f"pricing-{maker_id}-"
+                if request.method == "POST" and maker_id in request.POST.getlist("pricing_manufacturers"):
+                    columns = ("amount", "price", "retail_price")
+                    values = {name: request.POST.getlist(f"{card['prefix']}{name}") for name in columns}
+                    card["packages"] = [
+                        {"bound": True, **{name: values[name][index] if index < len(values[name]) else "" for name in columns}}
+                        for index in range(len(values["amount"]))
+                    ]
+                    card["open"] = True
             context["manufacturer_pricing"] = pricing
             context["quick_sizes"] = [30, 40, 50, 60, 70, 80, 90, 120]
             context["shared_product"] = len(pricing) > 1
@@ -684,6 +713,7 @@ class ProductCreateView(OwnerRequiredMixin, ProductEditorMixin, View):
                 update_product_photos(
                     actor=request.user, product=product, add=add_photos, remove=remove_photos
                 )
+                self.save_editor_prices(request, product, form.cleaned_data["manufacturers"])
         except (
             PermissionDenied,
             ValidationError,
@@ -700,7 +730,7 @@ class ProductCreateView(OwnerRequiredMixin, ProductEditorMixin, View):
 
         messages.success(
             request,
-            "Product created successfully.",
+            "Product has been saved.",
         )
 
         return self.editor_redirect(product)
@@ -787,6 +817,7 @@ class ProductUpdateView(OwnerRequiredMixin, ProductEditorMixin, View):
                 update_product_photos(
                     actor=request.user, product=updated, add=add_photos, remove=remove_photos
                 )
+                self.save_editor_prices(request, updated, form.cleaned_data["manufacturers"])
         except (
             PermissionDenied,
             ValidationError,
@@ -804,7 +835,7 @@ class ProductUpdateView(OwnerRequiredMixin, ProductEditorMixin, View):
 
         messages.success(
             request,
-            "Product updated successfully.",
+            "Product has been saved.",
         )
 
         return self.editor_redirect(updated)

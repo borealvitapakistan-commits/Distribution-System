@@ -201,4 +201,4 @@ class ManufacturerAllocationTests(TestCase):
         cards = response.context["manufacturer_pricing"]
         self.assertEqual([card["manufacturer"] for card in cards], [self.second, self.first])
         self.assertTrue(cards[0]["open"])
-        self.assertContains(response, reverse("product-manufacturer-packages", args=[self.product.pk, self.first.pk]))
+        self.assertContains(response, f'name="pricing-{self.first.pk}-amount"')

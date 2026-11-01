@@ -1,8 +1,8 @@
 <div class="pc-package-row" data-package-row data-retail-mode="FIXED">
-    <input type="hidden" name="retail_mode" value="FIXED">
-    <label><span data-package-size-label>Size ({{ product.package_unit }})</span><input type="number" name="amount" value="{{ package.amount|floatformat:'-2u' }}" min="0.01" step="any" required></label>
-    <label><span>Manufacturer price</span><input type="number" name="price" value="{{ package.price|floatformat:'-2u' }}" min="0" step="0.01" required data-cost></label>
-    <label><span>Our retail price</span><input type="number" name="retail_price" value="{% if package.retail_price is not None %}{{ package.retail_price|floatformat:'-2u' }}{% endif %}" min="0" step="0.01" placeholder="Not set" data-retail></label>
+    <input type="hidden" name="{{ card.prefix }}retail_mode" value="FIXED">
+    <label><span data-package-size-label>Size ({{ product.package_unit }})</span><input type="number" name="{{ card.prefix }}amount" value="{% if package.bound %}{{ package.amount }}{% else %}{{ package.amount|floatformat:'-2u' }}{% endif %}" min="0.01" step="any" required data-package-amount></label>
+    <label><span>Manufacturer price</span><input type="number" name="{{ card.prefix }}price" value="{% if package.bound %}{{ package.price }}{% else %}{{ package.price|floatformat:'-2u' }}{% endif %}" min="0" step="0.01" required data-cost></label>
+    <label><span>Our retail price</span><input type="number" name="{{ card.prefix }}retail_price" value="{% if package.bound %}{{ package.retail_price }}{% elif package.retail_price is not None %}{{ package.retail_price|floatformat:'-2u' }}{% endif %}" min="0" step="0.01" placeholder="Not set" data-retail></label>
     <span class="pc-package-margin" data-margin aria-live="polite"></span>
     <button type="button" class="soft-button soft-red pc-package-remove" data-remove-row aria-label="Remove size">✕</button>
 </div>

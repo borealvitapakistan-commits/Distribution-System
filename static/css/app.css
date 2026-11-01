@@ -776,6 +776,16 @@ tbody tr:last-child td {
     margin-bottom: 1.25rem;
 }
 
+body:has([data-product-editor]) .messages {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 1200;
+    width: min(26rem, calc(100vw - 2rem));
+    margin: 0;
+    box-shadow: 0 .5rem 1.5rem rgba(0, 0, 0, .1);
+}
+
 .alert {
     display: flex;
     align-items: center;

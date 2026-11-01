@@ -79,8 +79,9 @@
                 {% if object %}<section class="pc-card pc-card-body"><h2>Inventory overview</h2><dl class="pc-stock-summary"><div><dt>Available</dt><dd>{{ inventory.totals.available|floatformat:"-4g" }}</dd></div><div><dt>On hand</dt><dd>{{ inventory.totals.on_hand|floatformat:"-4g" }}</dd></div><div><dt>In transit</dt><dd>{{ inventory.totals.in_transit|floatformat:"-4g" }}</dd></div></dl></section>{% endif %}
             </aside>
         </div>
-        <div class="pc-editor-bottom"><span class="pc-muted">Save your product details here. Manufacturer prices are saved separately.</span><button type="submit" class="button button-primary">Save product</button></div>
+        {% if object %}{% include "products/_manufacturer_pricing.html" %}{% endif %}
+        <div class="pc-editor-bottom"><span class="pc-muted">Save all product details, sizes and prices.</span><button type="submit" class="button button-primary">Save</button></div>
     </form>
-    {% if object %}{% include "products/_manufacturer_pricing.html" %}<div class="pc-danger-zone"><a class="button button-secondary pc-delete-text" href="{% url 'product-delete' object.pk %}">Delete product</a></div>{% endif %}
+    {% if object %}<div class="pc-danger-zone"><a class="button button-secondary pc-delete-text" href="{% url 'product-delete' object.pk %}">Delete product</a></div>{% endif %}
 </div>
 {% endblock %}
