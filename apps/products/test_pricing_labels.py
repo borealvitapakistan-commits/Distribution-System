@@ -112,7 +112,7 @@ class LabelClaimTests(TestCase):
 
         page = self.client.get(self.url)
         self.assertContains(page, "Label claim")
-        self.assertContains(page, self.product.bottle_image.url)
+        self.assertNotContains(page, "pc-bottle-card")
         self.assertContains(page, self.product.label_file.url)
 
         # Removing the label keeps the rest of the label claim.
