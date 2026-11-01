@@ -22,7 +22,6 @@
                 <p class="pc-muted pc-package-empty" data-package-empty {% if card.packages %}hidden{% endif %}>No sizes yet. Use Quick add to add one.</p>
                 <template data-package-row-template>{% include "products/_package_row.html" with package=None %}</template>
                 <p class="pc-muted pc-package-help">Retail prices are fixed. Changing a manufacturer price does not change our retail price.</p>
-                <div class="pc-package-actions">{% if card.manufacturer.active and product.active %}<a class="button button-secondary button-small" href="{% url 'manufacturer-po-create' %}?product={{ product.pk }}&amp;manufacturer={{ card.manufacturer.pk }}">Order from {{ card.manufacturer.name }}</a>{% endif %}</div>
             </div>
         </details>
     {% empty %}
