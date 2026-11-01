@@ -31,9 +31,11 @@
         color: {{ brand.primary_color }}; font-weight: bold; font-size: 9.5pt;
         padding: 6px 4px; text-align: left; vertical-align: middle; border-bottom: 1.5px solid {{ brand.primary_color }};
     }
-    table.items td { padding: 5px 4px; font-size: 8.5pt; vertical-align: middle; text-align: left; }
+    /* xhtml2pdf reserves extra space below the text baseline. Offset the
+       padding to center the visible text without changing row height. */
+    table.items td { padding: 7px 4px 3px; font-size: 8.5pt; vertical-align: middle; text-align: left; }
     {% if compact %}
-    table.items td { padding: 2px 4px; line-height: 1.15; }
+    table.items td { padding: 3.5px 4px 0.5px; line-height: 1.15; }
     table.items { margin-top: 8px; }
     {% endif %}
     table.items .num { text-align: right; }
