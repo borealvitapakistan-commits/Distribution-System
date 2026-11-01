@@ -2,6 +2,7 @@
 
 Updated: 2026-11-01
 
+- Removed the "Order from [manufacturer]" shortcut from product pricing cards at the user's request. Commit: `74395d3`.
 - Removed the Bottle sidebar section from the product editor as requested. Main/additional media controls remain the image entry points. Two label/media tests passed; previously saved bottle files are preserved. Commit: `ad20054`.
 - User clarification: only one Save button, at the bottom. Removed the top Save; bottom still saves all details and manufacturer prices. Five unified-save tests passed, including exactly one submit button. Commit: `1eddea9`. Supersedes the two-button UI described below.
 - Product Save is now unified: top/bottom buttons both read Save and atomically save product details, ingredients, media, allocations and all displayed manufacturer sizes/prices. Per-manufacturer save buttons removed; bottom Save follows all pricing cards. Success stays in the editor with a bottom toast: "Product has been saved."
