@@ -11,3 +11,7 @@ __pycache__/
 staticfiles/
 media/
 *.bak*
+
+data.json
+data-supabase-ireland.json
+data-mumbai.json

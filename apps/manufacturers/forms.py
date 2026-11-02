@@ -623,6 +623,22 @@ class ManufacturerOrderPaymentForm(forms.ModelForm):
         self.fields["proof"].required = True
 
 
+class StampedPurchaseOrderForm(forms.Form):
+    photo = forms.FileField(
+        label="Photo of the stamped Purchase Order",
+        help_text="A clear photo or scan of the printed Purchase Order showing the official stamp (JPG, PNG, WebP or PDF).",
+        widget=forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png,image/webp,application/pdf"}),
+    )
+
+    ALLOWED = (".jpg", ".jpeg", ".png", ".webp", ".pdf")
+
+    def clean_photo(self):
+        photo = self.cleaned_data["photo"]
+        if not photo.name.lower().endswith(self.ALLOWED):
+            raise forms.ValidationError("Upload a photo (JPG, PNG or WebP) or a PDF of the stamped Purchase Order.")
+        return photo
+
+
 class ManufacturerAdvancePaymentForm(PaidQuestionForm):
     QUESTION = "Are you paying in advance?"
 

@@ -11,7 +11,7 @@
 <div class="page-header">
     <div>
         <p class="eyebrow">
-            {% if order.is_quote %}Stage 2 of 4 · Quote{% else %}Stage 3 of 4 · Purchase Order{% endif %}
+            {% if order.is_quote %}Quote{% else %}Purchase Order{% endif %}
             · {{ order.po_number }}
         </p>
         <h1>{{ page_title }} — {{ order.manufacturer.name }}</h1>

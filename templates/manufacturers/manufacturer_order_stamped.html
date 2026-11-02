@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% load order_flow %}
+
+{% block title %}
+    Stamped Purchase Order — {{ order.po_number }}
+{% endblock %}
+
+{% block content %}
+{% order_stage_bar order current="stamped" %}
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Stamped Purchase Order · {{ order.po_number }}</p>
+        <h1>Upload the stamped Purchase Order</h1>
+        <p>
+            Print the Purchase Order, have it stamped, and upload a clear photo of the stamped copy.
+            This is your proof the order was officially stamped. The payment proof comes next.
+        </p>
+    </div>
+
+    <div class="fin-downloads">
+        <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}" target="_blank" rel="noopener">Print Purchase Order</a>
+        <a class="button button-secondary" href="{% url 'manufacturer-order-pdf' order.pk %}?download=1">Download</a>
+    </div>
+</div>
+
+<form method="post" enctype="multipart/form-data" class="form-layout">
+    {% csrf_token %}
+
+    <section class="panel form-panel">
+        {% if order.stamped_po_file %}
+            <div class="stamped-current">
+                <strong>Already uploaded {{ order.stamped_po_uploaded_at|date:"d M Y, H:i" }}</strong>
+                {% if order.stamped_po_file.name|lower|slice:"-4:" == ".pdf" %}
+                    <a href="{{ order.stamped_po_file.url }}" target="_blank" rel="noopener">Open the stamped PDF</a>
+                {% else %}
+                    <a href="{{ order.stamped_po_file.url }}" target="_blank" rel="noopener" data-proof-viewer>
+                        <img src="{{ order.stamped_po_file.url }}" alt="Stamped Purchase Order {{ order.po_number }}">
+                    </a>
+                {% endif %}
+                <small>Choose a new file below only to replace it.</small>
+            </div>
+        {% endif %}
+
+        <div class="form-group">
+            <label for="{{ form.photo.id_for_label }}">{{ form.photo.label }} <span class="required">*</span></label>
+            {{ form.photo }}
+            <small>{{ form.photo.help_text }}</small>
+            {% for error in form.photo.errors %}
+                <span class="field-error">{{ error }}</span>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div class="entry-bar">
+        <div class="entry-bar-summary">
+            <strong>{{ order.po_number }} · {{ order.manufacturer.name }}</strong>
+            <span>Next: payment proof.</span>
+        </div>
+        <div class="entry-bar-actions">
+            <a class="button button-secondary" href="{% url 'manufacturer-order-detail' order.pk %}">Cancel</a>
+            <button class="button button-primary" type="submit">Save &amp; Continue</button>
+        </div>
+    </div>
+</form>
+{% endblock %}

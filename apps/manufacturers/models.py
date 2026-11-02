@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MaxValueValidator, MinValueValidator
+from django.core.validators import FileExtensionValidator, MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models.functions import Lower
 
@@ -83,6 +83,13 @@ class Manufacturer(AuditedModel):
 
 
 class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
+    class Workflow(models.TextChoices):
+        """Where the order started. Both meet at the Purchase Order and
+        follow the same steps from there."""
+
+        PURCHASE_ORDER = "PURCHASE_ORDER", "Purchase Order → Invoice"
+        REQUEST_TO_QUOTE = "REQUEST_TO_QUOTE", "Request to Quote → Invoice"
+
     class Status(models.TextChoices):
         QUOTE = "QUOTE", "Request to Quote"
         SENT = "SENT", "Sent"
@@ -126,6 +133,21 @@ class ManufacturerOrder(AdvanceFinalPaymentsMixin, AuditedModel):
     ship_to_address = models.TextField(blank=True)
     ship_to_email = models.CharField(max_length=254, blank=True)
     ship_to_phone = models.CharField(max_length=50, blank=True)
+
+    workflow = models.CharField(
+        max_length=20,
+        choices=Workflow.choices,
+        default=Workflow.PURCHASE_ORDER,
+        help_text="Started as a Purchase Order, or as a Request to Quote first.",
+    )
+    stamped_po_file = models.FileField(
+        upload_to="manufacturer_order_stamped_pos/",
+        null=True,
+        blank=True,
+        validators=[FileExtensionValidator(["jpg", "jpeg", "png", "webp", "pdf"])],
+        help_text="A photo of the printed Purchase Order carrying the official stamp.",
+    )
+    stamped_po_uploaded_at = models.DateTimeField(null=True, blank=True)
 
     owner_note = models.TextField(blank=True)
     terms = models.TextField(

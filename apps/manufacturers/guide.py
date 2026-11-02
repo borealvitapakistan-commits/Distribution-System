@@ -58,6 +58,124 @@ MANUFACTURER = "manufacturer"
 NOBODY = ""
 
 
+# The steps of each workflow, in order. A direct Purchase Order starts at
+# "po"; a Request to Quote has two steps before it. From the Purchase
+# Order on, both are the same.
+STEP_INFO = {
+    "rtq": ("Request to Quote", "You ask the manufacturer for prices"),
+    "quote": ("Quote", "The manufacturer's prices arrive and you agree on them"),
+    "po": ("Purchase Order", "Generate and print the Purchase Order"),
+    "stamped": ("Stamped PO", "Upload a photo of the Purchase Order with the official stamp"),
+    "advance": ("Payment Proof", "Say whether you paid an advance, and upload the proof"),
+    "invoice": ("Invoice", "The goods and their invoice arrive and go into stock"),
+    "final": ("Payment Proof", "Pay the balance and upload its proof"),
+}
+SHARED_STEPS = ["po", "stamped", "advance", "invoice", "final"]
+WORKFLOW_STEPS = {
+    ManufacturerOrder.Workflow.PURCHASE_ORDER: SHARED_STEPS,
+    ManufacturerOrder.Workflow.REQUEST_TO_QUOTE: ["rtq", "quote"] + SHARED_STEPS,
+}
+
+
+def steps_for(order):
+    return WORKFLOW_STEPS.get(order.workflow, SHARED_STEPS)
+
+
+def current_step(order):
+    """The key of the step the order is on, or "done"."""
+    if order.status == ManufacturerOrder.Status.REFUNDED:
+        return "done"
+    if order.is_quote:
+        return "rtq" if order.quoted_at is None else "quote"
+    if order.invoice_approved_at is None:
+        if order.status == ManufacturerOrder.Status.SENT:
+            if order.pays_advance is None:
+                return "stamped" if not order.stamped_po_file else "advance"
+            return "invoice"
+        return "invoice"
+    return "done"
+
+
+def _step_date(order, key):
+    payments = list(order.payments.all())
+    if key == "rtq":
+        return order.created_at
+    if key == "quote":
+        return order.quoted_at
+    if key == "po":
+        return order.purchase_order_date
+    if key == "stamped":
+        return order.stamped_po_uploaded_at
+    if key == "advance":
+        advance = [p.paid_at for p in payments if p.kind == p.Kind.ADVANCE]
+        return advance[0] if advance else None
+    if key == "invoice":
+        return order.invoice_approved_at
+    final = [p.paid_at for p in payments if p.kind == p.Kind.FINAL]
+    return final[-1] if final else None
+
+
+def _done_note(order, key):
+    if key == "stamped" and not order.stamped_po_file:
+        return "Not recorded"  # orders from before this step existed
+    if key == "advance" and order.pays_advance is False:
+        return "No advance"
+    if key == "final" and order.invoice_approved_at and not any(
+        p.kind == p.Kind.FINAL for p in order.payments.all()
+    ):
+        return "Paid in advance"
+    return ""
+
+
+def workflow_steps(order, current=None):
+    """The order's steps, each {number, key, title, plain, help, state,
+    date, done_note}, state being "done", "current" or "upcoming".
+    current overrides which step is highlighted (a step page)."""
+    keys = steps_for(order)
+    at = current or current_step(order)
+    position = keys.index(at) if at in keys else len(keys)
+    steps = []
+    for index, key in enumerate(keys):
+        title, plain = STEP_INFO[key]
+        state = "done" if index < position else "current" if index == position else "upcoming"
+        steps.append({
+            "number": index + 1,
+            "key": key,
+            "title": title,
+            "plain": plain,
+            "help": plain,
+            "state": state,
+            "date": _step_date(order, key) if state == "done" else None,
+            "done_note": _done_note(order, key) if state == "done" else "",
+            "note": _quote_note(order) if key == "quote" and state == "current" else plain,
+        })
+    return steps
+
+
+def _quote_note(order):
+    from .models import OrderRevision
+
+    if awaiting_manufacturer_reply(order):
+        return "Waiting for the manufacturer's reply"
+    stages = list(order.revisions.values_list("stage", flat=True))
+    quotes = stages.count(OrderRevision.Stage.QUOTE)
+    counters = stages.count(OrderRevision.Stage.COUNTER)
+    if counters:
+        return (
+            f"Negotiating — {quotes} repl{'y' if quotes == 1 else 'ies'}, "
+            f"{counters} counter-offer{'' if counters == 1 else 's'}"
+        )
+    return "Review the manufacturer's prices"
+
+
+def step_position(order):
+    """(1-based position of the current step, number of steps); the
+    position is one past the last step once the order is complete."""
+    keys = steps_for(order)
+    at = current_step(order)
+    return (keys.index(at) + 1 if at in keys else len(keys) + 1), len(keys)
+
+
 def current_stage(order):
     """1-4 for the stage in progress, 5 once everything is done."""
     if order.is_quote:
@@ -77,6 +195,10 @@ def _check(text, done):
 
 def _unallocated_stock(order):
     from apps.owner_inventory.models import StockBatch
+
+    known = getattr(order, "_has_unallocated_stock", None)
+    if known is not None:
+        return known
 
     return StockBatch.objects.filter(
         source_batch__manufacturer_order_item__order=order,
@@ -226,7 +348,31 @@ def _build_guide(order, *, can_edit_quote=False, can_edit_po=False):
         f"Purchase Order sent {po_sent:%d %b %Y}" if po_sent else "Purchase Order sent"
     )
 
-    if stage == 3 and order.pays_advance is None:
+    stamped_text = (
+        f"Stamped Purchase Order uploaded {order.stamped_po_uploaded_at:%d %b %Y}"
+        if order.stamped_po_uploaded_at else "Stamped Purchase Order uploaded"
+    )
+
+    if stage == 3 and order.pays_advance is None and not order.stamped_po_file:
+        guide.update(
+            heading="Upload the Stamped Purchase Order",
+            waiting_on=YOU,
+            summary=(
+                "Print the Purchase Order, have it stamped, then upload a photo of the "
+                "stamped copy. Payment proof comes after this."
+            ),
+            checklist=[
+                _check(sent_text, True),
+                _check("Upload a photo of the stamped Purchase Order", False),
+                _check("Say whether you paid an advance (and upload the proof)", False),
+            ],
+            primary=_link("Upload Stamped Purchase Order", reverse("manufacturer-order-stamped", args=[pk])),
+            secondary=[
+                _link("Print Purchase Order", pdf_url, new_tab=True),
+                _link("Download Purchase Order", f"{pdf_url}?download=1"),
+            ],
+        )
+    elif stage == 3 and order.pays_advance is None:
         guide.update(
             heading="Record Your Advance Payment",
             waiting_on=YOU,
@@ -236,11 +382,15 @@ def _build_guide(order, *, can_edit_quote=False, can_edit_po=False):
             ),
             checklist=[
                 _check(sent_text, True),
+                _check(stamped_text, True),
                 _check("Say whether you paid an advance (and upload the proof)", False),
                 _check("When the goods arrive, record the invoice", False),
             ],
             primary=_link("Record Advance Payment", reverse("manufacturer-order-advance", args=[pk])),
-            secondary=[_link("Download Purchase Order", f"{pdf_url}?download=1")],
+            secondary=[
+                _link("Download Purchase Order", f"{pdf_url}?download=1"),
+                _link("Replace Stamped PO Photo", reverse("manufacturer-order-stamped", args=[pk])),
+            ],
         )
     elif stage == 3:
         guide.update(
@@ -309,9 +459,53 @@ def _build_guide(order, *, can_edit_quote=False, can_edit_po=False):
     return guide
 
 
+def annotate_list_status(orders):
+    """list_status for a whole list of orders in two queries in all —
+    instead of one or two per order — and stores it on each order as
+    stage_number, next_text, waiting_on. Returns the orders."""
+    from apps.owner_inventory.models import StockBatch
+
+    from .models import OrderRevision
+
+    orders = list(orders)
+    ids = [order.pk for order in orders]
+
+    unallocated = set(
+        StockBatch.objects.filter(
+            source_batch__manufacturer_order_item__order__in=ids,
+            location__location_type=Location.LocationType.UNALLOCATED,
+            quantity_remaining__gt=0,
+        ).values_list("source_batch__manufacturer_order_item__order", flat=True)
+    )
+
+    latest_stage = {}
+    quote_ids = [order.pk for order in orders if order.is_quote]
+    for order_id, stage in (
+        OrderRevision.objects.filter(order__in=quote_ids)
+        .order_by("order_id", "-number")
+        .values_list("order_id", "stage")
+    ):
+        latest_stage.setdefault(order_id, stage)
+
+    for order in orders:
+        order._has_unallocated_stock = order.pk in unallocated
+        if order.is_quote:
+            order._latest_revision_stage = latest_stage.get(order.pk)
+        order.stage_number, order.next_text, order.waiting_on = list_status(order)
+        order.step_total = len(steps_for(order))
+        order.step_range = range(1, order.step_total + 1)
+    return orders
+
+
 def list_status(order):
-    """(stage number 1-5, short "what's next" text, whose turn) for a row
-    on the orders list."""
+    """(position of the current step in the order's workflow — one past
+    the last once complete — short "what's next" text, whose turn) for a
+    row on the orders list."""
+    _stage, text, turn = _list_status(order)
+    return step_position(order)[0], text, turn
+
+
+def _list_status(order):
     if order.status == ManufacturerOrder.Status.REFUNDED:
         return 5, "Refunded", NOBODY
 
@@ -323,6 +517,8 @@ def list_status(order):
             return 2, "Waiting for their answer to your counter-offer", MANUFACTURER
         return 2, "Review the prices they sent", YOU
     if stage == 3:
+        if order.pays_advance is None and not order.stamped_po_file:
+            return 3, "Upload the stamped Purchase Order", YOU
         if order.pays_advance is None:
             return 3, "Record your advance payment", YOU
         return 3, "Waiting for the goods to arrive", MANUFACTURER

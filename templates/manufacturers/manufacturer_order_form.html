@@ -15,7 +15,7 @@
                 <h1>Order from a manufacturer</h1>
                 <p>Prices you've already agreed fill in by themselves. Save it, then print or download it and give it to the manufacturer. <a href="{% url 'manufacturer-order-create' %}">Need prices first? Send a Request to Quote instead.</a></p>
             {% else %}
-                <p class="eyebrow">Stage 1 of 4 · Request to Quote{% if order %} · {{ order.po_number }}{% endif %}</p>
+                <p class="eyebrow">Request to Quote{% if order %} · {{ order.po_number }}{% endif %}</p>
                 <h1>{% if order %}Change your Request to Quote{% else %}Ask a manufacturer for prices{% endif %}</h1>
                 <p>Fill in the document below the way you'd write it on paper. Nothing is ordered or paid yet.{% if not order %} <a href="{% url 'manufacturer-po-create' %}">Prices already agreed? Make a Purchase Order instead.</a>{% endif %}</p>
             {% endif %}

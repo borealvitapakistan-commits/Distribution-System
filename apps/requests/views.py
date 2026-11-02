@@ -463,22 +463,23 @@ class OwnerPurchaseOrdersHubView(OwnerRequiredMixin, TemplateView):
     template_name = "requests/owner_purchase_orders_hub.html"
 
     def get_context_data(self, **kwargs):
-        from apps.manufacturers.guide import YOU, list_status
+        from apps.manufacturers.guide import YOU, annotate_list_status
         from apps.manufacturers.models import ManufacturerOrder
 
         context = super().get_context_data(**kwargs)
         distributor_orders = (
             PurchaseOrder.objects.for_user(self.request.user)
             .select_related("distributor_profile")
-            .prefetch_related("payments")
+            .prefetch_related("payments", "items")
         )
         context["distributor_needs_you"] = sum(
             1 for order in distributor_orders if whose_turn(order) == "owner"
         )
         context["manufacturer_needs_you"] = sum(
-            1 for order in ManufacturerOrder.objects.for_user(self.request.user)
-            .select_related("manufacturer")
-            if list_status(order)[2] == YOU
+            1 for order in annotate_list_status(
+                ManufacturerOrder.objects.for_user(self.request.user).select_related("manufacturer")
+            )
+            if order.waiting_on == YOU
         )
         return context
 

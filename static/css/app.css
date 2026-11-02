@@ -5103,3 +5103,119 @@ input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin
 .download-option:hover, .download-option:focus-visible { border-color: var(--blue-600); background: #f3f7ff; outline: none; }
 .download-option span { font-size: .78rem; color: var(--slate-500); }
 .download-choice form > .button { justify-self: end; }
+
+/* The stage bar fits however many steps the order's workflow has. */
+.stepper {
+    grid-template-columns: repeat(var(--steps, 4), minmax(0, 1fr));
+}
+
+@media (max-width: 53.125em) {
+    .stepper-compact .flow-steps,
+    .stepper-compact {
+        grid-template-columns: repeat(var(--steps, 4), minmax(0, 1fr));
+    }
+}
+
+.stamped-current {
+    display: grid;
+    gap: 0.5rem;
+    justify-items: start;
+    margin-bottom: 1.25rem;
+    padding: 1rem;
+    border: 0.0625rem solid var(--slate-200);
+    border-radius: 0.75rem;
+    background: var(--slate-50);
+}
+
+.stamped-current img {
+    max-width: min(100%, 22rem);
+    max-height: 18rem;
+    border-radius: 0.5rem;
+    border: 0.0625rem solid var(--slate-200);
+    object-fit: contain;
+    background: var(--white);
+}
+
+/* Choosing how a manufacturer order starts */
+.workflow-choices {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 0 0 1.25rem;
+    padding: 0;
+    border: 0;
+}
+
+.workflow-choice {
+    display: flex;
+    gap: 0.875rem;
+    align-items: flex-start;
+    padding: 1.25rem;
+    border: 0.125rem solid var(--slate-200);
+    border-radius: var(--radius);
+    background: var(--white);
+    cursor: pointer;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.workflow-choice:hover {
+    border-color: var(--slate-300);
+}
+
+.workflow-choice:has(input:checked) {
+    border-color: var(--blue-600);
+    box-shadow: 0 0 0 0.25rem #dbeafe;
+}
+
+.workflow-choice input {
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-top: 0.1875rem;
+    accent-color: var(--blue-600);
+}
+
+.workflow-choice-body {
+    display: grid;
+    gap: 0.375rem;
+}
+
+.workflow-choice-body > strong {
+    font-size: 1.0625rem;
+}
+
+.workflow-choice-body > span {
+    color: var(--slate-600);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.workflow-steps {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: wf;
+}
+
+.workflow-steps li {
+    counter-increment: wf;
+    padding: 0.1875rem 0.625rem;
+    border-radius: 999px;
+    background: var(--slate-100);
+    color: var(--slate-700);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.workflow-steps li::before {
+    content: counter(wf) ". ";
+    color: var(--slate-500);
+}
+
+@media (max-width: 53.125em) {
+    .workflow-choices {
+        grid-template-columns: 1fr;
+    }
+}

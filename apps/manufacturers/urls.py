@@ -18,6 +18,8 @@ from .views import (
     ManufacturerOrderRecordPDFView,
     ManufacturerUpdateView,
     ManufacturerOrderAdvanceView,
+    ManufacturerOrderStampedView,
+    ManufacturerOrderStartView,
     ManufacturerOrderCounterView,
     ManufacturerOrderConversationView,
     ManufacturerPurchaseOrderEditView,
@@ -37,6 +39,11 @@ urlpatterns = [
         "owner/manufacturer-orders/",
         ManufacturerOrderListView.as_view(),
         name="manufacturer-order-list",
+    ),
+    path(
+        "owner/manufacturer-orders/start/",
+        ManufacturerOrderStartView.as_view(),
+        name="manufacturer-order-start",
     ),
     path(
         "owner/manufacturer-orders/new-po/",
@@ -97,6 +104,11 @@ urlpatterns = [
         "owner/manufacturer-orders/<uuid:pk>/share-slack/",
         ShareManufacturerOrderToSlackView.as_view(),
         name="manufacturer-order-share-slack",
+    ),
+    path(
+        "owner/manufacturer-orders/<uuid:pk>/stamped-po/",
+        ManufacturerOrderStampedView.as_view(),
+        name="manufacturer-order-stamped",
     ),
     path(
         "owner/manufacturer-orders/<uuid:pk>/advance/",

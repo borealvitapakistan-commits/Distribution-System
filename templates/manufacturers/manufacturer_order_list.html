@@ -13,14 +13,13 @@
         <p class="eyebrow">Buying from manufacturers</p>
         <h1>Manufacturer Orders</h1>
         <p>
-            Every order goes through four stages: ask for prices, agree on them, confirm the order,
-            and receive the goods. Orders marked <strong>Your turn</strong> are waiting for you.
+            Start straight from a Purchase Order, or ask for prices first with a Request to Quote.
+            Orders marked <strong>Your turn</strong> are waiting for you.
         </p>
     </div>
 
     <div class="mo-new-actions">
-        <a class="button button-secondary" href="{% url 'manufacturer-order-create' %}" title="When prices still need to be agreed">Request to Quote</a>
-        <a class="button button-primary" href="{% url 'manufacturer-po-create' %}" title="Order at prices you've already agreed">+ New Purchase Order</a>
+        <a class="button button-primary" href="{% url 'manufacturer-order-start' %}">+ New Order</a>
     </div>
 </div>
 
@@ -84,13 +83,13 @@
                             {% endif %}
                         </td>
                         <td class="nowrap">
-                            <span class="flow-mini" aria-label="Stage {{ order.stage_number|default:5 }} of 4">
-                                {% for number in "1234" %}
-                                    <span class="{% if forloop.counter < order.stage_number %}is-done{% elif forloop.counter == order.stage_number %}is-current{% endif %}"></span>
+                            <span class="flow-mini" aria-label="Step {{ order.stage_number }} of {{ order.step_total }}">
+                                {% for number in order.step_range %}
+                                    <span class="{% if number < order.stage_number %}is-done{% elif number == order.stage_number %}is-current{% endif %}"></span>
                                 {% endfor %}
                             </span>
                             <small class="table-secondary">
-                                {% if order.stage_number > 4 %}{% if order.waiting_on == "you" %}Stock to place{% else %}Done{% endif %}{% else %}Stage {{ order.stage_number }} of 4{% endif %}
+                                {% if order.stage_number > order.step_total %}{% if order.waiting_on == "you" %}Stock to place{% else %}Done{% endif %}{% else %}Step {{ order.stage_number }} of {{ order.step_total }}{% endif %}
                             </small>
                         </td>
                         <td>

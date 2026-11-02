@@ -6,7 +6,7 @@
 {% endblock %}
 
 {% block content %}
-{% order_stage_bar order current=4 %}
+{% order_stage_bar order current="invoice" %}
 
 <form method="post" enctype="multipart/form-data" class="form-layout" id="receiveForm">
     {% csrf_token %}

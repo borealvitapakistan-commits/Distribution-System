@@ -135,6 +135,7 @@
             <li><span>Request to Quote created</span><span>{{ order.created_at|date:"d M Y" }}</span></li>
             {% if order.quoted_at %}<li><span>Prices received</span><span>{{ order.quoted_at|date:"d M Y" }}</span></li>{% endif %}
             {% if order.purchase_order_date %}<li><span>Purchase Order sent</span><span>{{ order.purchase_order_date|date:"d M Y" }}</span></li>{% endif %}
+            {% if order.stamped_po_uploaded_at %}<li><span>Stamped PO uploaded</span><span>{{ order.stamped_po_uploaded_at|date:"d M Y" }}</span></li>{% endif %}
             {% if order.received_at %}<li><span>Goods received</span><span>{{ order.received_at|date:"d M Y" }}</span></li>{% endif %}
             {% if order.invoice_approved_at %}<li><span>Invoice {{ order.invoice_number }}</span><span>{{ order.invoice_approved_at|date:"d M Y" }}</span></li>{% endif %}
         </ul>
@@ -145,14 +146,26 @@
                 <span>{{ order.document_title }}</span>
                 <a href="{% url 'manufacturer-order-pdf' order.pk %}" target="_blank">View</a>
             </li>
-            <li>
-                <span>Manufacturer's quote</span>
-                {% if order.quote_file %}
-                    <a href="{{ order.quote_file.url }}" target="_blank" rel="noopener" data-proof-viewer>View</a>
-                {% else %}
-                    <span class="table-secondary">Not uploaded</span>
-                {% endif %}
-            </li>
+            {% if not order.is_quote %}
+                <li>
+                    <span>Stamped Purchase Order</span>
+                    {% if order.stamped_po_file %}
+                        <a href="{{ order.stamped_po_file.url }}" target="_blank" rel="noopener" data-proof-viewer>View</a>
+                    {% else %}
+                        <span class="table-secondary">Not uploaded</span>
+                    {% endif %}
+                </li>
+            {% endif %}
+            {% if order.workflow == "REQUEST_TO_QUOTE" %}
+                <li>
+                    <span>Manufacturer's quote</span>
+                    {% if order.quote_file %}
+                        <a href="{{ order.quote_file.url }}" target="_blank" rel="noopener" data-proof-viewer>View</a>
+                    {% else %}
+                        <span class="table-secondary">Not uploaded</span>
+                    {% endif %}
+                </li>
+            {% endif %}
             <li>
                 <span>
                     Invoice{% if order.supplier_invoice_ref %} <small class="table-secondary">(their no. {{ order.supplier_invoice_ref }})</small>{% endif %}

@@ -498,6 +498,7 @@ def create_request_to_quote(
         brand=brand,
         po_number=_next_manufacturer_po_number(manufacturer),
         status=ManufacturerOrder.Status.QUOTE,
+        workflow=ManufacturerOrder.Workflow.REQUEST_TO_QUOTE,
         terms=(terms or "").strip(),
         created_by=actor,
         updated_by=actor,
@@ -779,8 +780,12 @@ def confirm_purchase_order(*, actor, order_id, message=""):
 def awaiting_manufacturer_reply(order):
     """On a Request to Quote: whose turn it is. True while our request
     or our counter-offer is the last thing said."""
-    latest = order.revisions.order_by("-number").first()
-    return latest is not None and latest.stage in (
+    if hasattr(order, "_latest_revision_stage"):
+        stage = order._latest_revision_stage  # worked out for a whole list at once
+    else:
+        latest = order.revisions.order_by("-number").first()
+        stage = latest.stage if latest is not None else None
+    return stage in (
         OrderRevision.Stage.REQUEST,
         OrderRevision.Stage.COUNTER,
     )
@@ -1306,6 +1311,41 @@ def record_manufacturer_payment(
 
 
 @transaction.atomic
+def record_stamped_purchase_order(*, actor, order_id, photo):
+    """The step after printing the Purchase Order: a real photo of it
+    carrying the official stamp, as proof it was stamped. Required before
+    the payment proof. Can be replaced until the goods are received."""
+    require_owner(actor)
+
+    order = _get_order_for_update(order_id)
+
+    if order.status != ManufacturerOrder.Status.SENT:
+        raise ValidationError(
+            "The stamped Purchase Order can only be added while the order is "
+            "with the manufacturer."
+        )
+    if not photo:
+        raise ValidationError("Choose the photo of the stamped Purchase Order.")
+
+    replaced = bool(order.stamped_po_file)
+    order.stamped_po_file = photo
+    order.stamped_po_uploaded_at = timezone.now()
+    order.updated_by = actor
+    order.full_clean()
+    order.save(update_fields=[
+        "stamped_po_file", "stamped_po_uploaded_at", "updated_at", "updated_by",
+    ])
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.stamped_po_uploaded",
+        instance=order,
+        after_data={"file": order.stamped_po_file.name, "replaced": replaced},
+    )
+    return order
+
+
+@transaction.atomic
 def record_advance_decision(
     *, actor, order_id, pays_advance, amount=None, paid_at=None, proof=None, note=""
 ):
@@ -1324,6 +1364,12 @@ def record_advance_decision(
 
     if order.pays_advance is not None:
         raise ValidationError("The advance payment has already been answered.")
+
+    if not order.stamped_po_file:
+        raise ValidationError(
+            "Upload the photo of the stamped Purchase Order first — payment "
+            "proof comes after it."
+        )
 
     order.pays_advance = bool(pays_advance)
     order.updated_by = actor

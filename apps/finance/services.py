@@ -109,20 +109,19 @@ def unit_cost_for(product, stock_batch=None, bottle_size=None):
     if bottle_size is None:
         bottle_size = _product_bottle_size(product)
 
+    # .all() reads prices loaded upfront (prefetch_related) when there are
+    # any, instead of asking the database once per batch.
     price = None
     if bottle_size is not None:
-        price = (
-            product.bottle_prices.filter(bottle_size=bottle_size)
-            .values_list("price", flat=True)
-            .first()
+        price = next(
+            (row.price for row in product.bottle_prices.all() if row.bottle_size == bottle_size),
+            None,
         )
     if price is None and product.size:
-        price = (
-            product.package_prices.filter(amount=product.size)
-            .order_by("price")
-            .values_list("price", flat=True)
-            .first()
+        package_prices = sorted(
+            row.price for row in product.package_prices.all() if row.amount == product.size
         )
+        price = package_prices[0] if package_prices else None
     if price is not None:
         return Decimal(price).quantize(UNIT_COST_PLACES), SaleEntry.CostSource.PRICE_LIST
 
@@ -133,10 +132,9 @@ def retail_price_for(product, bottle_size=None):
     """Our retail price for one bottle: the price set for that bottle
     size, else the product's base retail price."""
     if bottle_size is not None:
-        price = (
-            product.retail_prices.filter(bottle_size=bottle_size)
-            .values_list("price", flat=True)
-            .first()
+        price = next(
+            (row.price for row in product.retail_prices.all() if row.bottle_size == bottle_size),
+            None,
         )
         if price is not None:
             return price
@@ -1184,7 +1182,12 @@ def stock_on_hand_value():
             ],
         )
         .select_related("product", "source_batch__manufacturer_order_item__order")
-        .prefetch_related("source_batch__manufacturer_order_item__order__items")
+        .prefetch_related(
+            "source_batch__manufacturer_order_item__order__items",
+            "product__retail_prices",
+            "product__bottle_prices",
+            "product__package_prices",
+        )
     )
     for batch in batches:
         size = bottle_size_for(batch.product, batch)

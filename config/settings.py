@@ -106,17 +106,55 @@ WSGI_APPLICATION = "config.wsgi.application"
 
 
 # SQLite database
-DATABASES = {
+# The one database: Supabase PostgreSQL, from DATABASE_URL in .env (the
+# Session pooler connection string). There is no local fallback — without
+# it the app refuses to start rather than quietly using another database.
+if not env("DATABASE_URL", default=""):
+    from django.core.exceptions import ImproperlyConfigured
+
+    raise ImproperlyConfigured(
+        "DATABASE_URL is missing from .env. Add the Supabase Session pooler "
+        "connection string (Supabase > Connect > Session pooler)."
+    )
+DATABASES = {"default": env.db("DATABASE_URL")}
+DATABASES["default"]["ATOMIC_REQUESTS"] = False
+# A pool of open connections shared by every request: opening a fresh
+# connection to Supabase costs over a second, so each page borrows one
+# that is already open instead. (A pool needs CONN_MAX_AGE = 0.)
+DATABASES["default"]["CONN_MAX_AGE"] = 0
+DATABASES["default"].setdefault("OPTIONS", {}).update({
+    "sslmode": "require",
+    "pool": {
+        "min_size": env.int("DB_POOL_MIN", default=2),
+        "max_size": env.int("DB_POOL_MAX", default=10),
+        "timeout": 30,
+        # Supabase's pooler drops idle connections; recycle well before.
+        "max_idle": 240,
+        "max_lifetime": 1800,
+    },
+})
+
+
+# The automated tests never touch Supabase: they build and throw away a
+# temporary in-memory database on each run (the app itself only ever
+# uses DATABASE_URL above).
+import sys
+
+if len(sys.argv) > 1 and sys.argv[1] == "test":
+    DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}}
+
+
+# An in-memory cache: things read on every page (the login session, the
+# brand) come from here instead of a round trip to the database.
+CACHES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-        "ATOMIC_REQUESTS": False,
-        "OPTIONS": {
-            "timeout": 20,
-            "transaction_mode": "IMMEDIATE",
-        },
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "distribution-system",
     }
 }
+# Sessions are read from the cache and still saved to the database, so a
+# server restart doesn't sign anyone out.
+SESSION_ENGINE = "django.contrib.sessions.backends.cached_db"
 
 
 # Password validation
