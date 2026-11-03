@@ -76,7 +76,7 @@
     <table class="meta" style="margin-top: 14px;">
         <tr>
             <td>
-                {% if brand.logo %}<img src="{{ brand.logo.url }}" style="height: 56px;">{% else %}<div class="brand-name">{{ brand.name|default:"" }}</div>{% endif %}
+                {% if brand.logo %}<img src="{{ brand.logo_url }}" style="height: 56px;">{% else %}<div class="brand-name">{{ brand.name|default:"" }}</div>{% endif %}
                 <div class="brand-lines">
                     {{ brand.legal_name|default:brand.name }}<br>
                     {% if brand.address %}{{ brand.address|linebreaksbr }}{% endif %}
@@ -95,7 +95,7 @@
         <tr>
             <td>
                 {% if brand.logo %}
-                    <img src="{{ brand.logo.url }}" style="height: 56px;">
+                    <img src="{{ brand.logo_url }}" style="height: 56px;">
                 {% else %}
                     <div class="brand-name">{{ brand.name|default:"" }}</div>
                 {% endif %}

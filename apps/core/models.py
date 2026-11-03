@@ -69,8 +69,14 @@ class Brand(UUIDModel, TimeStampedModel):
     logo = models.ImageField(
         upload_to="brand/logos/",
         null=True,
-        blank=True
+        blank=True,
+        help_text="Only the file name is kept here; the image itself is in logo_data.",
     )
+    # The logo lives in the database rather than file storage, so every
+    # server (and every page, PDF and sign-in screen) can show it without
+    # a shared disk or bucket. Served by the brand-logo view.
+    logo_data = models.BinaryField(null=True, blank=True, editable=False)
+    logo_content_type = models.CharField(max_length=100, blank=True, editable=False)
 
     primary_color = models.CharField(
         max_length=7,
@@ -108,6 +114,34 @@ class Brand(UUIDModel, TimeStampedModel):
     @property
     def primary_color_soft(self):
         return self.tinted_color(0.88)
+
+    @property
+    def logo_url(self):
+        from django.urls import reverse
+
+        return reverse("brand-logo", kwargs={"pk": self.pk}) if self.logo else ""
+
+    def save(self, *args, **kwargs):
+        if not self.logo:
+            self.logo_data = None
+            self.logo_content_type = ""
+        elif not self.logo._committed:
+            # A new upload: keep its bytes here instead of writing a file.
+            import mimetypes
+            import posixpath
+
+            upload = self.logo.file
+            upload.seek(0)
+            self.logo_data = upload.read()
+            self.logo_content_type = (
+                getattr(upload, "content_type", "")
+                or mimetypes.guess_type(self.logo.name)[0]
+                or "application/octet-stream"
+            )
+            self.logo.name = posixpath.join("brand/logos", posixpath.basename(self.logo.name))
+            self.logo._committed = True
+
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

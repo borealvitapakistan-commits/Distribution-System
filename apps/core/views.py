@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import (
     login_required,
 )
 from django.core.exceptions import PermissionDenied
-from django.http import FileResponse, Http404
+from django.http import FileResponse, Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
@@ -33,7 +33,11 @@ def brand_logo(request, pk):
         brand = get_object_or_404(Brand, pk=pk)
     if not brand.logo:
         raise Http404("No brand logo has been uploaded.")
-    try:
+    if brand.logo_data:
+        response = HttpResponse(bytes(brand.logo_data), content_type=brand.logo_content_type)
+        response["Cache-Control"] = "public, max-age=300"
+        return response
+    try:  # A logo saved as a file, before logos moved into the database.
         return FileResponse(brand.logo.open("rb"))
     except FileNotFoundError as exc:
         raise Http404("The brand logo could not be found.") from exc

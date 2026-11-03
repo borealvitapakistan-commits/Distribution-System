@@ -57,7 +57,7 @@
         <tr>
             <td>
                 {% if brand.logo %}
-                    <img src="{{ brand.logo.url }}" style="height: 40px;">
+                    <img src="{{ brand.logo_url }}" style="height: 40px;">
                 {% else %}
                     <div class="brand-name">{{ brand.name|default:"" }}</div>
                 {% endif %}

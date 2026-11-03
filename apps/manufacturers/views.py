@@ -340,7 +340,7 @@ def _brand_sheet_data(brand):
         "email": brand.email,
         "color": brand.primary_color,
         "soft": brand.primary_color_soft,
-        "logo": brand.logo.url if brand.logo else "",
+        "logo": brand.logo_url,
     }
 
 

@@ -73,7 +73,7 @@ class BrandLogoTests(TestCase):
 
     def test_upload_is_persisted_and_refreshes_cached_brand(self):
         brand = self.make_brand()
-        original_url = brand.logo.url
+        original_name = brand.logo.name
         original_page = self.client.get(reverse("login"))  # Prime the cached brand.
         original_version = original_page.context["brand"].updated_at
         self.client.force_login(self.owner)
@@ -84,9 +84,8 @@ class BrandLogoTests(TestCase):
 
         self.assertRedirects(response, reverse("brand-detail", args=[brand.pk]))
         brand.refresh_from_db()
-        self.assertNotEqual(brand.logo.url, original_url)
-        with brand.logo.open("rb") as saved_logo:
-            self.assertEqual(saved_logo.read(), LOGO_BYTES)
+        self.assertNotEqual(brand.logo.name, original_name)
+        self.assertEqual(bytes(brand.logo_data), LOGO_BYTES)
         response = self.client.get(reverse("login"))
         self.assertContains(response, f'<img src="{reverse("brand-logo", args=[brand.pk])}"')
         self.assertNotEqual(response.context["brand"].updated_at, original_version)
@@ -105,7 +104,25 @@ class BrandLogoTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response["Content-Type"], "image/png")
-        self.assertEqual(b"".join(response.streaming_content), LOGO_BYTES)
+        self.assertEqual(response.content, LOGO_BYTES)
+
+    def test_logo_is_kept_in_the_database_not_file_storage(self):
+        from django.core.files.storage import default_storage
+
+        brand = self.make_brand()
+
+        self.assertEqual(bytes(brand.logo_data), LOGO_BYTES)
+        self.assertEqual(brand.logo_content_type, "image/png")
+        self.assertFalse(default_storage.exists(brand.logo.name))
+
+    def test_pdfs_can_draw_the_logo_from_the_database(self):
+        from .utils import _pdf_link_callback
+
+        brand = self.make_brand()
+        path = _pdf_link_callback(brand.logo_url, None)
+
+        with open(path, "rb") as drawn:
+            self.assertEqual(drawn.read(), LOGO_BYTES)
 
     def test_missing_logo_endpoint_returns_not_found(self):
         brand = Brand.objects.create(name="No logo")
@@ -122,5 +139,6 @@ class BrandLogoTests(TestCase):
         self.assertRedirects(response, reverse("brand-detail", args=[brand.pk]))
         brand.refresh_from_db()
         self.assertFalse(brand.logo)
+        self.assertIsNone(brand.logo_data)
         response = self.client.get(reverse("login"))
         self.assertContains(response, '<img src="/static/images/boreal-vita-logo.png"')
