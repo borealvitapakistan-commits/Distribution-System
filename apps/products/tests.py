@@ -5,8 +5,6 @@ from django.test import Client, TestCase
 
 from apps.accounts.models import User
 from apps.core.models import Brand
-from apps.distributors.services import approve_distributor, create_distributor
-from apps.products.serializers import DistributorProductSerializer
 from apps.products.services import create_ingredient, create_product
 
 
@@ -71,17 +69,6 @@ class ProductRulesTests(TestCase):
         self.assertEqual(link.strength, "10")
         self.assertEqual(link.unit, "mg")
 
-    def test_distributor_product_serializer_shows_price_but_no_owner_fields(self):
-        product = create_product(actor=self.owner, **self.product_data())
-        data = DistributorProductSerializer(product).data
-
-        self.assertIn("base_retail_price", data)
-        self.assertNotIn("default_reorder_point", data)
-        self.assertNotIn("default_reorder_quantity", data)
-        self.assertNotIn("cost", data)
-        self.assertNotIn("manufacturer", data)
-        self.assertNotIn("locations", data)
-
 
 class ProductURLRenameTests(TestCase):
     def setUp(self):
@@ -91,13 +78,6 @@ class ProductURLRenameTests(TestCase):
             role=User.Role.OWNER,
             is_active=True,
         )
-        self.distributor_user = create_distributor(
-            actor=self.owner,
-            email="dist@rename.test",
-            temporary_password="TemporaryPassword123!",
-            name="Rename Distributor",
-        )
-        approve_distributor(user=self.owner, distributor_id=self.distributor_user.pk)
 
     def test_old_catalog_url_is_gone(self):
         client = Client()
@@ -128,13 +108,6 @@ class ProductURLRenameTests(TestCase):
         response = client.get("/owner/")
         self.assertContains(response, "Products")
         self.assertNotContains(response, "Catalog")
-
-    def test_distributor_product_list_url_works(self):
-        client = Client()
-        client.force_login(self.distributor_user)
-
-        response = client.get("/distributor/products/")
-        self.assertEqual(response.status_code, 200)
 
 
 class ProductListPageTests(TestCase):

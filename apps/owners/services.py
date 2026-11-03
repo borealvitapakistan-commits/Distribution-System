@@ -28,7 +28,7 @@ def create_owner(
     """Create another Owner's login and profile together.
 
     Owner accounts double as Django admin logins, so a new Owner is
-    active immediately (no approval step, unlike Distributors).
+    active immediately (no approval step).
     """
     require_owner(actor)
 

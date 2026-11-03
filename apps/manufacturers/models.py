@@ -365,18 +365,6 @@ class ManufacturerOrderItem(AuditedModel):
         related_name="manufacturer_order_items",
     )
 
-    source_purchase_order_item = models.ForeignKey(
-        "requests.PurchaseOrderItem",
-        on_delete=models.SET_NULL,
-        related_name="manufacturer_order_items",
-        null=True,
-        blank=True,
-        help_text=(
-            "The Distributor purchase order line this was ordered to "
-            "restock, if it was created that way."
-        ),
-    )
-
     bottle_size = models.PositiveSmallIntegerField(
         null=True,
         blank=True,
@@ -460,8 +448,7 @@ class ManufacturerOrderItem(AuditedModel):
 
 class ManufacturerOrderPayment(AuditedModel):
     """Owner-entered only — the Manufacturer isn't a system user, so
-    there's no separate claim/confirm step like with Distributor
-    payments. What the Owner enters here is authoritative.
+    there's no separate claim/confirm step. What the Owner enters here is authoritative.
 
     An order is paid for in up to two parts: an ADVANCE right after the
     order is placed and a FINAL payment for whatever is left once the

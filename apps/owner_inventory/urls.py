@@ -2,7 +2,6 @@ from django.urls import path
 
 from .views import (
     BatchTraceView,
-    GiveToDistributorView,
     ShopifySyncView,
     ReceiveStockView,
     StockBalanceListView,
@@ -14,7 +13,6 @@ from .views import (
 urlpatterns = [
     path("owner/inventory/balances/", StockBalanceListView.as_view(), name="stock-balance-list"),
     path("owner/inventory/add/", ReceiveStockView.as_view(), name="inventory-add"),
-    path("owner/inventory/give/", GiveToDistributorView.as_view(), name="inventory-give"),
     path("owner/inventory/batches/", StockBatchListView.as_view(), name="stock-batch-list"),
     path("owner/inventory/trace/", BatchTraceView.as_view(), name="batch-trace"),
     path("owner/inventory/shopify/", ShopifySyncView.as_view(), name="shopify-sync"),

@@ -3,7 +3,7 @@
 {% block content %}
 <div class="pc-shell pc-catalog">
     <div class="pc-heading">
-        <div class="pc-title"><h1>Products</h1><span class="pc-count">{{ total_count }}</span></div>
+        <div><p class="eyebrow">Your product catalogue</p><div class="pc-title"><h1>Products</h1><span class="pc-count">{{ total_count }}</span></div><p class="catalog-description">A considered collection. Every product, in one place.</p></div>
         <div class="pc-actions">
             <a class="button button-secondary button-small" href="{% url 'product-shopify-import' %}">Import</a>
             <a class="button button-secondary button-small" href="{% url 'product-csv-export' %}">Export</a>

@@ -1,8 +1,7 @@
 """Keeps Shopify's stock count equal to this system's.
 
 There is one inventory: the Owner's own warehouses. Shopify doesn't get
-a warehouse of its own — it sells from the same stock a Distributor is
-shipped from, and the quantity it shows for a product is the total in
+a warehouse of its own — it sells from the owned warehouses, and the quantity it shows for a product is the total in
 every active, sellable owned warehouse. Stock still unallocated or in
 Transit isn't counted: it can't be picked for an online order yet.
 

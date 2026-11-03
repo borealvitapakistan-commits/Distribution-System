@@ -127,7 +127,7 @@ class ManufacturerCatalogTests(TestCase):
         self.product.refresh_from_db()
         self.assertFalse(self.product.active)
 
-    def test_group_endpoint_rejects_distributor_and_archived_manufacturer(self):
+    def test_group_endpoint_rejects_visitors_and_archived_manufacturer(self):
         from django.utils import timezone
 
         self.glorious.archived_at=timezone.now()
@@ -136,9 +136,8 @@ class ManufacturerCatalogTests(TestCase):
         self.client.force_login(self.owner)
         url=reverse("product-manufacturer-products",args=[self.glorious.pk])
         self.assertEqual(self.client.get(url).status_code,404)
-        user=User.objects.create_user(email="buyer@groups.test",role="DISTRIBUTOR")
-        self.client.force_login(user)
-        self.assertEqual(self.client.get(reverse("product-manufacturer-products",args=[self.other.pk])).status_code,403)
+        self.client.logout()
+        self.assertEqual(self.client.get(reverse("product-manufacturer-products",args=[self.other.pk])).status_code,302)
 
 
 class ManufacturerAllocationTests(TestCase):

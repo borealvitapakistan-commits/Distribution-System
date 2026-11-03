@@ -153,25 +153,13 @@ class BatchLifecycleTests(TestCase):
 
 
 class BatchTraceTests(TestCase):
-    """One lot followed end to end: ordered from the Manufacturer,
-    received and placed by the Owner, given to a Distributor, placed in
-    their warehouse and sold on to a sub-distributor."""
+    """One lot followed end to end: ordered from the Manufacturer, then
+    received and placed by the Owner — plus a hand-off to a Distributor
+    recorded before the Distributor panel was archived."""
 
     def setUp(self):
-        from apps.distributor_inventory.models import DistributorStockBatch
-        from apps.distributor_inventory.services import (
-            reallocate_batch as distributor_reallocate_batch,
-            sell_to_sub_distributor,
-        )
-        from apps.distributor_warehouse.models import DistributorLocation
-        from apps.distributor_warehouse.services import (
-            create_inventory as create_distributor_inventory,
-            create_location as create_distributor_location,
-        )
-        from apps.distributors.models import DistributorProfile
-        from apps.distributors.services import approve_distributor, create_distributor
-        from apps.owner_inventory.models import StockBatch
-        from apps.owner_inventory.services import give_to_distributor, reallocate_batch
+        from apps.owner_inventory.models import StockBatch, StockMovement
+        from apps.owner_inventory.services import post_stock_movement, reallocate_batch
         from apps.owner_warehouse.models import Location
         from apps.owner_warehouse.services import create_inventory, create_location
 
@@ -216,51 +204,18 @@ class BatchTraceTests(TestCase):
             destination_location=warehouse,
         )
 
-        distributor_user = create_distributor(
-            actor=self.owner,
-            email="dist@trace.test",
-            temporary_password="TemporaryPassword123!",
-            name="Lahore Distributors",
-        )
-        approve_distributor(user=self.owner, distributor_id=distributor_user.pk)
-        distributor_user.refresh_from_db()
-        profile = DistributorProfile.objects.get(user=distributor_user)
-
-        give_to_distributor(
+        # What "Give to Distributor" used to write, before the archive.
+        post_stock_movement(
             actor=self.owner,
             product=product,
             quantity=Decimal("40"),
+            movement_type=StockMovement.MovementType.TRANSFER,
             from_location=warehouse,
-            distributor_profile=profile,
             batch=owner_warehouse_batch,
+            channel=StockMovement.Channel.DISTRIBUTOR,
         )
 
-        distributor_region = create_distributor_inventory(
-            actor=distributor_user, code="LHR", name="Lahore"
-        )
-        distributor_warehouse = create_distributor_location(
-            actor=distributor_user,
-            code="LHR-WH1",
-            name="Gulberg Warehouse",
-            location_type=DistributorLocation.LocationType.WAREHOUSE,
-            distributor_inventory=distributor_region,
-        )
-        placed = distributor_reallocate_batch(
-            actor=distributor_user,
-            distributor_profile=profile,
-            batch=DistributorStockBatch.objects.get(distributor_profile=profile),
-            quantity=Decimal("40"),
-            destination_location=distributor_warehouse,
-        )
-        sell_to_sub_distributor(
-            actor=distributor_user,
-            distributor_profile=profile,
-            sub_distributor_name="Ali Traders",
-            batch=placed,
-            quantity=Decimal("15"),
-        )
-
-    def test_trace_follows_the_batch_to_the_sub_distributor(self):
+    def test_trace_follows_the_batch_into_the_warehouse(self):
         from .services import trace_batch_code
 
         trace = trace_batch_code(self.batch.code.lower())
@@ -273,29 +228,17 @@ class BatchTraceTests(TestCase):
                 "ordered": Decimal("100"),
                 "received_by_owner": Decimal("100"),
                 "owner_on_hand": Decimal("60"),
-                "in_transit": Decimal("0"),
                 "sold_on_shopify": Decimal("0"),
-                "received_by_distributors": Decimal("40"),
-                "distributor_on_hand": Decimal("25"),
-                "sold_to_sub_distributors": Decimal("15"),
+                "sent_to_distributors": Decimal("40"),
             },
         )
 
         stages = [event.stage for event in trace["events"]]
         self.assertEqual(stages[0], "Owner → Manufacturer (ordered)")
-        self.assertEqual(stages[-1], "Distributor → Sub-distributor (sold)")
         self.assertIn("Manufacturer → Inventory (received)", stages)
-        self.assertIn("Owner → Distributor (received)", stages)
-
-        sale = trace["events"][-1]
-        self.assertEqual(sale.to_label, "Ali Traders")
-        self.assertEqual(sale.from_label, "Lahore Distributors — Gulberg Warehouse")
-
-        [row] = trace["distributors"]
-        self.assertEqual(
-            (row.name, row.received, row.on_hand, row.sold),
-            ("Lahore Distributors", Decimal("40"), Decimal("25"), Decimal("15")),
-        )
+        self.assertIn("Inventory → Warehouse (stored)", stages)
+        self.assertEqual(stages[-1], "Inventory → Distributor (archived)")
+        self.assertEqual(trace["where_now"], [("Owner Main Warehouse (Trace Region)", Decimal("60"))])
 
     def test_owner_trace_page_shows_the_journey(self):
         client = Client()
@@ -304,9 +247,9 @@ class BatchTraceTests(TestCase):
         response = client.get("/owner/inventory/trace/", {"code": self.batch.code})
 
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "Ali Traders")
-        self.assertContains(response, "Lahore Distributors")
+        self.assertContains(response, "Owner Main Warehouse")
         self.assertContains(response, "Trace Manufacturer")
+        self.assertContains(response, "Sent to Distributors")
 
     def test_unknown_code_reports_not_found(self):
         client = Client()

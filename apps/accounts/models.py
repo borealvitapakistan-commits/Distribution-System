@@ -11,7 +11,7 @@ from django.utils import timezone
 
 
 class UserManager(BaseUserManager):
-    """Manager for creating Owner and Distributor users."""
+    """Manager for creating Owner users."""
 
     use_in_migrations = True
     def _create_user(self, email, password, **extra_fields):
@@ -30,12 +30,11 @@ class UserManager(BaseUserManager):
     def create_user(self, email, password=None, role=None, **extra_fields):
         valid_roles = {
             "OWNER",
-            "DISTRIBUTOR",
         }
 
         if role not in valid_roles:
             raise ValueError(
-                "Role must be OWNER or DISTRIBUTOR."
+                "Role must be OWNER."
             )
 
         extra_fields["role"] = role
@@ -100,7 +99,6 @@ class UserManager(BaseUserManager):
 class User(AbstractUser):
     class Role(models.TextChoices):
         OWNER = "OWNER", "Owner"
-        DISTRIBUTOR = "DISTRIBUTOR", "Distributor"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4,editable=False)
     username = None
@@ -124,14 +122,6 @@ class User(AbstractUser):
                 "manage_owner_accounts",
                 "Can manage Owner accounts",
             ),
-            (
-                "manage_distributor_accounts",
-                "Can manage Distributor accounts",
-            ),
-            (
-                "approve_distributor_accounts",
-                "Can approve Distributor accounts",
-            ),
         ]
 
         constraints = [
@@ -139,7 +129,6 @@ class User(AbstractUser):
                 condition=Q(
                     role__in=[
                         "OWNER",
-                        "DISTRIBUTOR",
                     ]
                 ),
                 name="user_has_valid_role",
@@ -181,10 +170,6 @@ class User(AbstractUser):
     @property
     def is_owner(self):
         return self.role == self.Role.OWNER
-
-    @property
-    def is_distributor(self):
-        return self.role == self.Role.DISTRIBUTOR
 
     def __str__(self):
         return self.email

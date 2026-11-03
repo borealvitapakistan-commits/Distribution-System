@@ -30,6 +30,12 @@
     </div>
 
     <dl class="details-list">
+        {% if brand_obj.logo %}
+            <div>
+                <dt>Logo</dt>
+                <dd><img class="brand-detail-logo" src="{% url 'brand-logo' brand_obj.pk %}" alt="{{ brand_obj.name }}"></dd>
+            </div>
+        {% endif %}
         <div>
             <dt>Legal name</dt>
             <dd>{{ brand_obj.legal_name|default:"—" }}</dd>

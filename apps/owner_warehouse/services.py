@@ -227,3 +227,59 @@ def location_utilization(location):
         "utilization_percentage": percentage,
         "warning": warning,
     }
+
+
+@transaction.atomic
+def place_batch(*, actor, batch_id, allocations):
+    """Validate and move an entire split together, preserving the stock ledger."""
+    from apps.owner_inventory.models import StockBatch
+    from apps.owner_inventory.services import get_or_create_unallocated_location, reallocate_batch
+
+    require_owner(actor)
+    batch = StockBatch.objects.select_for_update().get(pk=batch_id)
+    source = batch.location
+    if source.location_type != Location.LocationType.UNALLOCATED:
+        raise ValidationError("This batch is already in a warehouse. Choose stock that is waiting to be placed.")
+    if not allocations:
+        raise ValidationError("Choose a destination and enter a quantity.")
+    total, selected, checked = Decimal("0"), set(), []
+    for destination, quantity in allocations:
+        quantity = Decimal(quantity)
+        if not quantity.is_finite() or quantity <= 0:
+            raise ValidationError("Enter a quantity greater than zero for each destination.")
+        key = (type(destination), destination.pk)
+        if key in selected:
+            raise ValidationError("Choose each destination once.")
+        selected.add(key)
+        if isinstance(destination, Inventory):
+            destination = Inventory.objects.select_for_update().get(pk=destination.pk)
+            if source.inventory_id or not destination.active:
+                raise ValidationError("Choose an active region for this stock.")
+        else:
+            destination = Location.objects.select_for_update().get(pk=destination.pk)
+            if (destination.location_type == Location.LocationType.UNALLOCATED
+                    and destination.inventory_id and source.inventory_id is None):
+                # Older clients can still submit the region's holding location.
+                if not destination.active or not destination.inventory.active:
+                    raise ValidationError("Choose an active region for this stock.")
+            elif (destination.location_type != Location.LocationType.OWN
+                  or not destination.active or not destination.inventory_id
+                  or not destination.inventory.active):
+                raise ValidationError("Choose an active warehouse in an active region.")
+            if source.inventory_id and destination.inventory_id != source.inventory_id:
+                raise ValidationError("Choose a warehouse in the batch's current region.")
+        total += quantity
+        checked.append((destination, quantity))
+    if total > batch.quantity_remaining:
+        raise ValidationError(
+            f"Only {batch.quantity_remaining.normalize():f} units are still available. "
+            "Another placement may have used some of this batch. Review the quantities and try again."
+        )
+    created = []
+    for destination, quantity in checked:
+        if isinstance(destination, Inventory):
+            destination = get_or_create_unallocated_location(actor=actor, inventory=destination)
+        created.append(reallocate_batch(
+            actor=actor, batch=batch, quantity=quantity, destination_location=destination,
+        ))
+    return created

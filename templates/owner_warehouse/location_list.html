@@ -1,81 +1,44 @@
-{% extends "base.html" %}
-
-{% block title %}
-    Locations
-{% endblock %}
-
-{% block content %}
-<div class="page-header">
+{% extends "owner_warehouse/workspace_base.html" %}
+{% block title %}Warehouses{% endblock %}
+{% block inventory_content %}
+<div class="iw-page-heading">
     <div>
-        <p class="eyebrow">Warehouse</p>
-        <h1>Warehouses</h1>
+        <p class="eyebrow">
+            PLACES FOR YOUR PRODUCTS
+        </p>
+        <h1>
+            Warehouses
+        </h1>
         <p>
-            One set of warehouses for everything. Shopify and Distributors are
-            both supplied from these — you decide which stock goes where.
+            See what is stored at each location and whether it is available for sale.
         </p>
     </div>
-
-    <div>
-        <a class="button button-secondary" href="{% url 'inventory-list' %}">
-            Back to Inventory
-        </a>
-        <a class="button button-primary" href="{% url 'location-create' %}">
-            New Warehouse
-        </a>
-    </div>
+    <a class="button button-primary" href="{% url 'location-create' %}">{% include "_icon.html" with name="plus" %} Add warehouse</a>
 </div>
-
-<section class="panel">
-    <div class="table-wrapper">
-        <table>
-            <thead>
-                <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Inventory (region)</th>
-                    <th>On hand</th>
-                    <th>Sellable</th>
-                    <th>Capacity</th>
-                    <th></th>
-                </tr>
-            </thead>
-
-            <tbody>
-                {% for location in locations %}
-                    <tr>
-                        <td>
-                            <strong>{{ location.code }}</strong>
-                        </td>
-
-                        <td>{{ location.name }}</td>
-                        <td>{{ location.inventory.name|default:"—" }}</td>
-                        <td>{{ location.on_hand|default:0|floatformat:"-4" }}</td>
-                        <td>
-                            {% if not location.active %}Inactive
-                            {% elif location.is_sellable %}Yes
-                            {% else %}Held back{% endif %}
-                        </td>
-
-                        <td>{{ location.capacity_units }}</td>
-
-                        <td>
-                            <a
-                                class="button button-secondary button-small"
-                                href="{% url 'location-detail' location.pk %}"
-                            >
-                                View
-                            </a>
-                        </td>
-                    </tr>
-                {% empty %}
-                    <tr>
-                        <td colspan="7" class="empty-table">
-                            No locations found.
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+{% include "owner_warehouse/_nav.html" %}
+<form class="iw-filterbar iw-panel" method="get" role="search" aria-label="Find warehouses">
+    <div class="iw-search-input">
+        {% include "_icon.html" with name="search" %}<input type="search" name="q" value="{{ search }}" placeholder="Search warehouse or region" aria-label="Search warehouses">
     </div>
-</section>
+    <label class="iw-filter-select"><span class="iw-sr-only">Region</span><select name="region"><option value="">All regions</option>{% for region in regions %}<option value="{{ region.pk }}" {% if selected_region == region.pk|stringformat:"s" %}selected{% endif %}>{{ region.name }}</option>{% endfor %}</select></label><label class="iw-filter-select"><span class="iw-sr-only">Sales status</span><select name="status"><option value="">All statuses</option><option value="sellable" {% if selected_status == 'sellable' %}selected{% endif %}>Available for sale</option><option value="held" {% if selected_status == 'held' %}selected{% endif %}>Held from sale</option><option value="inactive" {% if selected_status == 'inactive' %}selected{% endif %}>Inactive</option></select></label><button class="button button-secondary" type="submit">Apply filters</button>{% if search or selected_region or selected_status %}<a class="iw-text-link" href="{% url 'location-list' %}">Clear</a>{% endif %}
+</form>
+<div class="iw-section-heading">
+    <p>
+        {{ locations|length }} warehouse{{ locations|length|pluralize }}
+    </p>
+</div>
+<div class="iw-place-grid">
+    {% for warehouse in locations %}{% include "owner_warehouse/_warehouse_card.html" %}{% empty %}
+    <section class="iw-panel iw-empty iw-empty-wide">
+        <span class="iw-empty-icon">{% include "_icon.html" with name="warehouse" %}</span>
+        <h2>
+            {% if search or selected_region or selected_status %}No warehouses match{% else %}Your first warehouse starts here{% endif %}
+        </h2>
+        <p>
+            {% if search or selected_region or selected_status %}Try a different search or clear the filters.{% else %}Add a place where you store products, and connect it to a region.{% endif %}
+        </p>
+        {% if search or selected_region or selected_status %}<a class="button button-secondary" href="{% url 'location-list' %}">Clear filters</a>{% else %}<a class="button button-primary" href="{% url 'location-create' %}">Add your first warehouse</a>{% endif %}
+    </section>
+    {% endfor %}
+</div>
 {% endblock %}

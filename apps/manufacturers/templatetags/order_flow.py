@@ -12,20 +12,3 @@ def order_stage_bar(order, current=None):
 
     return {"steps": order_steps(order, current=current), "compact": True}
 
-
-@register.inclusion_tag("manufacturers/_stage_tracker.html")
-def stage_tracker(steps, viewer="owner", compact=False):
-    """The four-stage tracker for steps that carry wording for each side
-    (plain_owner / plain_distributor, help_owner / help_distributor) —
-    shown with the words for whoever is looking."""
-    return {
-        "steps": [
-            {
-                **step,
-                "plain": step.get(f"plain_{viewer}", step.get("plain", "")),
-                "help": step.get(f"help_{viewer}", step.get("help", "")),
-            }
-            for step in steps
-        ],
-        "compact": compact,
-    }

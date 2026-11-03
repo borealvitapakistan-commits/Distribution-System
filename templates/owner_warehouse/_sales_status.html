@@ -1,0 +1,1 @@
+{% if not warehouse.active %}<span class="iw-badge iw-badge-muted">Inactive</span>{% elif warehouse.is_sellable %}<span class="iw-badge iw-badge-green"><span class="iw-status-dot" aria-hidden="true"></span> Available for sale</span>{% else %}<span class="iw-badge iw-badge-amber">Held from sale</span>{% endif %}

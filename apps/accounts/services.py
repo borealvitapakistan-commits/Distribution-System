@@ -7,7 +7,6 @@ from .models import User
 
 
 ROLE_GROUPS = {
-    User.Role.DISTRIBUTOR: "Distributor",
     User.Role.OWNER: "Owner"
 }
 
@@ -24,28 +23,11 @@ def require_owner(user):
         raise PermissionDenied("Only an Owner can perform this action.")
 
 
-def require_approved_distributor(user):
-    if not user or not user.is_authenticated:
-        raise PermissionDenied("Authentication is required.")
-
-    if not user.is_active:
-        raise PermissionDenied("An active account is required.")
-
-    if not user.is_distributor:
-        raise PermissionDenied("Only a Distributor can perform this action.")
-
-    profile = getattr(user, "distributor_profile", None)
-
-    if profile is None or profile.approval_status != "APPROVED":
-        raise PermissionDenied("Only an approved Distributor can perform this action.")
-
-
-
 def sync_user_group(user):
     group_name = ROLE_GROUPS.get(user.role)
 
     if not group_name:
-        raise ValidationError("Only OWNER and DISTRIBUTOR roles are allowed.")
+        raise ValidationError("Only the OWNER role is allowed.")
 
     role_groups = Group.objects.filter(name__in=ROLE_GROUPS.values())
     user.groups.remove(*role_groups)

@@ -46,6 +46,10 @@ class BrandForm(forms.ModelForm):
             "active",
         ]
 
+        help_texts = {
+            "logo": "Shown in the browser tab, navigation, sign-in pages and documents.",
+        }
+
 
         widgets = {
             "primary_color": ColorPickerWidget(),

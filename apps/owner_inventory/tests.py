@@ -5,12 +5,6 @@ from django.core.exceptions import ValidationError
 from django.test import Client, TestCase
 
 from apps.accounts.models import User
-from apps.distributor_inventory.models import (
-    DistributorStockBalance,
-    DistributorStockBatch,
-)
-from apps.distributors.models import DistributorProfile
-from apps.distributors.services import approve_distributor, create_distributor
 from apps.owner_warehouse.models import Location
 from apps.owner_warehouse.services import create_inventory, create_location
 from apps.products.services import create_product, export_products_csv
@@ -18,9 +12,7 @@ from apps.products.services import create_product, export_products_csv
 from .models import StockBalance, StockBatch, StockMovement
 from .services import (
     available_batches_fefo,
-    give_to_distributor,
     receive_stock,
-    ship_stock_to_transit,
     shippable_batches_fefo,
 )
 
@@ -51,14 +43,6 @@ class InventoryLedgerTests(TestCase):
             location_type=Location.LocationType.OWN,
             inventory=self.inventory,
         )
-        distributor_user = create_distributor(
-            actor=self.owner,
-            email="dist@inventory.test",
-            temporary_password="TemporaryPassword123!",
-            name="Inventory Distributor",
-        )
-        approve_distributor(user=self.owner, distributor_id=distributor_user.pk)
-        self.distributor_profile = DistributorProfile.objects.get(user=distributor_user)
 
     def test_receive_stock_creates_movement_balance_and_batch(self):
         movement = receive_stock(
@@ -167,71 +151,6 @@ class InventoryLedgerTests(TestCase):
             ],
         )
 
-    def test_give_to_distributor_draws_down_the_chosen_batch(self):
-        movement = receive_stock(
-            actor=self.owner,
-            product=self.product,
-            quantity=Decimal("50"),
-            to_location=self.warehouse,
-        )
-        batch = movement.batch
-
-        give_to_distributor(
-            actor=self.owner,
-            product=self.product,
-            quantity=Decimal("20"),
-            from_location=self.warehouse,
-            distributor_profile=self.distributor_profile,
-            batch=batch,
-        )
-
-        source_balance = StockBalance.objects.get(
-            product=self.product,
-            location=self.warehouse,
-        )
-        self.assertEqual(source_balance.quantity, Decimal("30"))
-
-        batch.refresh_from_db()
-        self.assertEqual(batch.quantity_remaining, Decimal("30"))
-
-        # The gift lands in the Distributor's own, separately tracked
-        # unallocated pool — not on any Owner-owned Location.
-        distributor_balance = DistributorStockBalance.objects.get(
-            distributor_profile=self.distributor_profile,
-            product=self.product,
-        )
-        self.assertEqual(distributor_balance.quantity, Decimal("20"))
-        self.assertEqual(distributor_balance.location.location_type, "UNALLOCATED")
-
-    def test_batch_is_required_to_give_to_distributor(self):
-        with self.assertRaises(ValidationError):
-            give_to_distributor(
-                actor=self.owner,
-                product=self.product,
-                quantity=Decimal("5"),
-                from_location=self.warehouse,
-                distributor_profile=self.distributor_profile,
-                batch=None,
-            )
-
-    def test_cannot_give_more_than_batch_remaining(self):
-        movement = receive_stock(
-            actor=self.owner,
-            product=self.product,
-            quantity=Decimal("10"),
-            to_location=self.warehouse,
-        )
-
-        with self.assertRaises(ValidationError):
-            give_to_distributor(
-                actor=self.owner,
-                product=self.product,
-                quantity=Decimal("20"),
-                from_location=self.warehouse,
-                distributor_profile=self.distributor_profile,
-                batch=movement.batch,
-            )
-
     def test_non_sellable_warehouse_cannot_ship(self):
         held = create_location(
             actor=self.owner,
@@ -241,12 +160,12 @@ class InventoryLedgerTests(TestCase):
             inventory=self.inventory,
             is_sellable=False,
         )
-        held_batch = receive_stock(
+        receive_stock(
             actor=self.owner,
             product=self.product,
             quantity=Decimal("10"),
             to_location=held,
-        ).batch
+        )
         open_batch = receive_stock(
             actor=self.owner,
             product=self.product,
@@ -258,27 +177,6 @@ class InventoryLedgerTests(TestCase):
             list(shippable_batches_fefo(product=self.product)), [open_batch]
         )
 
-        with self.assertRaises(ValidationError):
-            give_to_distributor(
-                actor=self.owner,
-                product=self.product,
-                quantity=Decimal("5"),
-                from_location=held,
-                distributor_profile=self.distributor_profile,
-                batch=held_batch,
-            )
-
-        with self.assertRaises(ValidationError):
-            ship_stock_to_transit(
-                actor=self.owner,
-                product=self.product,
-                quantity=Decimal("5"),
-                from_location=held,
-                batch=held_batch,
-            )
-
-        held_batch.refresh_from_db()
-        self.assertEqual(held_batch.quantity_remaining, Decimal("10"))
 
     def test_movement_is_immutable(self):
         movement = receive_stock(
@@ -295,10 +193,9 @@ class InventoryLedgerTests(TestCase):
         with self.assertRaises(ValidationError):
             movement.delete()
 
-    def test_distributor_has_no_access_to_owner_stock_balances(self):
-        """The Owner's own inventory ledger is Owner-only now — a
-        Distributor's stock lives entirely in apps.distributor_inventory,
-        a separate set of tables with no FK relationship to these."""
+    def test_only_owners_see_stock_balances(self):
+        from django.contrib.auth.models import AnonymousUser
+
         receive_stock(
             actor=self.owner,
             product=self.product,
@@ -306,15 +203,15 @@ class InventoryLedgerTests(TestCase):
             to_location=self.warehouse,
         )
 
-        distributor_user = self.distributor_profile.user
-        self.assertEqual(StockBalance.objects.for_user(distributor_user).count(), 0)
+        self.assertEqual(StockBalance.objects.for_user(AnonymousUser()).count(), 0)
 
         owner_visible = StockBalance.objects.for_user(self.owner)
         self.assertEqual(owner_visible.count(), 1)
 
-    def test_distributor_cannot_see_stock_batches(self):
-        distributor_user = self.distributor_profile.user
-        self.assertEqual(StockBatch.objects.for_user(distributor_user).count(), 0)
+    def test_only_owners_see_stock_batches(self):
+        from django.contrib.auth.models import AnonymousUser
+
+        self.assertEqual(StockBatch.objects.for_user(AnonymousUser()).count(), 0)
 
 
 class ShopifyCSVExportTests(TestCase):
@@ -389,29 +286,11 @@ class InventoryViewWiringTests(TestCase):
             location_type=Location.LocationType.OWN,
             inventory=self.inventory,
         )
-        distributor_user = create_distributor(
-            actor=self.owner,
-            email="dist@views.test",
-            temporary_password="TemporaryPassword123!",
-            name="View Distributor",
-        )
-        approve_distributor(user=self.owner, distributor_id=distributor_user.pk)
-        self.distributor_user = distributor_user
-        self.distributor_profile = DistributorProfile.objects.get(user=distributor_user)
-
-        movement = receive_stock(
+        receive_stock(
             actor=self.owner,
             product=self.product,
             quantity=Decimal("40"),
             to_location=self.warehouse,
-        )
-        give_to_distributor(
-            actor=self.owner,
-            product=self.product,
-            quantity=Decimal("12"),
-            from_location=self.warehouse,
-            distributor_profile=self.distributor_profile,
-            batch=movement.batch,
         )
 
     def test_owner_stock_balance_list_shows_warehouse_balance(self):
@@ -431,14 +310,10 @@ class InventoryViewWiringTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "View Product")
         self.assertContains(response, "Received")
-        self.assertContains(response, "Transfer")
 
-    def test_distributor_cannot_access_stock_movement_list(self):
-        client = Client()
-        client.force_login(self.distributor_user)
-
-        response = client.get("/owner/records/movements/")
-        self.assertEqual(response.status_code, 403)
+    def test_signed_out_visitor_cannot_access_stock_movement_list(self):
+        response = Client().get("/owner/records/movements/")
+        self.assertEqual(response.status_code, 302)
 
     def test_csv_export_downloads_shopify_formatted_file(self):
         client = Client()
@@ -450,18 +325,6 @@ class InventoryViewWiringTests(TestCase):
         self.assertIn("attachment", response["Content-Disposition"])
         self.assertIn(b"VIEW-001", response.content)
 
-    def test_gift_lands_in_the_distributors_own_stock_system(self):
-        """A "Give to Distributor" gift never touches the Owner's own
-        warehouse pages, and shows up on the Distributor's own (separate)
-        stock balance page instead."""
-        client = Client()
-        client.force_login(self.distributor_user)
-
-        response = client.get("/distributor/inventory/balances/")
-        self.assertEqual(response.status_code, 200)
-        self.assertContains(response, "12")
-        self.assertNotContains(response, "View Warehouse")
-
     def test_owner_can_see_batch_list(self):
         client = Client()
         client.force_login(self.owner)
@@ -470,18 +333,6 @@ class InventoryViewWiringTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "View Product")
 
-    def test_distributor_cannot_access_batch_list(self):
-        client = Client()
-        client.force_login(self.distributor_user)
-
-        response = client.get("/owner/inventory/batches/")
-        self.assertEqual(response.status_code, 403)
-
-    def test_give_to_distributor_form_lists_batches_not_warehouses(self):
-        client = Client()
-        client.force_login(self.owner)
-
-        response = client.get("/owner/inventory/give/")
-        self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'name="from_location"')
-        self.assertContains(response, 'name="batch"')
+    def test_signed_out_visitor_cannot_access_batch_list(self):
+        response = Client().get("/owner/inventory/batches/")
+        self.assertEqual(response.status_code, 302)

@@ -155,12 +155,10 @@ class SaleEntry(AuditedModel):
     later can't silently rewrite past profit."""
 
     class Kind(models.TextChoices):
-        DISTRIBUTOR_SALE = "DISTRIBUTOR_SALE", "Distributor sale"
         SHOPIFY_SALE = "SHOPIFY_SALE", "Shopify sale"
-        GIFT = "GIFT", "Given free to Distributor"
         WRITE_OFF = "WRITE_OFF", "Stock written off"
 
-    SALE_KINDS = (Kind.DISTRIBUTOR_SALE, Kind.SHOPIFY_SALE)
+    SALE_KINDS = (Kind.SHOPIFY_SALE,)
 
     class CostSource(models.TextChoices):
         BATCH = "BATCH", "Batch (Manufacturer invoice)"
@@ -205,20 +203,6 @@ class SaleEntry(AuditedModel):
     )
     batch_number = models.CharField(max_length=100, blank=True)
 
-    distributor_profile = models.ForeignKey(
-        "distributors.DistributorProfile",
-        on_delete=models.PROTECT,
-        related_name="sale_entries",
-        null=True,
-        blank=True,
-    )
-    purchase_order_item = models.ForeignKey(
-        "requests.PurchaseOrderItem",
-        on_delete=models.PROTECT,
-        related_name="sale_entries",
-        null=True,
-        blank=True,
-    )
     shopify_order_line = models.ForeignKey(
         "owner_inventory.ShopifyOrderLine",
         on_delete=models.PROTECT,
@@ -270,7 +254,7 @@ class SaleEntry(AuditedModel):
 
     @property
     def cut(self):
-        """Distributor cut (or Shopify discount): retail value we didn't receive."""
+        """Shopify discount: retail value we didn't receive."""
         return self.retail_value - self.revenue
 
     @property

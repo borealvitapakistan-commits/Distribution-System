@@ -3,7 +3,6 @@ from django.urls import path
 from .api import (
     CategoryDetailAPIView,
     CategoryListCreateAPIView,
-    DistributorProductListAPIView,
     IngredientListCreateAPIView,
     ProductDetailAPIView,
     ProductListCreateAPIView,
@@ -35,10 +34,5 @@ urlpatterns = [
         "products/<uuid:product_id>/",
         ProductDetailAPIView.as_view(),
         name="api-product-detail",
-    ),
-    path(
-        "distributor/products/",
-        DistributorProductListAPIView.as_view(),
-        name="api-distributor-product-list",
     ),
 ]

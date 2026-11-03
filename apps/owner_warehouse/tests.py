@@ -4,7 +4,6 @@ from django.core.exceptions import ValidationError
 from django.test import Client, TestCase
 
 from apps.accounts.models import User
-from apps.distributors.services import approve_distributor, create_distributor
 from apps.owner_inventory.models import StockBatch
 from apps.owner_inventory.services import (
     get_or_create_unallocated_location,
@@ -159,19 +158,9 @@ class InventoryRulesTests(TestCase):
                 response = self.client.get(route)
                 self.assertEqual(response.status_code, 200)
 
-    def test_distributor_cannot_access_inventory_pages(self):
-        distributor_user = create_distributor(
-            actor=self.owner,
-            email="dist@inventoryregion.test",
-            temporary_password="TemporaryPassword123!",
-            name="Inventory Region Distributor",
-        )
-        approve_distributor(user=self.owner, distributor_id=distributor_user.pk)
-        distributor_user.refresh_from_db()
-        self.client.force_login(distributor_user)
-
+    def test_signed_out_visitor_cannot_access_inventory_pages(self):
         response = self.client.get("/owner/inventory/")
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
 
 
 class LocationFormWiringTests(TestCase):

@@ -37,10 +37,7 @@ class LoginSerializer(serializers.Serializer):
                 "This account is inactive."
             )
 
-        if user.role not in {
-            User.Role.OWNER,
-            User.Role.DISTRIBUTOR,
-        }:
+        if user.role != User.Role.OWNER:
             raise serializers.ValidationError(
                 "The user role is invalid."
             )

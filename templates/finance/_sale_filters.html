@@ -1,4 +1,4 @@
-{# Channel / product / Distributor / batch filters, shared by Reports and the Sales Ledger. Each one applies as soon as it changes. #}
+{# Channel / product / batch filters, shared by Reports and the Sales Ledger. Each one applies as soon as it changes. #}
 <label>
     Type
     <select name="kind">
@@ -14,15 +14,6 @@
         <option value="">All products</option>
         {% for product in products %}
             <option value="{{ product.pk }}" {% if product.pk|stringformat:"s" == filters.product_id %}selected{% endif %}>{{ product.name }}</option>
-        {% endfor %}
-    </select>
-</label>
-<label>
-    Distributor
-    <select name="distributor">
-        <option value="">All Distributors</option>
-        {% for distributor in distributors %}
-            <option value="{{ distributor.pk }}" {% if distributor.pk|stringformat:"s" == filters.distributor_id %}selected{% endif %}>{{ distributor.name }}</option>
         {% endfor %}
     </select>
 </label>

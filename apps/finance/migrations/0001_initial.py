@@ -8,6 +8,10 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import migrations, models
 
+# Distributor panel archived to D:/Boriel-Vita/Boreal Beta: its parts of
+# this migration were taken out (the database columns are dropped by
+# finance 0002_remove_distributor_panel).
+
 
 class Migration(migrations.Migration):
 
@@ -15,10 +19,8 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ('batches', '0001_initial'),
-        ('distributors', '0002_distributorprofile_upfront_payment_percentage'),
         ('owner_inventory', '0009_shopifyorderline_original_unit_price_and_more'),
         ('products', '0010_product_shopify_pushed_quantity'),
-        ('requests', '0007_backfill_purchase_order_revisions'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
@@ -96,10 +98,8 @@ class Migration(migrations.Migration):
                 ('net_unit_price', models.DecimalField(decimal_places=2, help_text='What we actually received for one unit (0 for free stock).', max_digits=18)),
                 ('reference', models.CharField(blank=True, max_length=255)),
                 ('created_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='+', to=settings.AUTH_USER_MODEL)),
-                ('distributor_profile', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='sale_entries', to='distributors.distributorprofile')),
                 ('movement', models.OneToOneField(on_delete=django.db.models.deletion.PROTECT, related_name='sale_entry', to='owner_inventory.stockmovement')),
                 ('product', models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, related_name='sale_entries', to='products.product')),
-                ('purchase_order_item', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='sale_entries', to='requests.purchaseorderitem')),
                 ('shopify_order_line', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='sale_entries', to='owner_inventory.shopifyorderline')),
                 ('source_batch', models.ForeignKey(blank=True, help_text='The Manufacturer order lot the stock came from.', null=True, on_delete=django.db.models.deletion.PROTECT, related_name='sale_entries', to='batches.batch')),
                 ('stock_batch', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.PROTECT, related_name='sale_entries', to='owner_inventory.stockbatch')),

@@ -1,0 +1,64 @@
+{% load money_filters %}
+<div class="iw-placement-row" data-placement-row>
+    <div class="iw-row-heading" data-row-heading hidden>
+        <strong data-row-label>Warehouse {{ row_index }}</strong>
+        <button class="iw-remove-row" type="button" data-remove-destination aria-label="Remove this warehouse" hidden>{% include "_icon.html" with name="close" %}</button>
+    </div>
+    <fieldset class="iw-warehouse-picker" {% if row_form.destination.errors %}aria-describedby="{{ row_form.destination.auto_id }}_errors"{% endif %}>
+        <legend>{% if batch.location.inventory %}Warehouses in {{ batch.location.inventory.name }}{% else %}Your warehouses{% endif %}</legend>
+        {% if warehouse_options|length > 6 %}
+            <div class="iw-search-input iw-warehouse-search" data-warehouse-search-wrap hidden>
+                {% include "_icon.html" with name="search" %}
+                <input type="search" placeholder="Find a warehouse or city" aria-label="Find a warehouse or city" data-warehouse-search>
+            </div>
+        {% endif %}
+        <div class="iw-warehouse-options">
+            {% for option in warehouse_options %}
+                <label class="iw-warehouse-option" data-warehouse-option data-search="{{ option.warehouse.name|lower }} {{ option.warehouse.inventory.name|lower }}">
+                    <input type="radio" name="{{ row_form.destination.html_name }}" id="{{ row_form.destination.auto_id }}_warehouse_{{ option.warehouse.pk }}" value="{{ option.value }}" data-placement-destination data-kind="warehouse" data-name="{{ option.warehouse.name }}" data-region="{{ option.warehouse.inventory.name }}" {% if row_form.destination.value == option.value %}checked{% endif %} required>
+                    <span class="iw-warehouse-option-content">
+                        <strong>{{ option.warehouse.name }}</strong>
+                        <span>{{ option.warehouse.inventory.name }}</span>
+                        {% if not option.warehouse.is_sellable %}<small>Stock here is held from sale</small>{% endif %}
+                    </span>
+                    <span class="iw-warehouse-option-icon">{% include "_icon.html" with name="warehouse" %}</span>
+                </label>
+            {% empty %}
+                <div class="iw-no-warehouse">
+                    <p>No warehouses have been added here yet.</p>
+                    <a class="button button-secondary" href="{% url 'location-create' %}{% if batch.location.inventory_id %}?inventory={{ batch.location.inventory_id }}{% endif %}">{% include "_icon.html" with name="plus" %} Add a warehouse</a>
+                </div>
+            {% endfor %}
+        </div>
+        <p class="iw-inline-help" data-no-warehouse-match hidden>No warehouses match. Try another name or city.</p>
+        {% if region_options %}
+        <details class="iw-region-later" {% if not warehouse_options or row_form.destination.value|slice:":7" == "region:" %}open{% endif %}>
+            <summary>Choose a warehouse later</summary>
+            <p>Assign this stock to a region for now. It will still need a warehouse.</p>
+            <div class="iw-warehouse-options">
+                {% for option in region_options %}
+                <label class="iw-warehouse-option iw-region-option">
+                    <input type="radio" name="{{ row_form.destination.html_name }}" id="{{ row_form.destination.auto_id }}_region_{{ option.region.pk }}" value="{{ option.value }}" data-placement-destination data-kind="region" data-name="{{ option.region.name }}" {% if row_form.destination.value == option.value %}checked{% endif %} required>
+                    <span class="iw-warehouse-option-content"><strong>{{ option.region.name }}</strong><span>Choose its warehouse later</span></span>
+                </label>
+                {% endfor %}
+            </div>
+        </details>
+        {% endif %}
+        {% if row_form.destination.errors %}<div id="{{ row_form.destination.auto_id }}_errors" class="field-error" role="alert">{{ row_form.destination.errors }}</div>{% endif %}
+    </fieldset>
+
+    <details class="iw-quantity-choice" data-quantity-choice {% if row_form.quantity.errors %}open{% endif %}>
+        <summary><span data-amount-label>Move {{ row_form.quantity.value|default:0|quantity }} units</span><span class="iw-text-link">Change amount</span></summary>
+        <div class="form-group iw-field">
+            <div class="iw-label-with-action">
+                <label for="{{ row_form.quantity.id_for_label }}">How many units?</label>
+                <button type="button" class="iw-text-link" data-use-remaining hidden>Use all {{ batch.quantity_remaining|quantity }}</button>
+            </div>
+            <div class="iw-quantity-input">{{ row_form.quantity }}<span>units</span></div>
+            {% for error in row_form.quantity.errors %}<span class="field-error">{{ error }}</span>{% endfor %}
+        </div>
+    </details>
+    {% for error in row_form.non_field_errors %}<p class="field-error">{{ error }}</p>{% endfor %}
+    <span hidden>{{ row_form.DELETE }}</span>
+</div>

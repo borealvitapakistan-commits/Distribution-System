@@ -6,14 +6,10 @@ having to remember to list it in the template."""
 # first match wins, so more specific entries come first.
 OWNER_SECTIONS = [
     ("dashboard", ("owner-dashboard", "dashboard")),
-    ("purchase-orders", (
-        "owner-purchase-order", "purchase-order", "manufacturer-order",
-    )),
-    ("agreements", ("owner-agreement",)),
+    ("purchase-orders", ("manufacturer-order",)),
     ("partners", (
         "manufacturer-", "brand-", "owner-list", "owner-create",
-        "distributor-list", "distributor-invite", "approve-distributor",
-        "reject-distributor", "suspend-distributor", "deactivate-owner",
+        "deactivate-owner",
     )),
     ("products", ("product-", "category-", "ingredient-")),
     ("batches", ("stock-batch-list", "batch-trace")),
@@ -23,23 +19,11 @@ OWNER_SECTIONS = [
     ("finance", ("owner-finance",)),
 ]
 
-DISTRIBUTOR_SECTIONS = [
-    ("dashboard", ("distributor-dashboard",)),
-    ("orders", (
-        "distributor-orders-hub", "distributor-purchase-order", "purchase-order",
-    )),
-    ("agreements", ("distributor-agreement",)),
-    ("inventory", ("distributor-region", "distributor-warehouse")),
-    ("stock", ("distributor-stock",)),
-    ("sales", ("distributor-sale",)),
-    ("profile", ("distributor-profile",)),
-]
-
 
 def section_for(url_name, is_owner):
-    if not url_name:
+    if not (url_name and is_owner):
         return ""
-    for section, prefixes in OWNER_SECTIONS if is_owner else DISTRIBUTOR_SECTIONS:
+    for section, prefixes in OWNER_SECTIONS:
         if any(url_name == prefix or url_name.startswith(prefix) for prefix in prefixes):
             return section
     return ""

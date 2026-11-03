@@ -6,12 +6,12 @@
                 <th>{{ heading }}</th>
                 <th class="num">Units sold</th>
                 <th class="num">Retail value</th>
-                {% if columns.cut %}<th class="num">Distributor cut / discount</th>{% endif %}
+                {% if columns.cut %}<th class="num">Discount</th>{% endif %}
                 <th class="num">Revenue</th>
                 <th class="num">Cost of goods</th>
                 <th class="num">Gross profit</th>
                 <th class="num">Margin</th>
-                {% if show_free %}<th class="num">Free / written off (cost)</th>{% endif %}
+                {% if show_free %}<th class="num">Written off (cost)</th>{% endif %}
                 {% if show_net %}{% if columns.expenses %}<th class="num">Expenses</th>{% endif %}<th class="num">Net profit</th>{% endif %}
             </tr>
         </thead>

@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "django",
+  "git": {
+    "deploymentEnabled": false
+  },
+  "functions": {
+    "**/*.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{.git/**,.github/**,.claude/**,.planning/**,.venv/**,venv/**,media/**,data/**,docs/**,scripts/**,**/__pycache__/**,**/test*.py,**/*.sqlite3*,**/*.bak*,data*.json,.env*}"
+    }
+  }
+}

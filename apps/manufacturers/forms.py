@@ -171,10 +171,8 @@ class ManufacturerOrderItemForm(forms.ModelForm):
         model = ManufacturerOrderItem
         fields = [
             "product", "bottle_size", "quantity", "unit_price",
-            "source_purchase_order_item",
         ]
         widgets = {
-            "source_purchase_order_item": forms.HiddenInput(),
             "unit_price": forms.NumberInput(
                 attrs={"step": "0.001", "placeholder": "Optional", "class": "doc-line-input"}
             ),
@@ -207,7 +205,6 @@ class ManufacturerOrderItemForm(forms.ModelForm):
             choices=[("", "Bottle size (optional)")] + [(size, f"{size} capsules") for size in sorted(sizes)],
         )
         self.fields["unit_price"].required = False
-        self.fields["source_purchase_order_item"].required = False
         self.fields["quantity"] = bottle_quantity_field(
             label="Qty (bottles)", css_class="doc-line-input"
         )

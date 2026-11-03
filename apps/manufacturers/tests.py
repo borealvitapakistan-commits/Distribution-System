@@ -9,7 +9,6 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.distributors.services import approve_distributor, create_distributor
 from apps.products.services import create_product
 
 from .models import Manufacturer, ManufacturerOrder, ManufacturerOrderPayment
@@ -115,16 +114,13 @@ class ManufacturerDeletionTests(TestCase):
         response = self.client.post(reverse("manufacturer-delete", args=[uuid.uuid4()]))
         self.assertEqual(response.status_code, 404)
 
-    def test_anonymous_and_distributor_cannot_delete(self):
+    def test_anonymous_cannot_delete(self):
+        from django.contrib.auth.models import AnonymousUser
+
         self.client.logout()
         self.assertEqual(self.client.post(self.url).status_code, 302)
-        distributor = User.objects.create_user(
-            email="dist@delete.test", role=User.Role.DISTRIBUTOR,
-        )
-        self.client.force_login(distributor)
-        self.assertEqual(self.client.post(self.url).status_code, 403)
         with self.assertRaises(PermissionDenied):
-            delete_manufacturer(actor=distributor, manufacturer_id=self.manufacturer.pk)
+            delete_manufacturer(actor=AnonymousUser(), manufacturer_id=self.manufacturer.pk)
         self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
 
     def test_delete_requires_csrf_token(self):
@@ -168,14 +164,6 @@ class ManufacturerOrderTests(TestCase):
             base_retail_price=Decimal("100.00"),
             currency="pkr",
         )
-        self.distributor_user = create_distributor(
-            actor=self.owner,
-            email="dist@morder.test",
-            temporary_password="TemporaryPassword123!",
-            name="MOrder Distributor",
-        )
-        approve_distributor(user=self.owner, distributor_id=self.distributor_user.pk)
-        self.distributor_user.refresh_from_db()
 
     def make_order(self):
         return create_manufacturer_order(
@@ -198,9 +186,11 @@ class ManufacturerOrderTests(TestCase):
         self.assertEqual(order.grand_total, Decimal("650.00"))
 
     def test_only_owner_can_create(self):
+        from django.contrib.auth.models import AnonymousUser
+
         with self.assertRaises(PermissionDenied):
             create_manufacturer_order(
-                actor=self.distributor_user,
+                actor=AnonymousUser(),
                 manufacturer=self.manufacturer,
                 items=[
                     {"product": self.product, "quantity": Decimal("1"), "unit_price": Decimal("1")}
@@ -378,14 +368,13 @@ class ManufacturerOrderTests(TestCase):
         self.assertNotContains(response, 'name="shipping_amount"')
         self.assertNotContains(response, 'name="note"')
 
-    def test_distributor_cannot_access_manufacturer_order_pages(self):
+    def test_signed_out_visitor_cannot_access_manufacturer_order_pages(self):
         order = self.make_order()
-        self.client.force_login(self.distributor_user)
 
         response = self.client.get(
             reverse("manufacturer-order-detail", kwargs={"pk": order.pk})
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
 
     def test_full_lifecycle_via_views(self):
         order = self.make_order()

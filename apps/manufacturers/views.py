@@ -233,9 +233,6 @@ def manufacturer_order_item_rows(formset):
                 "bottle_size": form.cleaned_data.get("bottle_size"),
                 "quantity": form.cleaned_data["quantity"],
                 "unit_price": form.cleaned_data["unit_price"],
-                "source_purchase_order_item": form.cleaned_data.get(
-                    "source_purchase_order_item"
-                ),
                 "save_price": form.cleaned_data.get("save_price", False),
             }
         )
@@ -444,7 +441,6 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
                 {
                     "product": product_id,
                     "quantity": request.GET.get("quantity") or "",
-                    "source_purchase_order_item": request.GET.get("source_item") or "",
                 }
             ]
 
@@ -605,7 +601,6 @@ class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, Vie
                 "bottle_size": item.bottle_size,
                 "quantity": f"{item.quantity.normalize():f}",
                 "unit_price": item.requested_unit_price,
-                "source_purchase_order_item": item.source_purchase_order_item_id,
             }
             for item in order.items.all()
         ]
@@ -948,7 +943,6 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
             .prefetch_related(
                 "items__product",
                 "items__batch",
-                "items__source_purchase_order_item__purchase_order",
                 "payments",
             )
         )

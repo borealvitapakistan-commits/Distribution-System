@@ -12,7 +12,7 @@ from apps.accounts.permissions import IsOwner
 
 from .models import StockBalance
 from .serializers import StockBalanceSerializer
-from .services import give_to_distributor, receive_stock
+from .services import receive_stock
 
 
 
@@ -90,40 +90,3 @@ class ReceiveStockAPIView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-
-class GiveToDistributorAPIView(APIView):
-    permission_classes = [IsOwner]
-
-    def post(self, request):
-        data = request.data
-
-        try:
-            from apps.distributors.models import DistributorProfile
-
-            from .models import StockBatch
-
-            batch = StockBatch.objects.filter(pk=data.get("batch")).first()
-            distributor_profile = DistributorProfile.objects.filter(
-                pk=data.get("distributor")
-            ).first()
-
-            movement = give_to_distributor(
-                actor=request.user,
-                product=batch.product if batch else None,
-                quantity=data.get("quantity"),
-                from_location=batch.location if batch else None,
-                distributor_profile=distributor_profile,
-                batch=batch,
-                reference=data.get("reference", ""),
-            )
-        except (
-            DjangoPermissionDenied,
-            DjangoValidationError,
-            IntegrityError,
-        ) as exc:
-            raise_api_error(exc)
-
-        return Response(
-            {"movement_id": str(movement.pk)},
-            status=status.HTTP_201_CREATED,
-        )

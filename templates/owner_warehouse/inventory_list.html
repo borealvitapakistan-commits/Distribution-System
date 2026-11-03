@@ -1,118 +1,150 @@
-{% extends "base.html" %}
+{% extends "owner_warehouse/workspace_base.html" %}
 {% load money_filters %}
-
-{% block title %}
-    Inventory
-{% endblock %}
-
-{% block content %}
-<div class="page-header">
+{% block title %}Inventory{% endblock %}
+{% block inventory_content %}
+<div class="iw-page-heading">
     <div>
-        <p class="eyebrow">Inventory</p>
-        <h1>Inventory</h1>
-        <p>Your regions, and stock that's arrived but isn't placed anywhere yet.</p>
+        <p class="eyebrow">
+            YOUR STOCK, ORGANIZED
+        </p>
+        <h1>
+            Inventory
+        </h1>
+        <p>
+            Know what you have, where it is, and what needs a home.
+        </p>
     </div>
-
-    <div>
-        <a class="button button-secondary" href="{% url 'stock-balance-list' %}">
-            Stock Balances
-        </a>
-        <a class="button button-secondary" href="{% url 'location-list' %}">
-            All Warehouses
-        </a>
-        <a class="button button-secondary" href="{% url 'shopify-sync' %}">
-            Shopify Sync
-        </a>
+    <div class="iw-actions">
+        <a class="button button-secondary" href="{% url 'inventory-create' %}">{% include "_icon.html" with name="plus" %} Add region</a><a class="button button-primary" href="{% url 'inventory-add' %}">{% include "_icon.html" with name="plus" %} Add stock</a>
     </div>
 </div>
-
-<section class="panel">
-    <div class="hub-grid">
-        {% for inventory in inventories %}
-            <a class="hub-card" href="{% url 'inventory-detail' inventory.pk %}">
-                <span class="hub-card-icon">◈</span>
-                <span class="hub-card-title">{{ inventory.name }}</span>
-                <span class="hub-card-desc">{{ inventory.code }} — {{ inventory.warehouses.count }} warehouse{{ inventory.warehouses.count|pluralize }}</span>
-            </a>
-        {% endfor %}
-
-        <a class="hub-card" href="{% url 'inventory-create' %}">
-            <span class="hub-card-icon">+</span>
-            <span class="hub-card-title">Add Inventory</span>
-            <span class="hub-card-desc">A new region, e.g. Lahore or Islamabad.</span>
-        </a>
+{% include "owner_warehouse/_nav.html" %}
+<div class="iw-stats">
+    <a class="iw-stat iw-stat-attention" href="#stock-to-place"><span class="iw-stat-icon">{% include "_icon.html" with name="box" %}</span>
+    <div>
+        <span>Waiting for a warehouse</span><strong>{{ queue_units|quantity }} <small>units</small></strong><span>{{ queue_count }} batch{{ queue_count|pluralize }} to place {% include "_icon.html" with name="arrow" %}</span>
     </div>
-</section>
-
-<section class="panel">
-    <div class="panel-header">
+    </a>
+    <div class="iw-stat">
+        <span class="iw-stat-icon">{% include "_icon.html" with name="warehouse" %}</span>
         <div>
-            <h2>Not allocated to any region</h2>
-            <p>Stock received from a Manufacturer sits here until you send it somewhere.</p>
+            <span>In your warehouses</span><strong>{{ stored_units|quantity }} <small>units</small></strong><span>{{ warehouse_count }} warehouse{{ warehouse_count|pluralize }} across {{ region_count }} region{{ region_count|pluralize }}</span>
         </div>
     </div>
-
-    <div class="table-wrapper">
-        <table>
-            <thead>
-                <tr>
-                    <th>Batch Number</th>
-                    <th>Product</th>
-                    <th>Received</th>
-                    <th>Expiry</th>
-                    <th>Quantity</th>
-                    <th>Allocate to a region</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for batch, allocate_form in unallocated_rows %}
-                    <tr>
-                        <td>{{ batch.batch_number|default:"—" }}</td>
-                        <td>{{ batch.product.name }} ({{ batch.product.sku }})</td>
-                        <td>{{ batch.received_date }}</td>
-                        <td>{{ batch.expiry_date|default:"—" }}</td>
-                        <td>{{ batch.quantity_remaining }}</td>
-                        <td>
-                            {% if allocate_form.fields %}
-                                <form
-                                    method="post"
-                                    action="{% url 'inventory-allocate' batch.pk %}"
-                                    class="form-layout"
-                                >
-                                    {% csrf_token %}
-                                    <input type="hidden" name="return_to" value="inventory-list">
-
-                                    <div class="table-wrapper">
-                                        <table>
-                                            <tbody>
-                                                {% for field in allocate_form %}
-                                                    <tr>
-                                                        <td>{{ field.label }}</td>
-                                                        <td>{{ field }}</td>
-                                                    </tr>
-                                                {% endfor %}
-                                            </tbody>
-                                        </table>
-                                    </div>
-
-                                    <button class="button button-primary button-small" type="submit">
-                                        Allocate
-                                    </button>
-                                </form>
-                            {% else %}
-                                <span class="stat-detail">Add an Inventory first.</span>
-                            {% endif %}
-                        </td>
-                    </tr>
-                {% empty %}
-                    <tr>
-                        <td colspan="6" class="empty-table">
-                            Nothing unallocated right now.
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <a class="iw-stat iw-stat-action" href="{% url 'location-create' %}"><span class="iw-stat-icon">{% include "_icon.html" with name="plus" %}</span>
+    <div>
+        <strong>Add a warehouse</strong><span>A storage location within a region</span><span class="iw-text-link">Create warehouse {% include "_icon.html" with name="arrow" %}</span>
+    </div>
+    </a>
+</div>
+{% if target_warehouse %}
+<div class="iw-notice">
+    <span>{% include "_icon.html" with name="warehouse" %}</span>
+    <div>
+        <strong>Choose stock for {{ target_warehouse.name }}</strong>
+        <p>
+            The batches below can be placed in this warehouse in {{ target_warehouse.inventory.name }}.
+        </p>
+    </div>
+    <a href="{% url 'inventory-list' %}" class="iw-text-link">Show all stock</a>
+</div>
+{% elif target_inventory %}
+<div class="iw-notice">
+    <div>
+        <strong>Choose stock for {{ target_inventory.name }}</strong>
+        <p>
+            New deliveries and stock already assigned to this region are shown below.
+        </p>
+    </div>
+    <a href="{% url 'inventory-list' %}" class="iw-text-link">Show all stock</a>
+</div>
+{% endif %}
+{% include "owner_warehouse/_queue.html" %}
+<section class="iw-section" aria-labelledby="regionsTitle">
+    <div class="iw-section-heading">
+        <div>
+            <h2 id="regionsTitle">
+                Your regions <span class="iw-count">{{ region_count }}</span>
+            </h2>
+            <p>
+                A region is a city or area. Open one to see its warehouses.
+            </p>
+        </div>
+        <a class="iw-text-link" href="{% url 'inventory-create' %}">{% include "_icon.html" with name="plus" %} Add region</a>
+    </div>
+    <div class="iw-place-grid">
+        {% for inventory in inventories %}<a class="iw-place-card" href="{% url 'inventory-detail' inventory.pk %}">
+        <div class="iw-card-top">
+            <span class="iw-card-icon">{% include "_icon.html" with name="warehouse" %}</span>{% if not inventory.active %}<span class="iw-badge iw-badge-muted">Inactive</span>{% endif %}
+        </div>
+        <h3>
+            {{ inventory.name }}
+        </h3>
+        <p class="iw-muted">
+            {{ inventory.warehouse_count }} warehouse{{ inventory.warehouse_count|pluralize }} <span aria-hidden="true">·</span> {{ inventory.code }}
+        </p>
+        <div class="iw-card-numbers">
+            <div>
+                <strong>{{ inventory.stored_units|quantity }}</strong><span>units in warehouses</span>
+            </div>
+        </div>
+        {% if inventory.waiting_units %}
+        <p class="iw-card-waiting">
+            {{ inventory.waiting_units|quantity }} units need a warehouse
+        </p>
+        {% endif %}
+        <div class="iw-card-footer">
+            <span>View region</span>{% include "_icon.html" with name="arrow" %}
+        </div>
+        </a>{% empty %}
+        <div class="iw-panel iw-empty iw-empty-wide">
+            <span class="iw-empty-icon">{% include "_icon.html" with name="warehouse" %}</span>
+            <h3>
+                Let's set up your first region
+            </h3>
+            <p>
+                Start with a city or area, such as Lahore. Then add a warehouse where you keep your products.
+            </p>
+            <a class="button button-primary" href="{% url 'inventory-create' %}">Add your first region {% include "_icon.html" with name="arrow" %}</a>
+        </div>
+        {% endfor %}
     </div>
 </section>
+<details class="iw-guide">
+    <summary>
+        New to inventory? See how it works <span aria-hidden="true">+</span>
+    </summary>
+    <div class="iw-guide-steps">
+        <div>
+            <span>1</span>
+            <h3>
+                Add a region
+            </h3>
+            <p>
+                A city or area, like Lahore.
+            </p>
+        </div>
+        <div>
+            <span>2</span>
+            <h3>
+                Add its warehouses
+            </h3>
+            <p>
+                The physical places where you store products.
+            </p>
+        </div>
+        <div>
+            <span>3</span>
+            <h3>
+                Place your stock
+            </h3>
+            <p>
+                Choose a batch, a warehouse, and a quantity. Split it if you need to.
+            </p>
+        </div>
+    </div>
+    <p class="iw-guide-note">
+        Use <strong>Add stock</strong> to record an existing delivery. Stock received through a purchase order appears automatically.
+    </p>
+</details>
 {% endblock %}

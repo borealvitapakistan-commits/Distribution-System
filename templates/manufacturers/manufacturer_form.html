@@ -7,11 +7,11 @@
 {% block content %}
 <div class="page-header">
     <div>
-        <p class="eyebrow">Master Data</p>
+        <p class="eyebrow">Your supply partners</p>
         <h1>
             {% if object %}Edit Manufacturer{% else %}Add Manufacturer{% endif %}
         </h1>
-        <p>Who the Owner buys products from.</p>
+        <p>Keep your manufacturer’s details, contacts, and preferences together.</p>
     </div>
 
     <a class="button button-secondary" href="{% url 'manufacturer-list' %}">
@@ -19,8 +19,9 @@
     </a>
 </div>
 
-<section class="panel form-panel">
-    <form method="post" class="form-layout" enctype="multipart/form-data">
+<section class="panel">
+    <div class="panel-header"><div><h2>Partner details</h2><p>The essentials for a well-connected supply chain.</p></div>{% include "_icon.html" with name="factory" %}</div>
+    <form method="post" class="form-layout form-panel" enctype="multipart/form-data">
         {% csrf_token %}
 
         {% if form.non_field_errors %}
@@ -29,13 +30,19 @@
             </div>
         {% endif %}
 
+        <div class="form-grid">
         {% for field in form %}
-            <div class="form-group">
+            <div class="form-group{% if field.name == 'logo' or field.name == 'active' %} form-group-full{% endif %}">
+                {% if field.widget_type == 'checkbox' %}
+                <label class="checkbox-label" for="{{ field.id_for_label }}">{{ field }} {{ field.label }}</label>
+                {% else %}
                 <label for="{{ field.id_for_label }}">
                     {{ field.label }}
+                    {% if field.field.required %}<span class="required" aria-hidden="true">*</span>{% endif %}
                 </label>
 
                 {{ field }}
+                {% endif %}
                     {% if field.help_text %}<small class="stat-detail">{{ field.help_text }}</small>{% endif %}
 
                 {% for error in field.errors %}
@@ -43,8 +50,10 @@
                 {% endfor %}
             </div>
         {% endfor %}
+        </div>
 
         <div class="form-actions">
+            <a class="button button-secondary" href="{% url 'manufacturer-list' %}">Cancel</a>
             <button class="button button-primary" type="submit">
                 Save Manufacturer
             </button>

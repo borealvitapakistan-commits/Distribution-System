@@ -112,7 +112,7 @@
     <article class="stat-card fin-highlight">
         <span class="stat-label">Net profit</span>
         <strong>{{ totals.net_profit|num:0 }}</strong>
-        <span class="stat-detail">After expenses, free stock and write-offs · {{ totals.net_margin|pct }}</span>
+        <span class="stat-detail">After expenses and write-offs · {{ totals.net_margin|pct }}</span>
     </article>
 </div>
 
@@ -127,12 +127,11 @@
         <table class="fin-statement">
             <tbody>
                 <tr><td>Retail sale value <span class="fin-formula">retail price × units sold</span></td><td>{{ totals.retail_value|num }}</td></tr>
-                <tr><td class="fin-indent">− Distributor cut &amp; Shopify discounts</td><td>{{ totals.cut|num }}</td></tr>
+                <tr><td class="fin-indent">− Shopify discounts</td><td>{{ totals.cut|num }}</td></tr>
                 <tr class="fin-subtotal"><td>Revenue <span class="fin-formula">what we actually received</span></td><td>{{ totals.revenue|num }}</td></tr>
                 <tr><td class="fin-indent">− Cost of goods sold <span class="fin-formula">batch landed cost × units</span></td><td>{{ totals.cogs|num }}</td></tr>
                 <tr class="fin-subtotal"><td>Gross profit</td><td class="{{ totals.gross_profit|sign_class }}">{{ totals.gross_profit|num }}</td></tr>
                 <tr><td class="fin-indent">− Expenses</td><td>{{ totals.expenses|num }}</td></tr>
-                <tr><td class="fin-indent">− Stock given free ({{ totals.free_units|qty }} units, at cost)</td><td>{{ totals.free_cost|num }}</td></tr>
                 <tr><td class="fin-indent">− Stock written off ({{ totals.written_off_units|qty }} units, at cost)</td><td>{{ totals.written_off_cost|num }}</td></tr>
                 <tr class="fin-grand"><td>Net profit</td><td class="{{ totals.net_profit|sign_class }}">{{ totals.net_profit|num }}</td></tr>
             </tbody>
@@ -156,7 +155,6 @@
             <tbody>
                 <tr><td>Stock bought (received) <span class="fin-formula">{{ report.stock_bought_units|qty }} units × landed cost</span></td><td>{{ report.stock_bought|num }}</td></tr>
                 <tr><td>Paid to Manufacturers</td><td>{{ report.paid_to_manufacturers|num }}</td></tr>
-                <tr><td>Received from Distributors (confirmed)</td><td>{{ report.received_from_distributors|num }}</td></tr>
                 <tr><td>Expenses paid</td><td>{{ totals.expenses|num }}</td></tr>
                 <tr class="fin-subtotal"><td>Stock on hand now, at cost <span class="fin-formula">{{ stock.units|qty }} units</span></td><td>{{ stock.cost|num }}</td></tr>
                 <tr><td>Stock on hand now, at retail</td><td>{{ stock.retail|num }}</td></tr>
@@ -191,7 +189,7 @@
     <div class="panel-header">
         <div>
             <h2>By channel</h2>
-            <p>Distributor sales, Shopify sales, free stock and write-offs.</p>
+            <p>Shopify sales and write-offs.</p>
         </div>
     </div>
     {% include "finance/_figures_table.html" with rows=report.by_kind heading="Channel" show_free=columns.lost columns=columns empty="No sales in this period." %}
@@ -216,18 +214,6 @@
     </div>
     {% include "finance/_figures_table.html" with rows=report.by_batch heading="Batch" show_free=columns.lost columns=columns empty="No sales in this period." %}
 </section>
-
-{% if report.by_distributor %}
-    <section class="panel fin-panel">
-        <div class="panel-header">
-            <div>
-                <h2>By Distributor</h2>
-                <p>What each Distributor bought or was given.</p>
-            </div>
-        </div>
-        {% include "finance/_figures_table.html" with rows=report.by_distributor heading="Distributor" show_free=columns.lost columns=columns empty="" %}
-    </section>
-{% endif %}
 
 {% if period == "daily" %}
     <section class="panel fin-panel">

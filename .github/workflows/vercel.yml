@@ -1,0 +1,131 @@
+name: Test and deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      apply_migrations:
+        description: Apply pending database migrations (review the migration plan first)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Django tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: distribution_ci
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-only-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d distribution_ci"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      SECRET_KEY: ci-only-not-a-production-secret-key-0123456789-abcdefghij
+      DEBUG: "True"
+      DATABASE_URL: postgres://postgres:ci-only-password@127.0.0.1:5432/distribution_ci
+      TEST_DATABASE_URL: postgres://postgres:ci-only-password@127.0.0.1:5432/distribution_ci
+      DJANGO_SETTINGS_MODULE: config.test_settings
+      USE_S3_STORAGE: "False"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Check models and migrations
+        run: |
+          python manage.py check
+          python manage.py makemigrations --check --dry-run
+      - name: Run all tests against isolated PostgreSQL
+        run: python manage.py test --noinput
+
+  deploy:
+    name: Deploy production
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    concurrency:
+      group: vercel-production
+      cancel-in-progress: false
+    env:
+      VERCEL_TELEMETRY_DISABLED: "1"
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      PRODUCTION_URL: ${{ vars.PRODUCTION_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check deployment configuration
+        shell: bash
+        run: |
+          for name in VERCEL_ORG_ID VERCEL_PROJECT_ID VERCEL_TOKEN PRODUCTION_URL; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Set $name in GitHub repository settings. See docs/VERCEL_DEPLOYMENT.md."
+              exit 1
+            fi
+          done
+          if [[ "$PRODUCTION_URL" != https://* ]]; then
+            echo "::error::PRODUCTION_URL must start with https://."
+            exit 1
+          fi
+      - name: Install deployment tools
+        run: |
+          python -m pip install -r requirements.txt
+          npm install --global vercel@65.10.0
+      - name: Download production configuration
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+      - name: Build Django and static assets
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+      - name: Check release and database schema
+        env:
+          APPLY_MIGRATIONS: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_migrations }}
+        shell: bash
+        run: |
+          if [ "$APPLY_MIGRATIONS" = "true" ]; then
+            python scripts/vercel_release.py --migrate
+          else
+            python scripts/vercel_release.py
+          fi
+      - name: Publish the prebuilt app
+        id: deploy
+        shell: bash
+        run: |
+          deployment_url=$(vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN")
+          echo "url=$deployment_url" >> "$GITHUB_OUTPUT"
+          echo "Deployed: $deployment_url" >> "$GITHUB_STEP_SUMMARY"
+      - name: Verify app and database
+        env:
+          PROTECTION_BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        shell: bash
+        run: |
+          headers=()
+          if [ -n "$PROTECTION_BYPASS" ]; then
+            headers=(-H "x-vercel-protection-bypass: $PROTECTION_BYPASS")
+          fi
+          curl --fail --silent --show-error --retry 4 --retry-all-errors \
+            --retry-delay 5 --max-time 60 "${headers[@]}" "${PRODUCTION_URL%/}/health/"

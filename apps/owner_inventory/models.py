@@ -13,7 +13,7 @@ from .querysets import StockBalanceQuerySet, StockBatchQuerySet
 
 class StockMovement(AuditedModel):
     """Immutable ledger row. Every stock change — receiving from a
-    Manufacturer, giving to a Distributor, a Shopify sale, a manual
+    Manufacturer, a Shopify sale, a move between warehouses, a manual
     correction — is one row here. Corrections are new rows, never edits."""
 
     class MovementType(models.TextChoices):
@@ -27,6 +27,8 @@ class StockMovement(AuditedModel):
         inventory can still say how much each channel took."""
 
         MANUFACTURER = "MANUFACTURER", "Manufacturer"
+        # History only: stock that left before the Distributor panel was
+        # archived (see D:/Boriel-Vita/Boreal Beta). Nothing posts it now.
         DISTRIBUTOR = "DISTRIBUTOR", "Distributor"
         SHOPIFY = "SHOPIFY", "Shopify"
         INTERNAL = "INTERNAL", "Internal"
@@ -68,15 +70,6 @@ class StockMovement(AuditedModel):
         max_length=20,
         choices=Channel.choices,
         blank=True,
-    )
-
-    distributor_profile = models.ForeignKey(
-        "distributors.DistributorProfile",
-        on_delete=models.PROTECT,
-        related_name="owner_stock_movements",
-        null=True,
-        blank=True,
-        help_text="For stock shipped or given to a Distributor: which one.",
     )
 
     shopify_order = models.ForeignKey(
@@ -197,8 +190,7 @@ class StockBatch(AuditedModel):
     Shipping out draws down a specific batch's quantity_remaining (FEFO by
     default), so older/soon-to-expire stock gets suggested first. Batches
     only exist for locations the Owner directly manages (own warehouses,
-    unallocated pools, Transit) — once stock reaches a Distributor, it's tracked in
-    their own, separate DistributorStockBatch instead.
+    unallocated pools, Transit).
     """
 
     product = models.ForeignKey(
@@ -223,20 +215,6 @@ class StockBatch(AuditedModel):
             "The canonical Batch this lot traces back to, when it came "
             "from a Manufacturer Purchase Order. Not set for stock added "
             "manually (e.g. the Add Inventory form)."
-        ),
-    )
-
-    shipped_for = models.ForeignKey(
-        "requests.PurchaseOrderItem",
-        on_delete=models.PROTECT,
-        related_name="transit_batches",
-        null=True,
-        blank=True,
-        help_text=(
-            "For a lot sitting in Transit: the Distributor purchase order "
-            "line it was shipped on, so only that order's receipt can "
-            "draw it down — two orders for the same product never swap "
-            "batches."
         ),
     )
 
@@ -351,8 +329,7 @@ class ShopifySyncState(TimeStampedModel):
 
 class ShopifyOrder(UUIDModel, TimeStampedModel):
     """A Shopify order the system has seen, imported once by its Shopify
-    ID. Its lines draw stock out of the shared inventory exactly like a
-    Distributor shipment does, so a Shopify sale is traceable to the
+    ID. Its lines draw stock out of the owned warehouses, so a Shopify sale is traceable to the
     batch and warehouse it came from."""
 
     shopify_order_id = models.CharField(max_length=100, unique=True)

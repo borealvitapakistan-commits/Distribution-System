@@ -1,0 +1,6 @@
+<nav class="iw-nav" aria-label="Inventory pages">
+    <a href="{% url 'inventory-list' %}" {% if inventory_tab == 'overview' %}class="is-active" aria-current="page"{% endif %}>{% include "_icon.html" with name="layers" %} Overview</a>
+    <a href="{% url 'location-list' %}" {% if inventory_tab == 'warehouses' %}class="is-active" aria-current="page"{% endif %}>{% include "_icon.html" with name="warehouse" %} Warehouses</a>
+    <a href="{% url 'stock-balance-list' %}" {% if inventory_tab == 'stock' %}class="is-active" aria-current="page"{% endif %}>{% include "_icon.html" with name="box" %} All stock</a>
+    <a href="{% url 'shopify-sync' %}" class="iw-nav-secondary">Shopify sync {% include "_icon.html" with name="arrow" %}</a>
+</nav>

@@ -14,7 +14,6 @@ def create_role_groups(sender, **kwargs):
         return
 
     owner_group, _ = Group.objects.get_or_create(name="Owner")
-    Group.objects.get_or_create(name="Distributor")
     owner_group.permissions.set(Permission.objects.all())
 
 
@@ -39,7 +38,6 @@ def remember_previous_active_state(sender, instance, **kwargs):
 def enforce_role_group_and_deactivation(sender, instance, **kwargs):
     role_groups = {
         User.Role.OWNER: "Owner",
-        User.Role.DISTRIBUTOR: "Distributor",
     }
 
     group_name = role_groups.get(

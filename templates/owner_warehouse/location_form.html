@@ -1,55 +1,87 @@
-{% extends "base.html" %}
-
-{% block title %}
-    {% if object %}Edit Warehouse{% else %}New Warehouse{% endif %}
-{% endblock %}
-
-{% block content %}
-<div class="page-header">
+{% extends "owner_warehouse/workspace_base.html" %}
+{% block title %}{% if object %}Edit warehouse{% else %}Add warehouse{% endif %}{% endblock %}
+{% block inventory_content %}
+<nav class="iw-breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'inventory-list' %}">Inventory</a><span aria-hidden="true">/</span><a href="{% url 'location-list' %}">Warehouses</a><span aria-hidden="true">/</span><span>{% if object %}Edit warehouse{% else %}Add warehouse{% endif %}</span>
+</nav>
+<div class="iw-page-heading">
     <div>
-        <p class="eyebrow">Warehouse</p>
+        <p class="eyebrow">
+            A HOME FOR YOUR STOCK
+        </p>
         <h1>
-            {% if object %}Edit Warehouse{% else %}New Warehouse{% endif %}
+            {% if object %}Edit warehouse{% else %}Add a warehouse{% endif %}
         </h1>
-        <p>Shopify and Distributors are both supplied from your warehouses. New warehouses are sellable by default.</p>
+        <p>
+            The physical place where you store your products.
+        </p>
     </div>
-
-    <a class="button button-secondary" href="{% url 'location-list' %}">
-        Back
-    </a>
 </div>
-
-<section class="panel form-panel form-panel-narrow">
-    <form method="post" class="form-layout">
-        {% csrf_token %}
-
-        {% if form.non_field_errors %}
-            <div class="form-errors">
-                {{ form.non_field_errors }}
-            </div>
-        {% endif %}
-
-        {% for field in form %}
-            <div class="form-group">
-                <label for="{{ field.id_for_label }}">
-                    {{ field.label }}
-                </label>
-
-                {{ field }}
-
-                {% if field.help_text %}
-                    <small>{{ field.help_text }}</small>
-                {% endif %}
-
-                {% for error in field.errors %}
-                    <span class="field-error">{{ error }}</span>
-                {% endfor %}
-            </div>
-        {% endfor %}
-
-        <button class="button button-primary">
-            Save Warehouse
-        </button>
-    </form>
+{% if not object and not form.inventory.field.queryset.exists %}
+<section class="iw-panel iw-empty">
+    <span class="iw-empty-icon">{% include "_icon.html" with name="warehouse" %}</span>
+    <h2>
+        Add a region first
+    </h2>
+    <p>
+        A region is a city or area that groups your warehouses together. Create one, then come back to name this warehouse.
+    </p>
+    <a class="button button-primary" href="{% url 'inventory-create' %}?next=warehouse">Add your first region {% include "_icon.html" with name="arrow" %}</a>
 </section>
+{% else %}
+<div class="iw-form-layout">
+    <form method="post" class="iw-panel iw-setup-form">
+        {% csrf_token %}{% if form.non_field_errors %}
+        <div class="iw-form-errors" role="alert">
+            {{ form.non_field_errors }}
+        </div>
+        {% endif %}
+        <div class="iw-form-body">
+            <h2>
+                Warehouse details
+            </h2>
+            {% include "owner_warehouse/_field.html" with field=form.name %}{% include "owner_warehouse/_field.html" with field=form.inventory %}<a class="iw-text-link iw-add-region-link" href="{% url 'inventory-create' %}?next=warehouse">{% include "_icon.html" with name="plus" %} Need a new region? Add one</a>{% include "owner_warehouse/_field.html" with field=form.address %}<label class="iw-toggle-card">{{ form.is_sellable }}<span><strong>{{ form.is_sellable.label }}</strong><small>{{ form.is_sellable.help_text }}</small></span></label>
+            <details class="iw-form-disclosure" {% if form.code.errors or form.area_square_feet.errors or form.capacity_units.errors %}open{% endif %}>
+                <summary>
+                    Reference code &amp; capacity <span class="iw-optional">Optional</span>
+                </summary>
+                {% include "owner_warehouse/_field.html" with field=form.code %}
+                <div class="iw-form-columns">
+                    {% include "owner_warehouse/_field.html" with field=form.area_square_feet %}{% include "owner_warehouse/_field.html" with field=form.capacity_units %}
+                </div>
+                <p class="iw-inline-help">
+                    Capacity is a guide. Leave it blank if you do not need to track it.
+                </p>
+            </details>
+            {% if object %}<label class="iw-toggle-card">{{ form.active }}<span><strong>{{ form.active.label }}</strong><small>Turn this off to stop new stock placements here.</small></span></label>{% else %}<input type="hidden" name="active" value="on">{% endif %}
+        </div>
+        <div class="iw-form-footer">
+            <a class="iw-text-link" href="{% if object %}{% url 'location-detail' object.pk %}{% elif selected_inventory %}{% url 'inventory-detail' selected_inventory.pk %}{% else %}{% url 'location-list' %}{% endif %}">Cancel</a><button type="submit" class="button button-primary">{% if object %}Save changes{% else %}Create warehouse{% endif %} {% include "_icon.html" with name="arrow" %}</button>
+        </div>
+    </form>
+    <aside class="iw-form-help">
+        <span class="iw-summary-icon">{% include "_icon.html" with name="warehouse" %}</span>
+        <h2>
+            Start with the basics.
+        </h2>
+        <p>
+            Give your warehouse a familiar name and choose its region. An address helps your team find the right place.
+        </p>
+        <ol class="iw-help-steps">
+            <li>
+                Name your warehouse
+            </li>
+            <li>
+                Choose its city or region
+            </li>
+            <li>
+                Place product batches inside
+            </li>
+        </ol>
+        <p>
+            You can add capacity details later. Turn off <strong>available for sale</strong> for stock that should be held back.
+        </p>
+    </aside>
+</div>
+{% endif %}
 {% endblock %}

@@ -1,167 +1,166 @@
-{% extends "base.html" %}
-
-{% block title %}
-    {{ location.name }}
-{% endblock %}
-
-{% block content %}
-<div class="page-header">
+{% extends "owner_warehouse/workspace_base.html" %}
+{% load money_filters %}
+{% block title %}{{ location.name }}{% endblock %}
+{% block inventory_content %}
+<nav class="iw-breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'inventory-list' %}">Inventory</a><span aria-hidden="true">/</span>{% if location.inventory %}<a href="{% url 'inventory-detail' location.inventory.pk %}">{{ location.inventory.name }}</a><span aria-hidden="true">/</span>{% endif %}<span>{{ location.name }}</span>
+</nav>
+<div class="iw-page-heading">
     <div>
-        <p class="eyebrow">Location Detail</p>
-        <h1>{{ location.name }}</h1>
+        <p class="eyebrow">
+            WAREHOUSE <span aria-hidden="true">·</span> {{ location.code }}
+        </p>
+        <h1>
+            {{ location.name }}
+        </h1>
         <p>
-            {{ location.code }}{% if location.inventory %} · {{ location.inventory.name }}{% else %} · {{ location.get_location_type_display }}{% endif %}
+            {% if location.inventory %}{{ location.inventory.name }}{% endif %}{% if location.address %} <span aria-hidden="true">·</span> {{ location.address }}{% endif %}
         </p>
     </div>
-
-    <div>
-        {% if location.inventory %}
-            <a class="button button-secondary" href="{% url 'inventory-detail' location.inventory.pk %}">
-                Back to {{ location.inventory.name }}
-            </a>
-        {% else %}
-            <a class="button button-secondary" href="{% url 'inventory-list' %}">
-                Back to Inventory
-            </a>
-        {% endif %}
-
-        {% if location.location_type == "OWN" %}
-            <a class="button button-primary" href="{% url 'location-edit' location.pk %}">
-                Edit
-            </a>
-        {% endif %}
+    <div class="iw-actions">
+        {% if location.location_type == "OWN" %}<a class="button button-secondary" href="{% url 'location-edit' location.pk %}">Edit warehouse</a>{% if location.active and location.inventory.active %}<a class="button button-primary" href="{% url 'inventory-list' %}?warehouse={{ location.pk }}#stock-to-place">{% include "_icon.html" with name="plus" %} Place stock here</a>{% endif %}{% endif %}
     </div>
 </div>
-
-<section class="panel">
-    <div class="panel-header">
+{% include "owner_warehouse/_nav.html" %}
+<div class="iw-stats iw-stats-region">
+    <div class="iw-stat">
+        <span class="iw-stat-icon">{% include "_icon.html" with name="box" %}</span>
         <div>
-            <h2>Products in {{ location.name }}</h2>
+            <span>Stock stored here</span><strong>{{ utilization.quantity_on_hand|quantity }} <small>units</small></strong><span>{{ stock_summary.batch_count }} batch{{ stock_summary.batch_count|pluralize }}</span>
         </div>
     </div>
-
-    <div class="table-wrapper">
-        <table>
+    <div class="iw-stat">
+        <span class="iw-stat-icon">{% include "_icon.html" with name="layers" %}</span>
+        <div>
+            <span>Different products</span><strong>{{ stock_summary.product_count }}</strong><span>Each batch stays traceable</span>
+        </div>
+    </div>
+    <div class="iw-stat iw-status-stat">
+        <div>
+            <span>Sales status</span>{% include "owner_warehouse/_sales_status.html" with warehouse=location %}
+            <p>
+                {% if not location.active %}Activate this warehouse to place new stock.{% elif location.is_sellable %}Stock here can be sold and included in Shopify sync.{% else %}This stock is held back from Shopify sales.{% endif %}
+            </p>
+        </div>
+    </div>
+</div>
+<section class="iw-panel">
+    <div class="iw-panel-heading">
+        <div>
+            <h2>
+                Products &amp; batches
+            </h2>
+            <p>
+                Everything stored here, with the soonest expiry first.
+            </p>
+        </div>
+    </div>
+    <form method="get" class="iw-searchbar" role="search" aria-label="Find stock in this warehouse">
+        <div class="iw-search-input">
+            {% include "_icon.html" with name="search" %}<input type="search" name="q" value="{{ search }}" placeholder="Search a product or batch number" aria-label="Search product or batch">
+        </div>
+        <button class="button button-secondary button-small" type="submit">Search</button>{% if search %}<a class="iw-text-link" href="{% url 'location-detail' location.pk %}">Clear</a>{% endif %}
+    </form>
+    {% if batches %}
+    <div class="iw-table-scroll">
+        <table class="iw-table iw-responsive-table">
             <thead>
                 <tr>
-                    <th>Product</th>
-                    <th>SKU</th>
-                    <th>Batch</th>
-                    <th>Received</th>
-                    <th>Expiry</th>
-                    <th>Quantity</th>
+                    <th scope="col">
+                        Product
+                    </th>
+                    <th scope="col">
+                        Batch number
+                    </th>
+                    <th scope="col">
+                        Quantity
+                    </th>
+                    <th scope="col">
+                        Received
+                    </th>
+                    <th scope="col">
+                        Expiry
+                    </th>
                 </tr>
             </thead>
             <tbody>
                 {% for batch in batches %}
-                    <tr>
-                        <td>{{ batch.product.name }}</td>
-                        <td>{{ batch.product.sku }}</td>
-                        <td class="nowrap">{{ batch.batch_number|default:"No batch number" }}</td>
-                        <td>{{ batch.received_date|date:"M d, Y" }}</td>
-                        <td>
-                            {% if batch.expiry_date %}
-                                {{ batch.expiry_date|date:"M d, Y" }}
-                            {% else %}
-                                <span class="badge badge-pending">No expiry set</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ batch.quantity_remaining }}</td>
-                    </tr>
-                {% empty %}
-                    <tr>
-                        <td colspan="6" class="empty-table">
-                            No stock recorded here yet.
-                        </td>
-                    </tr>
+                <tr>
+                    <td data-label="Product">
+                        <strong>{{ batch.product.name }}</strong><span class="iw-table-note">{{ batch.product.sku }}</span>
+                    </td>
+                    <td data-label="Batch">
+                        {% if batch.batch_number %}<a class="iw-text-link" href="{% url 'batch-trace' %}?code={{ batch.batch_number|urlencode }}">{{ batch.batch_number }}</a>{% else %}Not provided{% endif %}
+                    </td>
+                    <td data-label="Quantity">
+                        <strong class="iw-quantity">{{ batch.quantity_remaining|quantity }}</strong> <span class="iw-muted">units</span>
+                    </td>
+                    <td data-label="Received">
+                        {{ batch.received_date|date:"d M Y" }}
+                    </td>
+                    <td data-label="Expiry">
+                        {{ batch.expiry_date|date:"d M Y"|default:"Not provided" }}{% if batch.expiry_date and batch.expiry_date < today %}<span class="iw-table-note iw-text-danger">Expired</span>{% endif %}
+                    </td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-</section>
-
-<details class="info-disclosure">
-    <summary class="button button-secondary">ⓘ Location Info</summary>
-
-    <div class="content-grid" style="margin-top: 1rem;">
-        <section class="panel">
-            <h2>Location configuration</h2>
-
-            <dl class="details-list">
-                {% if location.inventory %}
-                    <div>
-                        <dt>Inventory (region)</dt>
-                        <dd>
-                            <a href="{% url 'inventory-detail' location.inventory.pk %}">
-                                {{ location.inventory.name }}
-                            </a>
-                        </dd>
-                    </div>
-                {% endif %}
-
-                <div>
-                    <dt>Linked to</dt>
-                    <dd>
-                        {% firstof location.manufacturer.name "—" %}
-                    </dd>
-                </div>
-
-                <div>
-                    <dt>On book</dt>
-                    <dd>{{ location.on_book|yesno:"Yes,No" }}</dd>
-                </div>
-
-                <div>
-                    <dt>Physical</dt>
-                    <dd>{{ location.is_physical|yesno:"Yes,No" }}</dd>
-                </div>
-
-                <div>
-                    <dt>Sellable</dt>
-                    <dd>{{ location.is_sellable|yesno:"Yes,No" }}</dd>
-                </div>
-
-                <div>
-                    <dt>Address</dt>
-                    <dd>{{ location.address|default:"—" }}</dd>
-                </div>
-            </dl>
-        </section>
-
-        <section class="panel">
-            <h2>Utilization warning</h2>
-
-            <dl class="details-list">
-                <div>
-                    <dt>On hand</dt>
-                    <dd>{{ utilization.quantity_on_hand }}</dd>
-                </div>
-
-                <div>
-                    <dt>Capacity</dt>
-                    <dd>{{ utilization.capacity_units }}</dd>
-                </div>
-
-                <div>
-                    <dt>Utilization</dt>
-                    <dd>
-                        {% if utilization.utilization_percentage %}
-                            {{ utilization.utilization_percentage|floatformat:2 }}%
-                        {% else %}
-                            Not configured
-                        {% endif %}
-                    </dd>
-                </div>
-            </dl>
-
-            {% if utilization.warning %}
-                <div class="alert alert-warning">
-                    On-hand quantity exceeds advisory capacity.
-                </div>
-            {% else %}
-                <p class="empty-state">No capacity warning.</p>
-            {% endif %}
-        </section>
+    {% else %}
+    <div class="iw-empty">
+        <span class="iw-empty-icon">{% include "_icon.html" with name="box" %}</span>
+        <h3>
+            {% if search %}No matching products or batches{% else %}Ready for your first batch{% endif %}
+        </h3>
+        <p>
+            {% if search %}Try a different product name or batch number.{% else %}Choose stock that has arrived and place it in this warehouse.{% endif %}
+        </p>
+        {% if not search and location.location_type == "OWN" and location.active and location.inventory.active %}<a class="button button-primary" href="{% url 'inventory-list' %}?warehouse={{ location.pk }}#stock-to-place">Choose stock to place {% include "_icon.html" with name="arrow" %}</a><a class="iw-text-link iw-secondary-empty-action" href="{% url 'inventory-add' %}?location={{ location.pk }}">Or record an existing delivery</a>{% endif %}
     </div>
+    {% endif %}
+</section>
+<details class="iw-guide">
+    <summary>
+        Warehouse details &amp; capacity <span aria-hidden="true">+</span>
+    </summary>
+    <dl class="iw-detail-grid">
+        <div>
+            <dt>
+                Region
+            </dt>
+            <dd>
+                {{ location.inventory.name|default:"Not assigned" }}
+            </dd>
+        </div>
+        <div>
+            <dt>
+                Address
+            </dt>
+            <dd>
+                {{ location.address|default:"Not provided" }}
+            </dd>
+        </div>
+        <div>
+            <dt>
+                Floor space
+            </dt>
+            <dd>
+                {% if location.area_square_feet %}{{ location.area_square_feet|floatformat:"-2" }} sq ft{% else %}Not set{% endif %}
+            </dd>
+        </div>
+        <div>
+            <dt>
+                Storage capacity
+            </dt>
+            <dd>
+                {% if location.capacity_units %}{{ location.capacity_units|quantity }} units{% else %}Not set{% endif %}
+            </dd>
+        </div>
+    </dl>
+    {% if utilization.warning %}
+    <p class="iw-notice iw-notice-amber">
+        Stock stored here exceeds the capacity you entered. Capacity is a guide and does not block placement.
+    </p>
+    {% endif %}
 </details>
 {% endblock %}

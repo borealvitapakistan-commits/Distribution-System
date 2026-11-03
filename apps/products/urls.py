@@ -3,7 +3,6 @@ from django.urls import path
 from .views import (
     CategoryCreateView,
     CategoryListView,
-    DistributorProductListView,
     IngredientCreateView,
     ProductCreateView,
     ProductBottlePricesView,
@@ -25,11 +24,6 @@ from .views import (
 
 urlpatterns = [
     path("owner/products/manufacturers/<str:manufacturer_key>/", ManufacturerProductsView.as_view(), name="product-manufacturer-products"),
-    path(
-        "distributor/products/",
-        DistributorProductListView.as_view(),
-        name="distributor-product-list",
-    ),
     path(
         "owner/products/categories/",
         CategoryListView.as_view(),

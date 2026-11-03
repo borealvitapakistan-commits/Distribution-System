@@ -1,0 +1,92 @@
+{% load money_filters %}
+<section class="iw-panel" id="stock-to-place" aria-labelledby="waitingTitle">
+    <div class="iw-panel-heading">
+        <div>
+            <div class="iw-heading-line">
+                <span class="iw-card-icon iw-icon-amber">{% include "_icon.html" with name="box" %}</span>
+                <h2 id="waitingTitle">
+                    Stock waiting to be placed
+                </h2>
+                <span class="iw-count">{{ queue_count }}</span>
+            </div>
+            <p>
+                {% if inventory %}Stock assigned to {{ inventory.name }} and new deliveries you can place here.{% else %}Choose a batch, then tell us where it should go. You can split it between warehouses.{% endif %}
+            </p>
+        </div>
+        <span class="iw-total">{{ queue_units|quantity }} <span>units waiting</span></span>
+    </div>
+    <form method="get" class="iw-searchbar" role="search" aria-label="Find stock to place">
+        {% if target_warehouse %}<input type="hidden" name="warehouse" value="{{ target_warehouse.pk }}">{% elif target_inventory %}<input type="hidden" name="inventory" value="{{ target_inventory.pk }}">{% endif %}
+        <div class="iw-search-input">
+            {% include "_icon.html" with name="search" %}<input type="search" name="q" value="{{ search }}" placeholder="Search a product or batch number" aria-label="Search product or batch">
+        </div>
+        <button class="button button-secondary button-small" type="submit">Search</button>
+        {% if search %}<a class="iw-text-link" href="{{ request.path }}{% if target_warehouse %}?warehouse={{ target_warehouse.pk }}{% endif %}#stock-to-place">Clear</a>{% endif %}
+        <span class="iw-sort-hint">Soonest expiry first</span>
+    </form>
+    {% if batch_page.object_list %}
+    <div class="iw-table-scroll">
+        <table class="iw-table iw-responsive-table">
+            <thead>
+                <tr>
+                    <th scope="col">
+                        Product &amp; batch
+                    </th>
+                    <th scope="col">
+                        Available
+                    </th>
+                    <th scope="col">
+                        Current region
+                    </th>
+                    <th scope="col">
+                        Expiry
+                    </th>
+                    <th scope="col">
+                        <span class="iw-sr-only">Action</span>
+                    </th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for batch in batch_page %}
+                <tr>
+                    <td data-label="Product">
+                        <strong>{{ batch.product.name }}</strong><span class="iw-table-note">{% if batch.batch_number %}{{ batch.batch_number }}{% else %}No batch number{% endif %}{% if batch.product.sku %} <span aria-hidden="true">·</span> {{ batch.product.sku }}{% endif %}</span><span class="iw-table-note">Received {{ batch.received_date|date:"d M Y" }}</span>
+                    </td>
+                    <td data-label="Available">
+                        <strong class="iw-quantity">{{ batch.quantity_remaining|quantity }}</strong><span class="iw-table-note">units</span>
+                    </td>
+                    <td data-label="Region">
+                        {% if batch.location.inventory %}{{ batch.location.inventory.name }}<span class="iw-table-note">Needs a warehouse</span>{% else %}<span class="iw-badge iw-badge-blue">New delivery</span><span class="iw-table-note">Choose any region</span>{% endif %}
+                    </td>
+                    <td data-label="Expiry">
+                        {% if batch.expiry_date %}{{ batch.expiry_date|date:"d M Y" }}{% if batch.expiry_date < today %}<span class="iw-table-note iw-text-danger">Expired</span>{% endif %}{% else %}<span class="iw-muted">Not provided</span>{% endif %}
+                    </td>
+                    <td class="iw-table-action">
+                        <a class="button button-primary button-small" href="{% url 'inventory-allocate' batch.pk %}{% if target_warehouse %}?warehouse={{ target_warehouse.pk }}{% elif inventory %}?inventory={{ inventory.pk }}{% elif target_inventory %}?inventory={{ target_inventory.pk }}{% endif %}">Place stock {% include "_icon.html" with name="arrow" %}<span class="iw-sr-only">for {{ batch.product.name }}, batch {{ batch.batch_number }}</span></a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="iw-empty iw-empty-compact">
+        <span class="iw-empty-icon">{% include "_icon.html" with name="box" %}</span>
+        <h3>
+            {% if search %}No matching batches{% else %}No stock waiting here{% endif %}
+        </h3>
+        <p>
+            {% if search %}Try a product name or a different batch number.{% else %}Received stock will appear here when it needs a warehouse.{% endif %}
+        </p>
+        {% if not search %}<a class="iw-text-link" href="{% url 'manufacturer-order-list' %}">View purchase orders {% include "_icon.html" with name="arrow" %}</a>{% endif %}
+    </div>
+    {% endif %}
+    {% if batch_page.has_other_pages %}
+    <nav class="iw-pagination" aria-label="Stock pages">
+        <span>Page {{ batch_page.number }} of {{ batch_page.paginator.num_pages }}</span>
+        <div>
+            {% if batch_page.has_previous %}<a class="button button-secondary button-small" href="?{{ page_query }}&amp;page={{ batch_page.previous_page_number }}#stock-to-place">Previous</a>{% endif %}{% if batch_page.has_next %}<a class="button button-secondary button-small" href="?{{ page_query }}&amp;page={{ batch_page.next_page_number }}#stock-to-place">Next</a>{% endif %}
+        </div>
+    </nav>
+    {% endif %}
+</section>

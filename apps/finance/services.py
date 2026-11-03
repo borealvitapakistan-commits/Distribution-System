@@ -27,7 +27,6 @@ Formulas (per unit unless it says total):
 """
 
 import calendar
-import re
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -166,13 +165,10 @@ def market_price_for(product, bottle_size, research_rows):
 # ---------------------------------------------------------------------------
 
 
-_PO_REFERENCE = re.compile(r"Purchase order (\S+) shipped")
-
-
 def _kind_for(movement):
     """Which kind of finance entry a stock movement is, or None when it
     isn't one: stock arriving, moving between the Owner's own warehouses,
-    or leaving Transit (already counted the moment it was shipped)."""
+    or leaving Transit."""
     from apps.owner_inventory.models import StockMovement
     from apps.owner_warehouse.models import Location
 
@@ -183,36 +179,17 @@ def _kind_for(movement):
         return None
 
     if movement.to_location_id is not None:
-        if (
-            movement.to_location.location_type == Location.LocationType.TRANSIT
-            and movement.channel == StockMovement.Channel.DISTRIBUTOR
-        ):
-            return SaleEntry.Kind.DISTRIBUTOR_SALE
+        return None
+
+    # Hand-offs to a Distributor from before the Distributor panel was
+    # archived: their ledger entries left with it (D:/Boriel-Vita/Boreal Beta).
+    if movement.channel == StockMovement.Channel.DISTRIBUTOR:
         return None
 
     if movement.movement_type == StockMovement.MovementType.SALE:
         return SaleEntry.Kind.SHOPIFY_SALE
 
-    if movement.channel == StockMovement.Channel.DISTRIBUTOR:
-        return SaleEntry.Kind.GIFT
-
     return SaleEntry.Kind.WRITE_OFF
-
-
-def _purchase_order_item_for(movement):
-    """For entries rebuilt from movements made before the ledger existed:
-    the shipment's purchase order line, read from the movement's
-    reference."""
-    from apps.requests.models import PurchaseOrderItem
-
-    match = _PO_REFERENCE.search(movement.reference or "")
-    if not match:
-        return None
-    return (
-        PurchaseOrderItem.objects.select_related("purchase_order")
-        .filter(purchase_order__po_number=match.group(1), product=movement.product_id)
-        .first()
-    )
 
 
 def _shopify_line_for(movement):
@@ -226,7 +203,7 @@ def _shopify_line_for(movement):
 
 
 @transaction.atomic
-def record_sale(*, actor, movement, purchase_order_item=None, shopify_order_line=None):
+def record_sale(*, actor, movement, shopify_order_line=None):
     """Writes the finance ledger entry for one stock movement — called in
     the same transaction as the movement, by every place stock leaves the
     Owner's hands. Idempotent: a movement already in the ledger returns
@@ -245,21 +222,9 @@ def record_sale(*, actor, movement, purchase_order_item=None, shopify_order_line
     bottle_size = bottle_size_for(product, stock_batch)
     unit_cost, cost_source = unit_cost_for(product, stock_batch, bottle_size)
     retail = retail_price_for(product, bottle_size)
-    distributor_profile = movement.distributor_profile
     net = ZERO
 
-    if kind == SaleEntry.Kind.DISTRIBUTOR_SALE:
-        item = purchase_order_item or _purchase_order_item_for(movement)
-        if item is not None:
-            retail = item.list_price or retail
-            net = item.unit_price if item.unit_price is not None else retail
-            distributor_profile = distributor_profile or item.purchase_order.distributor_profile
-        else:
-            cut = FinanceSettings.load().distributor_cut_percentage
-            net = (retail * (1 - cut / HUNDRED)).quantize(MONEY_PLACES)
-        purchase_order_item = item
-
-    elif kind == SaleEntry.Kind.SHOPIFY_SALE:
+    if kind == SaleEntry.Kind.SHOPIFY_SALE:
         line = shopify_order_line or _shopify_line_for(movement)
         if line is not None:
             if line.original_unit_price is not None:
@@ -279,8 +244,6 @@ def record_sale(*, actor, movement, purchase_order_item=None, shopify_order_line
         stock_batch=stock_batch,
         source_batch=source_batch,
         batch_number=stock_batch.batch_number if stock_batch is not None else "",
-        distributor_profile=distributor_profile,
-        purchase_order_item=purchase_order_item if kind == SaleEntry.Kind.DISTRIBUTOR_SALE else None,
         shopify_order_line=shopify_order_line if kind == SaleEntry.Kind.SHOPIFY_SALE else None,
         quantity=movement.quantity,
         unit_cost=unit_cost,
@@ -318,7 +281,7 @@ def sync_sales_ledger(*, actor=None):
         .exclude(from_location__location_type=transit)
         .filter(Q(to_location__isnull=True) | Q(to_location__location_type=transit))
         .select_related(
-            "product", "from_location", "to_location", "distributor_profile",
+            "product", "from_location", "to_location",
             "batch__source_batch__manufacturer_order_item__order",
         )
         .order_by("created_at")
@@ -874,13 +837,11 @@ def latest_sale_date(**filters):
     )
 
 
-def _filtered_entries(entries, *, kind=None, product_id=None, distributor_id=None, batch_number=None):
+def _filtered_entries(entries, *, kind=None, product_id=None, batch_number=None):
     if kind:
         entries = entries.filter(kind=kind)
     if product_id:
         entries = entries.filter(product_id=product_id)
-    if distributor_id:
-        entries = entries.filter(distributor_profile_id=distributor_id)
     if batch_number:
         entries = entries.filter(batch_number=batch_number)
     return entries
@@ -920,8 +881,6 @@ class Figures:
     cut: Decimal = ZERO
     revenue: Decimal = ZERO
     cogs: Decimal = ZERO
-    free_units: Decimal = ZERO
-    free_cost: Decimal = ZERO
     written_off_units: Decimal = ZERO
     written_off_cost: Decimal = ZERO
     expenses: Decimal = ZERO
@@ -937,9 +896,6 @@ class Figures:
             self.cut += entry.cut
             self.revenue += entry.revenue
             self.cogs += entry.cost
-        elif entry.kind == SaleEntry.Kind.GIFT:
-            self.free_units += entry.quantity
-            self.free_cost += entry.cost
         else:
             self.written_off_units += entry.quantity
             self.written_off_cost += entry.cost
@@ -950,8 +906,8 @@ class Figures:
 
     @property
     def lost_cost(self):
-        """Cost of stock that brought in nothing: given free or written off."""
-        return self.free_cost + self.written_off_cost
+        """Cost of stock that brought in nothing: written off."""
+        return self.written_off_cost
 
     @property
     def gross_margin(self):
@@ -959,7 +915,7 @@ class Figures:
 
     @property
     def net_profit(self):
-        return self.gross_profit - self.expenses - self.free_cost - self.written_off_cost
+        return self.gross_profit - self.expenses - self.written_off_cost
 
     @property
     def net_margin(self):
@@ -1018,12 +974,10 @@ class PeriodReport:
     by_kind: list
     by_product: list
     by_batch: list
-    by_distributor: list
     expenses_by_category: list
     stock_bought: Decimal
     stock_bought_units: Decimal
     paid_to_manufacturers: Decimal
-    received_from_distributors: Decimal
     filtered: bool = False
 
     @property
@@ -1042,25 +996,23 @@ class PeriodReport:
         }
 
 
-def period_report(start, end, *, kind=None, product_id=None, distributor_id=None, batch_number=None):
+def period_report(start, end, *, kind=None, product_id=None, batch_number=None):
     """Everything that happened to money between start and end
     (inclusive local dates), straight from the ledger.
 
-    The filters narrow the sales figures to one channel, product,
-    Distributor or batch. Expenses belong to the whole business, not to
+    The filters narrow the sales figures to one channel, product or
+    batch. Expenses belong to the whole business, not to
     one product, so a filtered report leaves them out (its net profit is
     the profit that slice contributed before overheads)."""
     from apps.batches.models import Batch
     from apps.manufacturers.models import ManufacturerOrderPayment
-    from apps.requests.models import PurchaseOrderPayment
-
-    filtered = any([kind, product_id, distributor_id, batch_number])
+    filtered = any([kind, product_id, batch_number])
     entries = list(
         _filtered_entries(
             SaleEntry.objects.between(start, end),
-            kind=kind, product_id=product_id, distributor_id=distributor_id, batch_number=batch_number,
+            kind=kind, product_id=product_id, batch_number=batch_number,
         )
-        .select_related("product", "distributor_profile", "source_batch")
+        .select_related("product", "source_batch")
         .order_by("occurred_at")
     )
     expenses = (
@@ -1113,14 +1065,6 @@ def period_report(start, end, *, kind=None, product_id=None, distributor_id=None
         .values_list("amount", flat=True),
         ZERO,
     )
-    paid_in = sum(
-        PurchaseOrderPayment.objects.filter(
-            status=PurchaseOrderPayment.Status.CONFIRMED,
-            paid_at__gte=start,
-            paid_at__lte=end,
-        ).values_list("amount", flat=True),
-        ZERO,
-    )
 
     return PeriodReport(
         start=start,
@@ -1142,16 +1086,10 @@ def period_report(start, end, *, kind=None, product_id=None, distributor_id=None
             lambda e: e.batch_number or "No batch number",
             lambda e: f"{e.product.name}{_size_label(e)}",
         ),
-        by_distributor=_grouped(
-            [e for e in entries if e.distributor_profile_id],
-            lambda e: e.distributor_profile_id,
-            lambda e: e.distributor_profile.name,
-        ),
         expenses_by_category=sorted(by_category.items(), key=lambda pair: pair[1], reverse=True),
         stock_bought=bought,
         stock_bought_units=bought_units,
         paid_to_manufacturers=paid_out,
-        received_from_distributors=paid_in,
         filtered=filtered,
     )
 
@@ -1166,8 +1104,8 @@ class StockValue:
 
 def stock_on_hand_value():
     """What the stock still in the Owner's own warehouses (and not yet
-    placed) is worth today, at cost and at retail. Stock in Transit is
-    already sold to a Distributor, so it isn't counted."""
+    placed) is worth today, at cost and at retail. Stock in Transit
+    isn't counted: it has already left the warehouses."""
     from apps.owner_inventory.models import StockBatch
     from apps.owner_warehouse.models import Location
 

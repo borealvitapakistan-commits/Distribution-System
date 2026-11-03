@@ -13,8 +13,6 @@ class NavigationSectionTests(TestCase):
         cases = {
             "manufacturer-order-counter": "purchase-orders",
             "manufacturer-order-change": "purchase-orders",
-            "purchase-order-conversation": "purchase-orders",
-            "owner-purchase-orders-hub": "purchase-orders",
             "product-package-edit": "products",
             "inventory-allocate": "inventory",
             "stock-batch-list": "batches",
@@ -26,16 +24,12 @@ class NavigationSectionTests(TestCase):
             "manufacturer-delete": "partners",
             "owner-list": "partners",
             "owner-create": "partners",
-            "distributor-list": "partners",
-            "distributor-invite": "partners",
             "owner-profile": "",
         }
         for url_name, section in cases.items():
             self.assertEqual(section_for(url_name, is_owner=True), section, url_name)
 
-    def test_distributor_pages_map_to_their_section(self):
+    def test_only_owners_get_a_section(self):
         from apps.core.navigation import section_for
 
-        self.assertEqual(section_for("purchase-order-counter", is_owner=False), "orders")
-        self.assertEqual(section_for("distributor-stock-batch-list", is_owner=False), "stock")
-        self.assertEqual(section_for("distributor-warehouse-edit", is_owner=False), "inventory")
+        self.assertEqual(section_for("owner-dashboard", is_owner=False), "")
