@@ -8,7 +8,7 @@ from django.urls import reverse
 from apps.accounts.models import User
 
 from .context_processors import BRAND_CACHE_KEY
-from .models import Brand
+from .models import Brand, BrandLogo
 
 
 LOGO_BYTES = b64decode(
@@ -85,7 +85,7 @@ class BrandLogoTests(TestCase):
         self.assertRedirects(response, reverse("brand-detail", args=[brand.pk]))
         brand.refresh_from_db()
         self.assertNotEqual(brand.logo.name, original_name)
-        self.assertEqual(bytes(brand.logo_data), LOGO_BYTES)
+        self.assertEqual(bytes(BrandLogo.objects.get(brand=brand).data), LOGO_BYTES)
         response = self.client.get(reverse("login"))
         self.assertContains(response, f'<img src="{reverse("brand-logo", args=[brand.pk])}"')
         self.assertNotEqual(response.context["brand"].updated_at, original_version)
@@ -111,8 +111,9 @@ class BrandLogoTests(TestCase):
 
         brand = self.make_brand()
 
-        self.assertEqual(bytes(brand.logo_data), LOGO_BYTES)
-        self.assertEqual(brand.logo_content_type, "image/png")
+        logo = BrandLogo.objects.get(brand=brand)
+        self.assertEqual(bytes(logo.data), LOGO_BYTES)
+        self.assertEqual(logo.content_type, "image/png")
         self.assertFalse(default_storage.exists(brand.logo.name))
 
     def test_pdfs_can_draw_the_logo_from_the_database(self):
@@ -139,6 +140,6 @@ class BrandLogoTests(TestCase):
         self.assertRedirects(response, reverse("brand-detail", args=[brand.pk]))
         brand.refresh_from_db()
         self.assertFalse(brand.logo)
-        self.assertIsNone(brand.logo_data)
+        self.assertFalse(BrandLogo.objects.filter(brand=brand).exists())
         response = self.client.get(reverse("login"))
         self.assertContains(response, '<img src="/static/images/boreal-vita-logo.png"')

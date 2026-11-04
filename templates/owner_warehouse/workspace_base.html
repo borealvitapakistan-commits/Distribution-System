@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% load static %}
+{% load static assets %}
 {% block extra_head %}
-<link rel="stylesheet" href="{% static 'css/inventory.css' %}?v={% now 'U' %}">
-<script src="{% static 'js/inventory.js' %}?v={% now 'U' %}" defer></script>
+<link rel="stylesheet" href="{% asset 'css/inventory.css' %}">
+<script src="{% asset 'js/inventory.js' %}" defer></script>
 {% endblock %}
 {% block content %}
 <div class="inventory-workspace">

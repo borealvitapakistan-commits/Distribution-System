@@ -19,17 +19,15 @@ def _brand_logo_file(uri):
     if match.url_name != "brand-logo":
         return None
 
-    from .models import Brand
+    from .models import BrandLogo
 
-    brand = Brand.objects.filter(pk=match.kwargs["pk"]).only(
-        "logo_data", "logo_content_type", "updated_at"
-    ).first()
-    if brand is None or not brand.logo_data:
+    logo = BrandLogo.objects.filter(brand_id=match.kwargs["pk"]).first()
+    if logo is None:
         return None
-    suffix = mimetypes.guess_extension(brand.logo_content_type or "") or ".png"
-    path = Path(tempfile.gettempdir()) / f"brand-logo-{brand.pk}-{brand.updated_at:%Y%m%d%H%M%S%f}{suffix}"
+    suffix = mimetypes.guess_extension(logo.content_type or "") or ".png"
+    path = Path(tempfile.gettempdir()) / f"brand-logo-{logo.brand_id}-{logo.updated_at:%Y%m%d%H%M%S%f}{suffix}"
     if not path.exists():
-        path.write_bytes(bytes(brand.logo_data))
+        path.write_bytes(bytes(logo.data))
     return str(path)
 
 

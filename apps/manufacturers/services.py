@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Prefetch
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from django.utils.text import slugify
@@ -964,7 +965,7 @@ def revision_timeline(order):
     revisions = list(
         order.revisions
         .select_related("created_by")
-        .prefetch_related("lines__product")
+        .prefetch_related(Prefetch("lines", queryset=OrderRevisionLine.objects.select_related("product")))
         .order_by("number")
     )
 

@@ -1,5 +1,6 @@
 from django.core.management.base import BaseCommand, CommandError
 
+from apps.core.page_cache import bump_version
 from apps.owner_inventory import shopify_sync
 from apps.products.shopify import ShopifyError
 
@@ -16,6 +17,8 @@ class Command(BaseCommand):
             summary = shopify_sync.sync()
         except ShopifyError as exc:
             raise CommandError(str(exc)) from exc
+        finally:
+            bump_version()  # pages saved in memory may show old stock
 
         self.stdout.write(
             f"{summary['orders_imported']} new order(s), "

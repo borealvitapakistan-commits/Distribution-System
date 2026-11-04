@@ -249,10 +249,18 @@ class ShopifySyncTests(TestCase):
         self._connect()
         self.client.force_login(self.owner)
 
-        with mock.patch.object(shopify, "fetch_available", return_value={ITEM_GID: 12}):
+        # The page itself never waits on Shopify...
+        with mock.patch.object(shopify, "fetch_available") as fetch_available:
             response = self.client.get("/owner/inventory/shopify/")
+        fetch_available.assert_not_called()
+        self.assertContains(response, 'data-live-fragment="/owner/inventory/shopify/?part=live"')
+
+        # ...its script loads Shopify's numbers right after.
+        with mock.patch.object(shopify, "fetch_available", return_value={ITEM_GID: 12}):
+            response = self.client.get("/owner/inventory/shopify/", {"part": "live"})
 
         self.assertContains(response, "In step")
+        self.assertNotContains(response, "<html")
 
 
 @override_settings(

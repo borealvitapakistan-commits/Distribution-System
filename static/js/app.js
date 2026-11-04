@@ -1166,3 +1166,48 @@ document.addEventListener("DOMContentLoaded", () => {
         dialog.close();
     });
 });
+
+
+// Parts of a page that wait on something slow (Shopify's own numbers)
+// are left out of the first response and fetched here once the page is
+// already showing: <div data-live-fragment="url">placeholder</div>.
+(function () {
+    function load(holder) {
+        var status = holder.querySelector("[data-live-status]");
+        fetch(holder.getAttribute("data-live-fragment"), {
+            credentials: "same-origin",
+            headers: { "X-Requested-With": "fetch" },
+        })
+            .then(function (response) {
+                if (!response.ok) throw new Error(response.status);
+                return response.text();
+            })
+            .then(function (html) {
+                holder.innerHTML = html;
+            })
+            .catch(function () {
+                if (status) {
+                    status.textContent = "Couldn't load this part. ";
+                    var retry = document.createElement("a");
+                    retry.href = "#";
+                    retry.textContent = "Try again";
+                    retry.addEventListener("click", function (event) {
+                        event.preventDefault();
+                        status.textContent = "Loading…";
+                        load(holder);
+                    });
+                    status.appendChild(retry);
+                }
+            });
+    }
+
+    function start() {
+        document.querySelectorAll("[data-live-fragment]").forEach(load);
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start);
+    } else {
+        start();
+    }
+})();

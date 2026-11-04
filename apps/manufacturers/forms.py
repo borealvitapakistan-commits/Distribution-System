@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django import forms
-from django.forms import inlineformset_factory
+from django.forms import BaseInlineFormSet, inlineformset_factory
 
 from apps.core.forms import PaidQuestionForm
 from apps.core.models import Brand
@@ -186,18 +186,16 @@ class ManufacturerOrderItemForm(forms.ModelForm):
             "unit_price": "Unit price",
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, shared=None, **kwargs):
         super().__init__(*args, **kwargs)
+        shared = shared or line_form_choices()
 
         self.fields["product"].queryset = Product.objects.filter(active=True)
         self.fields["product"].empty_label = "Choose a product…"
         # Just the name in the list; the hint under the line shows the SKU.
         self.fields["product"].label_from_instance = lambda product: product.name
-        sizes = {int(size) for size in BottleSize.values}
-        sizes |= {
-            int(amount) for amount in ProductPackagePrice.objects.values_list("amount", flat=True).distinct()
-            if amount == amount.to_integral_value() and amount <= 32767
-        }
+        self.fields["product"].choices = shared["products"]
+        sizes = set(shared["sizes"])
         current = self["bottle_size"].value()
         if str(current or "").isdigit():
             sizes.add(int(current))
@@ -227,10 +225,46 @@ class ManufacturerOrderItemForm(forms.ModelForm):
         pass
 
 
+def line_form_choices():
+    """The product list and bottle sizes every order line offers — read
+    once per page and shared by all its lines, not once per line."""
+    sizes = {int(size) for size in BottleSize.values}
+    sizes |= {
+        int(amount) for amount in ProductPackagePrice.objects.values_list("amount", flat=True).distinct()
+        if amount == amount.to_integral_value() and amount <= 32767
+    }
+    rows = list(Product.objects.filter(active=True).values_list("pk", "sku", "name"))
+    return {
+        "products": [("", "Choose a product…")] + [(str(pk), name) for pk, _sku, name in rows],
+        "labels": {str(pk): f"{sku} - {name}" for pk, sku, name in rows},
+        "sizes": sizes,
+    }
+
+
+class BaseManufacturerOrderItemFormSet(BaseInlineFormSet):
+    def get_queryset(self):
+        # A new order (its UUID is set before it's saved) has no lines yet.
+        if self.instance._state.adding:
+            return self.model.objects.none()
+        return super().get_queryset()
+
+    @property
+    def shared_choices(self):
+        if not hasattr(self, "_shared_choices"):
+            self._shared_choices = line_form_choices()
+        return self._shared_choices
+
+    def get_form_kwargs(self, index):
+        kwargs = super().get_form_kwargs(index)
+        kwargs["shared"] = self.shared_choices
+        return kwargs
+
+
 ManufacturerOrderItemFormSet = inlineformset_factory(
     ManufacturerOrder,
     ManufacturerOrderItem,
     form=ManufacturerOrderItemForm,
+    formset=BaseManufacturerOrderItemFormSet,
     extra=1,
     can_delete=True,
 )

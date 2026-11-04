@@ -88,6 +88,10 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Repeat visits to an unchanged page come from memory. Off in the
+    # automated tests, which change data directly between page loads;
+    # apps.core.tests switches it on to test it.
+    *([] if TESTING else ["apps.core.page_cache.PageCacheMiddleware"]),
 ]
 
 
@@ -116,6 +120,8 @@ TEMPLATES = [
 
 
 WSGI_APPLICATION = "config.wsgi.application"
+
+AUTHENTICATION_BACKENDS = ["apps.accounts.backends.CachedModelBackend"]
 
 
 # Supabase PostgreSQL. The session pooler works locally; use the transaction
@@ -148,8 +154,11 @@ DATABASES["default"].setdefault("OPTIONS", {}).update({
     # Supabase's transaction pooler does not support prepared statements.
     "prepare_threshold": None,
 })
+# Server-side cursors cost two or three extra round trips per list (and
+# the transaction pooler can't hold them), and no page reads enough rows
+# to need one — so they're off everywhere.
 DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = env.bool(
-    "DB_TRANSACTION_POOLER", default=IS_VERCEL,
+    "DB_TRANSACTION_POOLER", default=True,
 )
 
 
@@ -166,6 +175,7 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "distribution-system",
+        "OPTIONS": {"MAX_ENTRIES": 1000},
     }
 }
 # Sessions are read from the cache and still saved to the database, so a

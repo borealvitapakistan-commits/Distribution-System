@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -36,7 +36,7 @@ from .forms import (
     PurchaseOrderEditForm,
     StampedPurchaseOrderForm,
 )
-from .models import Manufacturer, ManufacturerOrder, OrderRevision
+from .models import Manufacturer, ManufacturerOrder, ManufacturerOrderItem, OrderRevision
 from .deletion import review_manufacturer
 from .guide import annotate_list_status, next_step_guide, workflow_steps
 from .record_pdf import payment_pages, document_pdf, order_record_pdf
@@ -344,10 +344,15 @@ def _brand_sheet_data(brand):
     }
 
 
-def document_sheet_data():
+def document_sheet_data(manufacturers=None, brands=None):
     """Everything the on-screen document needs to fill itself in as the
     Owner picks a manufacturer (the vendor on the document) or brand:
-    {"manufacturers": {id: {...}}, "brands": {id: {...}}}."""
+    {"manufacturers": {id: {...}}, "brands": {id: {...}}}. Pass the active
+    manufacturers/brands when they're already loaded."""
+    if manufacturers is None:
+        manufacturers = Manufacturer.objects.filter(active=True)
+    if brands is None:
+        brands = Brand.objects.filter(active=True)
     return {
         "manufacturers": {
             str(manufacturer.pk): {
@@ -356,11 +361,11 @@ def document_sheet_data():
                 "email": manufacturer.email,
                 "phone": manufacturer.phone,
             }
-            for manufacturer in Manufacturer.objects.filter(active=True)
+            for manufacturer in manufacturers
         },
         "brands": {
             str(brand.pk): _brand_sheet_data(brand)
-            for brand in Brand.objects.filter(active=True)
+            for brand in brands
         },
     }
 
@@ -377,6 +382,16 @@ def _order_saved_prices(order):
     return prices
 
 
+def _use_loaded_choices(field, objects):
+    """Fills a model drop-down from objects already loaded for the page
+    (the same rows its queryset selects), so rendering it doesn't query
+    the database again. Submitted values are still checked against the
+    queryset."""
+    choices = [("", field.empty_label)] if field.empty_label is not None else []
+    choices += [(str(obj.pk), field.label_from_instance(obj)) for obj in objects]
+    field.choices = choices
+
+
 class RequestToQuoteFormMixin:
     """Shared by creating and editing a Request to Quote."""
 
@@ -385,11 +400,24 @@ class RequestToQuoteFormMixin:
     mode = "rtq"
 
     def render_form(self, request, form, formset, order=None, service_error=None):
+        # Each list is read once and shared by the form's drop-downs, the
+        # on-screen document and the page's scripts.
+        manufacturers = list(Manufacturer.objects.filter(active=True))
+        brands = list(Brand.objects.filter(active=True))
+        _use_loaded_choices(form.fields["manufacturer"], manufacturers)
+        _use_loaded_choices(form.fields["brand"], brands)
+
+        if not form.is_bound and not form.initial.get("brand") and brands and "brand" in form.initial:
+            form.initial["brand"] = brands[0]
+
         brand = None
         brand_id = form["brand"].value()
-        brand_id = getattr(brand_id, "pk", brand_id)
+        brand_id = str(getattr(brand_id, "pk", brand_id) or "")
         if brand_id:
-            brand = Brand.objects.filter(pk=brand_id).first()
+            brand = next((b for b in brands if str(b.pk) == brand_id), None)
+            if brand is None:
+                brand = Brand.objects.filter(pk=brand_id).first()
+        shared = formset.shared_choices
 
         return render(
             request,
@@ -402,18 +430,16 @@ class RequestToQuoteFormMixin:
                 "bottle_prices": bottle_price_map(),
                 "manufacturer_prices": manufacturer_price_map(),
                 "product_prices": product_price_map(),
-                "sheet_data": document_sheet_data(),
+                "sheet_data": document_sheet_data(manufacturers, brands),
                 "brand": brand,
                 "today": timezone.localdate(),
                 "mode": self.mode,
-                "product_labels": {
-                    str(pk): f"{sku} - {name}"
-                    for pk, sku, name in Product.objects.filter(active=True).values_list("pk", "sku", "name")
-                },
+                "product_labels": shared["labels"],
                 "standard_sizes": [30, 40, 50, 60, 70, 80, 90, 120],
                 "advance_defaults": {
                     str(maker.pk): f"{maker.upfront_payment_percentage.normalize():f}"
-                    for maker in Manufacturer.objects.filter(active=True, archived_at__isnull=True)
+                    for maker in manufacturers
+                    if maker.archived_at is None
                 },
             },
         )
@@ -455,7 +481,8 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
             request,
             ManufacturerOrderForm(
                 initial={
-                    "brand": Brand.objects.filter(active=True).first(),
+                    # Filled with the first active brand by render_form.
+                    "brand": None,
                     "terms": last_terms or "",
                     "manufacturer": self._requested_manufacturer(request),
                 }
@@ -941,8 +968,10 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
             .for_user(self.request.user)
             .select_related("manufacturer", "brand")
             .prefetch_related(
-                "items__product",
-                "items__batch",
+                Prefetch(
+                    "items",
+                    queryset=ManufacturerOrderItem.objects.select_related("product", "batch"),
+                ),
                 "payments",
             )
         )

@@ -279,6 +279,9 @@ def sync_sales_ledger(*, actor=None):
         StockMovement.objects
         .filter(from_location__isnull=False, sale_entry__isnull=True)
         .exclude(from_location__location_type=transit)
+        # Archived Distributor hand-offs never become entries (see _kind_for);
+        # leaving them out keeps this from re-checking them on every page.
+        .exclude(channel=StockMovement.Channel.DISTRIBUTOR)
         .filter(Q(to_location__isnull=True) | Q(to_location__location_type=transit))
         .select_related(
             "product", "from_location", "to_location",

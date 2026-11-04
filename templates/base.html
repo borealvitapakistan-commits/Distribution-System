@@ -1,4 +1,4 @@
-{% load static %}
+{% load static assets %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -8,9 +8,25 @@
     <title>{% block title %}Owner workspace{% endblock %} · Boreal Vita</title>
     <link rel="icon" type="image/svg+xml" sizes="any" href="{% static 'images/boreal-favicon.svg' %}">
     <link rel="apple-touch-icon" href="{{ brand_logo_url }}">
-    <link rel="stylesheet" href="{% static 'css/app.css' %}?v={% now 'U' %}">
-    <link rel="stylesheet" href="{% static 'css/boreal.css' %}?v={% now 'U' %}">
-    <script src="{% static 'js/app.js' %}?v={% now 'U' %}" defer></script>
+    <link rel="stylesheet" href="{% asset 'css/app.css' %}">
+    <link rel="stylesheet" href="{% asset 'css/boreal.css' %}">
+    <script src="{% asset 'js/app.js' %}" defer></script>
+    {% if request.user.is_authenticated %}
+        {# Start loading a page while the pointer rests on its link, so the #}
+        {# click shows it almost at once (Edge/Chrome; others just ignore it). #}
+        {# Kept only for this page, so nothing stale is shown later. Leaves #}
+        {# out downloads, PDFs and delete pages. #}
+        <script type="speculationrules">
+        {"prefetch": [{
+            "where": {"and": [
+                {"href_matches": "/*"},
+                {"not": {"href_matches": ["/accounts/logout/*", "/*/delete/*", "/*/pdf/*", "/*.pdf", "/*/export/*", "/*?*format=*", "/*?*download=*", "/admin/*"]}},
+                {"not": {"selector_matches": "[download], [target=_blank], [data-no-prefetch]"}}
+            ]},
+            "eagerness": "moderate"
+        }]}
+        </script>
+    {% endif %}
     {% block extra_head %}{% endblock %}
 </head>
 <body class="{% if request.user.is_authenticated %}workspace-page{% else %}auth-page{% endif %}">

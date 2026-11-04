@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
@@ -178,26 +180,8 @@ class ShopifySyncView(OwnerRequiredMixin, View):
     template_name = "owner_inventory/shopify_sync.html"
 
     def get(self, request):
-        rows, live_error = shopify_sync.status_rows()
-
-        # Shopify's own product list, for "link to an existing Shopify
-        # product" — only when this product is already sold there under
-        # another name or SKU.
-        shopify_products = []
-        if shopify_sync.shopify.is_configured() and not live_error:
-            try:
-                shopify_products = shopify_sync.shopify.list_products()
-            except ShopifyError as exc:
-                live_error = str(exc)
-
-        to_publish = [
-            {
-                "product": product,
-                "quantity": quantity,
-                "match": shopify_sync.match_on_shopify(product, shopify_products)[0],
-            }
-            for product, quantity in shopify_sync.products_to_publish()
-        ]
+        if request.GET.get("part") == "live":
+            return self._live_part(request)
 
         return render(
             request,
@@ -206,10 +190,6 @@ class ShopifySyncView(OwnerRequiredMixin, View):
                 "configured": shopify_sync.shopify.is_configured(),
                 "enabled": settings.SHOPIFY_INVENTORY_SYNC,
                 "state": ShopifySyncState.load(),
-                "rows": rows,
-                "to_publish": to_publish,
-                "shopify_products": shopify_products,
-                "live_error": live_error,
                 "orders": (
                     ShopifyOrder.objects
                     .prefetch_related("lines__product")[:50]
@@ -222,6 +202,57 @@ class ShopifySyncView(OwnerRequiredMixin, View):
                     )
                     .select_related("product", "batch", "from_location", "to_location")[:50]
                 ),
+            },
+        )
+
+    def _live_part(self, request):
+        """The two tables that need Shopify's own numbers, fetched by the
+        page's script once the page is already showing.
+
+        Shopify's product list (for "link to an existing Shopify product")
+        is fetched on a second thread while this one reads the database
+        and Shopify's stock levels — two waits on Shopify at once instead
+        of one after the other. The thread only talks to Shopify; every
+        database query stays on this request's thread."""
+        shopify_products = []
+        live_error = ""
+        products_call = None
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            if shopify_sync.shopify.is_configured():
+                try:
+                    shopify_sync.shopify._access_token()  # one token, shared by both calls
+                    products_call = pool.submit(shopify_sync.shopify.list_products)
+                except ShopifyError as exc:
+                    live_error = str(exc)
+
+            rows, status_error = shopify_sync.status_rows()
+            live_error = live_error or status_error
+
+            if products_call is not None:
+                try:
+                    products = products_call.result()
+                    if not live_error:
+                        shopify_products = products
+                except ShopifyError as exc:
+                    live_error = live_error or str(exc)
+
+        to_publish = [
+            {
+                "product": product,
+                "quantity": quantity,
+                "match": shopify_sync.match_on_shopify(product, shopify_products)[0],
+            }
+            for product, quantity in shopify_sync.products_to_publish()
+        ]
+
+        return render(
+            request,
+            "owner_inventory/_shopify_live.html",
+            {
+                "rows": rows,
+                "to_publish": to_publish,
+                "shopify_products": shopify_products,
+                "live_error": live_error,
             },
         )
 

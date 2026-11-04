@@ -22,8 +22,9 @@ from apps.manufacturers.models import Manufacturer, ManufacturerOrder
 from apps.products.models import Product
 
 from .context_processors import current_brand
+from .querysets import count_many
 from .forms import BrandForm
-from .models import Brand
+from .models import Brand, BrandLogo
 
 
 def brand_logo(request, pk):
@@ -33,8 +34,9 @@ def brand_logo(request, pk):
         brand = get_object_or_404(Brand, pk=pk)
     if not brand.logo:
         raise Http404("No brand logo has been uploaded.")
-    if brand.logo_data:
-        response = HttpResponse(bytes(brand.logo_data), content_type=brand.logo_content_type)
+    logo = BrandLogo.objects.filter(brand_id=brand.pk).first()
+    if logo is not None:
+        response = HttpResponse(bytes(logo.data), content_type=logo.content_type)
         response["Cache-Control"] = "public, max-age=300"
         return response
     try:  # A logo saved as a file, before logos moved into the database.
@@ -68,19 +70,14 @@ class OwnerDashboardView(OwnerRequiredMixin, TemplateView):
             **kwargs
         )
 
-        context["owner_count"] = User.objects.filter(
-            role=User.Role.OWNER,
-            is_active=True,
-        ).count()
-
-        context["manufacturer_count"] = Manufacturer.objects.count()
-        context["product_count"] = Product.objects.count()
-
-        context["audit_count"] = (
-            AuditEvent.objects
-            .for_user(self.request.user)
-            .count()
+        counts = count_many(
+            owner=User.objects.filter(role=User.Role.OWNER, is_active=True),
+            manufacturer=Manufacturer.objects.all(),
+            product=Product.objects.all(),
+            audit=AuditEvent.objects.for_user(self.request.user),
         )
+        for name, total in counts.items():
+            context[f"{name}_count"] = total
 
         context["recent_orders"] = (
             ManufacturerOrder.objects.for_user(self.request.user)
