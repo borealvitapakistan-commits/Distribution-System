@@ -1,5 +1,12 @@
 # Current state
 
+Updated: 2026-11-10 — One business workbook / one upload
+
+- User clarified they want a SINGLE .xlsx with multiple business-section sheets, imported together. Individual CSVs and full backup/system datasets were not the intended deliverable.
+- Completed `phases/01-partners/01-11-PLAN.md`. Settings now downloads only business records across 28 category sheets; stable IDs/support data hidden. Users/passwords/permissions/audit/cache/registry sheets are excluded. Business imports preserve existing login accounts, passwords, permissions and history while the app saves a complete private dated backup automatically.
+- Delivered file: `data/backups/exports/local-business-data-20261110-132818.xlsx` — 117 business rows, 18 products, 3 manufacturers, 2 orders, 15 items, 16 sizes/prices, 3 attachments. A complete isolated import with a different current owner login succeeded and preserved that login/password.
+- Full suites: 364 passed on SQLite and 364 on PostgreSQL; 24 transfer tests. Checks passed. Implementation: `dbd0f3e`, `5000d5a`. No live import/migration. Existing Supabase core.0007 still blocks live imports until applied; this feature needs no new migration. Main app restarted at localhost:8001. See `phases/01-partners/01-11-SUMMARY.md`.
+
 Updated: 2026-11-10 — Readable category workbooks
 
 - Completed `phases/01-partners/01-10-PLAN.md`: Settings now exports/imports .xlsx workbooks, with named category sheets, S.No., separate field columns, readable linked names, field guidance/dropdowns and safe complete attachments. Users can edit rows or add new rows with generated IDs/defaults. Old CSV backups remain internally readable.
