@@ -1,4 +1,4 @@
-"""Versioned full-data CSV snapshots. Backups live outside the replaced database."""
+"""Versioned full-data workbook snapshots. Backups live outside the replaced database."""
 import base64
 import csv
 import hashlib
@@ -11,6 +11,7 @@ import uuid
 from django.apps import apps
 from django.conf import settings
 from django.core import serializers
+from django.core.serializers.json import DjangoJSONEncoder
 from django.core.files.base import ContentFile
 from django.core.files.storage import FileSystemStorage, default_storage
 from django.core.management.color import no_style
@@ -62,7 +63,7 @@ def backup_storage():
 
 
 def save_backup(payload):
-    name = timezone.localtime().strftime("before-import-%Y%m%d-%H%M%S-") + uuid.uuid4().hex + ".csv"
+    name = timezone.localtime().strftime("before-import-%Y%m%d-%H%M%S-") + uuid.uuid4().hex + ".xlsx"
     storage = backup_storage()
     if settings.USE_S3_STORAGE:
         return storage.save("data-backups/" + name, ContentFile(payload))
@@ -109,19 +110,38 @@ def _export_snapshot():
                     except (OSError, FileNotFoundError) as exc:
                         raise SnapshotError("An attached file is missing or unreadable. Restore it before exporting or importing.") from exc
     rows.extend(["file", "", name, data] for name, data in sorted(media.items()))
-    manifest = {"format": "distribution-data", "version": 1, "created_at": timezone.now().isoformat(),
-                "schema": schema(), "rows": len(rows), "sha256": digest(rows)}
-    stream = io.StringIO(newline="")
-    writer = csv.writer(stream)
-    writer.writerow(HEADER)
-    writer.writerow(["manifest", "", "", json.dumps(manifest)])
-    writer.writerows(rows)
-    return stream.getvalue().encode("utf-8-sig")
+    records = [{"model": row[1], "pk": row[2], "fields": json.loads(row[3])}
+               for row in rows if row[0] == "record"]
+    from .data_workbook import write_workbook
+    return write_workbook(records, {name: base64.b64decode(data) for name, data in media.items()}, snapshot_models())
 
 
 def parse_snapshot(payload):
     if len(payload) > MAX_BYTES:
-        raise SnapshotError("The CSV must be 100 MB or smaller.")
+        raise SnapshotError("The workbook must be 100 MB or smaller.")
+    if payload.startswith(b"PK"):
+        from .data_workbook import WorkbookError, read_workbook
+        try:
+            records, files = read_workbook(payload, snapshot_models(), MAX_BYTES)
+        except (WorkbookError, ValueError, TypeError, KeyError) as exc:
+            raise SnapshotError(str(exc)) from exc
+        # Reuse the complete legacy validator, preserving support for old
+        # backups without exposing JSON records in the new workbook.
+        rows = [["record", r["model"], str(r["pk"]), json.dumps(r["fields"], cls=DjangoJSONEncoder)] for r in records]
+        rows += [["file", "", name, base64.b64encode(content).decode("ascii")] for name, content in sorted(files.items())]
+        manifest = {"format": "distribution-data", "version": 1, "schema": schema(), "rows": len(rows), "sha256": digest(rows)}
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(HEADER)
+        writer.writerow(["manifest", "", "", json.dumps(manifest)])
+        writer.writerows(rows)
+        return _parse_csv_snapshot(output.getvalue().encode("utf-8-sig"), check_size=False)
+    return _parse_csv_snapshot(payload)
+
+
+def _parse_csv_snapshot(payload, check_size=True):
+    if check_size and len(payload) > MAX_BYTES:
+        raise SnapshotError("The file must be 100 MB or smaller.")
     try:
         reader = csv.reader(io.StringIO(payload.decode("utf-8-sig"), newline=""), strict=True)
         if next(reader) != HEADER:
@@ -161,7 +181,7 @@ def parse_snapshot(payload):
         if not any(r["model"] == "accounts.user" and r["fields"].get("role") == "OWNER"
                    and r["fields"].get("is_active") and r["fields"].get("password")
                    and not r["fields"]["password"].startswith("!") for r in records):
-            raise SnapshotError("The CSV must contain an active owner account with a usable password.")
+            raise SnapshotError("The workbook must contain an active owner account with a usable password.")
         referenced = set()
         database_logos = {r["pk"] for r in records if r["model"] == "core.brandlogo"}
         for record in records:
@@ -180,7 +200,7 @@ def parse_snapshot(payload):
         raise
     except (ValueError, TypeError, KeyError, StopIteration, UnicodeError, csv.Error,
             serializers.base.DeserializationError) as exc:
-        raise SnapshotError("Invalid or incomplete export CSV. Use an unchanged CSV exported by this version of the app.") from exc
+        raise SnapshotError("Invalid or incomplete data file. Use an export from this app version and keep the required fields and attachments.") from exc
 
 
 def transfer_tables():
@@ -194,6 +214,11 @@ def transfer_tables():
 
 def import_snapshot(payload):
     records, files = parse_snapshot(payload)
+    from django.db.migrations.executor import MigrationExecutor
+    executor = MigrationExecutor(connection)
+    pending = executor.migration_plan(executor.loader.graph.leaf_nodes())
+    if pending:
+        raise SnapshotError("Apply pending database migrations before importing: " + ", ".join(m.app_label + "." + m.name for m, _ in pending))
     saved_files = []
     try:
         # SQLite FK checks must be disabled before the transaction begins.
