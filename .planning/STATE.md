@@ -1,5 +1,14 @@
 # Current state
 
+Updated: 2026-11-10 — GitHub integration
+
+- Completed `phases/01-partners/01-09-PLAN.md`: fetched origin/main `07d79f7` and merged its five newer commits with all local export/import work. Integration commit: `1e177e4`.
+- Upstream now uses owner-only roles (distributor apps removed), PostgreSQL/Supabase, private S3 uploads, Vercel, database logos, new UI and caches. Preserved these changes.
+- Adapted transfer for PostgreSQL table locks/FKs/sequences, database and legacy logos, durable hosted backups, cache-version refresh, excluded transfer-page caching and new panel/menu layout.
+- Verification: full suite 352 passed on SQLite and 352 passed on isolated local PostgreSQL 17. Browser CSV download → upload → dated backup → replacement → logout → restored-account login passed; desktop/mobile inspected. Final 12 transfer tests and system/migration/whitespace checks passed.
+- Original local DB, .env and live Supabase/S3 were untouched. No push/deployment. S3 routing tested through isolated storage, not the live service. See `phases/01-partners/01-09-SUMMARY.md` for runtime boundaries.
+- Temporary sample-data preview is running at localhost:8001 using /tmp/distribution_integration_preview_settings.py. Temporary PostgreSQL test server has been stopped. Normal app settings still require a configured DATABASE_URL and appropriate private-storage variables; these were not changed during integration.
+
 Updated: 2026-11-10
 
 - Completed `phases/01-partners/01-08-PLAN.md`: Settings > Export & Import Data exports a single CSV with all persistent records, relationships, accounts and referenced attachments. Sessions/API tokens are excluded.
