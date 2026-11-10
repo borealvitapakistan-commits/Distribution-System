@@ -353,6 +353,33 @@ class FinanceLedgerTests(TestCase):
         self.assertRedirects(response, reverse("owner-finance-expenses"))
         self.assertEqual(Expense.objects.get().amount, Decimal("670000"))
 
+    def test_expense_table_numbers_rows_and_shows_description(self):
+        from datetime import date
+
+        Expense.objects.create(date=date(2026, 11, 1), name="Rent", category="RENT",
+                               amount=Decimal("500.00"), comments="November office rent")
+        Expense.objects.create(date=date(2026, 11, 2), name="Courier", category="FREIGHT",
+                               amount=Decimal("120.00"))
+        client = Client()
+        client.force_login(self.owner)
+
+        form = client.get(reverse("owner-finance-expense-create")).context["form"]
+        self.assertEqual(list(form.fields), ["date", "name", "comments", "category", "amount"])
+        self.assertEqual(form.fields["comments"].label, "Description")
+
+        page = client.get(reverse("owner-finance-expenses")).content.decode()
+        headers = ["Sr.", "Date", "Expense name", "Description", "Category", "Amount (Rs)"]
+        positions = [page.index(f"<th{' class="num"' if h in ('Sr.', 'Amount (Rs)') else ''}>{h}</th>") for h in headers]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("November office rent", page)
+
+        csv = client.get(reverse("owner-finance-expenses"), {"format": "csv"}).content.decode("utf-8-sig")
+        lines = csv.splitlines()
+        header = next(line for line in lines if line.startswith("Sr."))
+        self.assertEqual(header, "Sr.,Date,Expense name,Description,Category,Amount (Rs)")
+        self.assertIn("1,2026-11-02,Courier,,Freight & courier,120.00", csv)
+        self.assertIn("2,2026-11-01,Rent,November office rent,Rent,500.00", csv)
+
     def test_every_finance_page_downloads_as_csv_and_pdf(self):
         self._sell(50, "400.00")
         self._write_off(1)

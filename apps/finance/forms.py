@@ -8,14 +8,17 @@ from .models import Expense, MarketResearch
 class ExpenseForm(forms.ModelForm):
     class Meta:
         model = Expense
-        fields = ["date", "name", "category", "amount", "comments"]
+        # "comments" is shown as Description; the field keeps its name so
+        # workbook backups made before still import.
+        fields = ["date", "name", "comments", "category", "amount"]
         labels = {
             "name": "Expense name",
+            "comments": "Description",
             "amount": "Amount (Rs)",
         }
         widgets = {
             "date": forms.DateInput(attrs={"type": "date"}),
-            "comments": forms.Textarea(attrs={"rows": 3}),
+            "comments": forms.Textarea(attrs={"rows": 3, "placeholder": "What was this expense for?"}),
         }
 
     def __init__(self, *args, **kwargs):

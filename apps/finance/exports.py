@@ -436,12 +436,18 @@ def ledger_document(entries, subtitle=""):
 def _expenses_section(expenses, total):
     return Section(
         heading="Expenses",
-        columns=[("Date", TEXT), ("Expense name", TEXT), ("Category", TEXT), ("Amount (Rs)", MONEY), ("Comments", TEXT)],
-        rows=[
-            [f"{expense.date:%Y-%m-%d}", expense.name, expense.get_category_display(), expense.amount, expense.comments]
-            for expense in expenses
+        columns=[
+            ("Sr.", TEXT), ("Date", TEXT), ("Expense name", TEXT), ("Description", TEXT),
+            ("Category", TEXT), ("Amount (Rs)", MONEY),
         ],
-        footer=["", "TOTAL EXPENSES", "", total, ""],
+        rows=[
+            [
+                number, f"{expense.date:%Y-%m-%d}", expense.name, expense.comments,
+                expense.get_category_display(), expense.amount,
+            ]
+            for number, expense in enumerate(expenses, 1)
+        ],
+        footer=["", "", "TOTAL EXPENSES", "", "", total],
     )
 
 
