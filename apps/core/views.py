@@ -195,30 +195,40 @@ class BrandUpdateView(OwnerRequiredMixin, UpdateView):
 class DataSettingsView(OwnerRequiredMixin, TemplateView):
     template_name = "core/data_settings.html"
 
+    def get_context_data(self, **kwargs):
+        from django.conf import settings
+        from .data_transfer import MAX_BYTES
+        context = super().get_context_data(**kwargs)
+        # Leave room for multipart form headers under Vercel's 4.5 MB cap.
+        limit = 4 * 1024 * 1024 if settings.IS_VERCEL else MAX_BYTES
+        context.update(upload_limit_bytes=limit, upload_limit_mb=limit // (1024 * 1024))
+        return context
+
     def post(self, request, *args, **kwargs):
         import logging
         from django.contrib.auth import logout
         from .data_transfer import MAX_BYTES, SnapshotError, import_snapshot
 
+        limit = self.get_context_data()["upload_limit_bytes"]
         uploaded = request.FILES.get("data_file")
         error = None
         if request.POST.get("confirm_replace") != "yes":
             error = "Confirm that this workbook will replace all business data."
         elif not uploaded or not uploaded.name.lower().endswith(".xlsx"):
             error = "Choose an Excel workbook (.xlsx) exported by this app."
-        elif uploaded.size > MAX_BYTES:
-            error = "The workbook must be 100 MB or smaller."
+        elif uploaded.size > limit:
+            error = f"The workbook must be {limit // (1024 * 1024)} MB or smaller."
         if error:
-            return render(request, self.template_name, {"error": error}, status=400)
+            return render(request, self.template_name, self.get_context_data(error=error), status=400)
         try:
-            backup = import_snapshot(uploaded.read(MAX_BYTES + 1), business_only=True, actor=request.user.pk)
+            backup = import_snapshot(uploaded.read(limit + 1), business_only=True, actor=request.user.pk)
         except SnapshotError as exc:
-            return render(request, self.template_name, {"error": str(exc)}, status=400)
+            return render(request, self.template_name, self.get_context_data(error=str(exc)), status=400)
         except Exception:
             logging.getLogger(__name__).exception("Data replacement failed")
-            return render(request, self.template_name, {
-                "error": "Import failed. Your previous data is unchanged. Check the workbook and server storage, then try again."
-            }, status=400)
+            return render(request, self.template_name, self.get_context_data(
+                error="Import failed. Your previous data is unchanged. Check the workbook and server storage, then try again."
+            ), status=400)
         logout(request)
         if getattr(backup, "missing_backup_count", 0):
             messages.warning(request, f"The backup preserved paths for {backup.missing_backup_count} attachments that were already missing from storage. See its Attachment Issues sheet.")
@@ -231,19 +241,36 @@ class DataSettingsView(OwnerRequiredMixin, TemplateView):
 
 class DataExportView(OwnerRequiredMixin, View):
     def get(self, request):
+        import logging
+        import uuid
+        from django.conf import settings
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import default_storage
         from django.db import transaction
         from django.http import HttpResponse
         from django.utils import timezone
+        from botocore.exceptions import BotoCoreError, ClientError
         from .data_transfer import SnapshotError, export_business_workbook
 
+        filename = timezone.localtime().strftime("distribution-data-%Y%m%d-%H%M%S.xlsx")
         try:
             with transaction.atomic():
                 payload = export_business_workbook()
+            if settings.IS_VERCEL and len(payload) > 4 * 1024 * 1024:
+                # Large responses cannot pass through a Vercel Function.
+                # Keep the workbook private and let storage serve it using
+                # the existing expiring signed URL configuration.
+                key = default_storage.save("data-exports/" + uuid.uuid4().hex + "/" + filename, ContentFile(payload))
+                response = redirect(default_storage.url(key))
+            else:
+                response = HttpResponse(payload, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+                response["Content-Disposition"] = f'attachment; filename="{filename}"'
         except SnapshotError as exc:
             messages.error(request, str(exc))
             return redirect("data-settings")
-        response = HttpResponse(payload, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        filename = timezone.localtime().strftime("distribution-data-%Y%m%d-%H%M%S.xlsx")
-        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        except (OSError, BotoCoreError, ClientError):
+            logging.getLogger(__name__).exception("Export delivery failed")
+            messages.error(request, "The export could not be delivered. Check storage access and try again.")
+            return redirect("data-settings")
         response["Cache-Control"] = "no-store"
         return response

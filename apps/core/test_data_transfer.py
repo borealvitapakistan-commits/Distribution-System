@@ -495,3 +495,33 @@ class DataTransferTests(TransactionTestCase):
         import_snapshot(self.rewrite(payload, older_columns), business_only=True)
         self.assertEqual(ManufacturerOrder.objects.get(pk=order.pk).invoice_approved_by_id, self.owner.pk)
         self.assertTrue(User.objects.get(pk=self.owner.pk).check_password('secret-password'))
+
+    @override_settings(IS_VERCEL=True)
+    def test_vercel_upload_limit_matches_host_before_import(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self.client.force_login(self.owner)
+        page = self.client.get(reverse('data-settings'))
+        self.assertContains(page, 'up to 4 MB')
+        with patch('apps.core.data_transfer.import_snapshot') as importer:
+            response = self.client.post(reverse('data-settings'), {
+                'confirm_replace': 'yes',
+                'data_file': SimpleUploadedFile('large.xlsx', b'x' * (4 * 1024 * 1024 + 1)),
+            })
+        self.assertContains(response, '4 MB or smaller', status_code=400)
+        importer.assert_not_called()
+        self.assertTrue(Brand.objects.filter(pk=self.brand.pk).exists())
+
+    @override_settings(IS_VERCEL=True)
+    def test_vercel_large_export_is_delivered_from_private_storage(self):
+        from django.core.files.storage import default_storage
+        self.client.force_login(self.owner)
+        payload = b'x' * (4 * 1024 * 1024 + 1)
+        signed = 'https://storage.invalid/private/workbook.xlsx?signature=test-only'
+        with patch('apps.core.data_transfer.export_business_workbook', return_value=payload), patch.object(default_storage, 'url', return_value=signed):
+            response = self.client.get(reverse('data-export'))
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response['Location'], signed)
+        self.assertEqual(response['Cache-Control'], 'no-store')
+        exported = list((self.root / 'media' / 'data-exports').rglob('*.xlsx'))
+        self.assertEqual(len(exported), 1)
+        self.assertEqual(exported[0].read_bytes(), payload)

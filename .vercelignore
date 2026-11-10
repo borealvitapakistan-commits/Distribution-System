@@ -24,3 +24,7 @@ scripts/
 htmlcov/
 node_modules/
 *.log
+
+# macOS desktop metadata
+.DS_Store
+**/.DS_Store
