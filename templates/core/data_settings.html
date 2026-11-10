@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Export & Import Data{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Settings</p>
+        <h1>Export &amp; Import Data</h1>
+        <p>Download your data or replace it with a saved export.</p>
+    </div>
+</div>
+{% if error %}<div class="panel" role="alert"><p>{{ error }}</p></div>{% endif %}
+<section class="panel">
+    <h2>Export Data</h2>
+    <p>Download one CSV with all products, partners, orders, inventory, financial records, audit history, user accounts and attached files. Records are ordered by record type and ID.</p>
+    <p>This file includes confidential business data and account password hashes. Keep it private. Login sessions and API tokens are excluded.</p>
+    <a class="button button-primary" href="{% url 'data-export' %}">Export Data (.csv)</a>
+</section>
+<section class="panel">
+    <h2>Import Data</h2>
+    <p>Choose an unchanged CSV downloaded from this app (up to 100 MB). It will replace all current data, including user accounts.</p>
+    <p>Before replacing anything, the app saves a separate backup of your current records and attachments with today's date and time. Existing backups stay saved. Backup browsing will be added later.</p>
+    <p>After import, sign in with an owner account from the imported file. If import fails, your current data stays unchanged.</p>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="data-file">Exported CSV</label>
+            <input type="file" id="data-file" name="data_file" accept=".csv,text/csv" required>
+        </div>
+        <p><label><input type="checkbox" name="confirm_replace" value="yes" required> I understand that this replaces all current data after saving a dated backup.</label></p>
+        <button class="button button-primary" type="submit">Back Up &amp; Import Data</button>
+    </form>
+</section>
+{% endblock %}

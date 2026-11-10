@@ -212,7 +212,7 @@
                         <div class="settings-menu" data-settings-menu>
                             <button
                                 type="button"
-                                class="button button-secondary button-small settings-toggle{% if request.resolver_match.url_name in "owner-profile audit-event-list stock-movement-list" %} active{% endif %}"
+                                class="button button-secondary button-small settings-toggle{% if request.resolver_match.url_name in "owner-profile audit-event-list stock-movement-list data-settings" %} active{% endif %}"
                                 aria-haspopup="true"
                                 aria-expanded="false"
                                 data-settings-toggle
@@ -222,6 +222,10 @@
                             </button>
 
                             <nav class="settings-dropdown" data-settings-dropdown hidden>
+                                <a href="{% url 'data-settings' %}" class="{% if request.resolver_match.url_name == 'data-settings' %}active{% endif %}">
+                                    <span class="nav-icon">⇄</span>
+                                    Export &amp; Import Data
+                                </a>
                                 <a
                                     href="{% url 'owner-profile' %}"
                                     class="{% if request.resolver_match.url_name == 'owner-profile' %}active{% endif %}"
