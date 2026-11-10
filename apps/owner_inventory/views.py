@@ -1,7 +1,11 @@
+from concurrent.futures import ThreadPoolExecutor
+
 from django.conf import settings
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
+from django.db.models import Q
 from django.shortcuts import redirect, render
+from django.utils import timezone
 from django.views import View
 from django.views.generic import ListView
 
@@ -10,10 +14,10 @@ from apps.batches.models import Batch
 from apps.batches.services import trace_batch_code
 from apps.products.shopify import ShopifyError
 
-from .forms import GiveToDistributorForm, ReceiveStockForm
+from .forms import ReceiveStockForm
 from . import shopify_sync
 from .models import ShopifyOrder, ShopifySyncState, StockBatch, StockMovement
-from .services import give_to_distributor, receive_stock
+from .services import receive_stock
 
 
 class StockBalanceListView(OwnerRequiredMixin, ListView):
@@ -23,15 +27,34 @@ class StockBalanceListView(OwnerRequiredMixin, ListView):
 
     template_name = "owner_inventory/stock_balance_list.html"
     context_object_name = "batches"
+    paginate_by = 25
 
     def get_queryset(self):
-        return (
+        batches = (
             StockBatch.objects
             .for_user(self.request.user)
-            .select_related("product", "location")
+            .select_related("product", "location", "location__inventory")
             .available()
             .fefo_ordered()
         )
+        search = self.request.GET.get("q", "").strip()
+        if search:
+            batches = batches.filter(Q(product__name__icontains=search) | Q(product__sku__icontains=search) | Q(batch_number__icontains=search))
+        status = self.request.GET.get("status")
+        if status == "waiting":
+            batches = batches.filter(location__location_type="UNALLOCATED")
+        elif status == "stored":
+            batches = batches.filter(location__location_type="OWN")
+        return batches
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        query = self.request.GET.copy()
+        query.pop("page", None)
+        context.update({"inventory_tab": "stock", "today": timezone.localdate(),
+                        "search": self.request.GET.get("q", ""),
+                        "selected_status": self.request.GET.get("status", ""), "page_query": query.urlencode()})
+        return context
 
 
 class StockBatchListView(OwnerRequiredMixin, ListView):
@@ -91,6 +114,7 @@ class ReceiveStockView(OwnerRequiredMixin, View):
             self.template_name,
             {"form": ReceiveStockForm(initial={
                 "product": request.GET.get("product"), "to_location": request.GET.get("location"),
+                "received_date": timezone.localdate(),
             })},
         )
 
@@ -115,49 +139,14 @@ class ReceiveStockView(OwnerRequiredMixin, View):
             form.add_error(None, exc)
             return render(request, self.template_name, {"form": form})
 
-        messages.success(request, "Inventory received successfully.")
-        return redirect("stock-balance-list")
-
-
-class GiveToDistributorView(OwnerRequiredMixin, View):
-    template_name = "owner_inventory/give_to_distributor_form.html"
-
-    def get(self, request):
-        return render(
-            request,
-            self.template_name,
-            {"form": GiveToDistributorForm()},
-        )
-
-    def post(self, request):
-        form = GiveToDistributorForm(request.POST)
-
-        if not form.is_valid():
-            return render(request, self.template_name, {"form": form})
-
-        try:
-            batch = form.cleaned_data["batch"]
-            give_to_distributor(
-                actor=request.user,
-                product=batch.product,
-                quantity=form.cleaned_data["quantity"],
-                from_location=batch.location,
-                distributor_profile=form.cleaned_data["distributor"],
-                batch=batch,
-                reference=form.cleaned_data["reference"],
-            )
-        except (PermissionDenied, ValidationError) as exc:
-            form.add_error(None, exc)
-            return render(request, self.template_name, {"form": form})
-
-        messages.success(request, "Stock sent to Distributor successfully.")
-        return redirect("stock-balance-list")
+        messages.success(request, "Delivery recorded. This batch is now in your warehouse.")
+        return redirect("location-detail", pk=form.cleaned_data["to_location"].pk)
 
 
 class BatchTraceView(OwnerRequiredMixin, View):
     """Search one batch code and see its whole journey — Manufacturer,
-    Owner, every Distributor it reached and every sub-distributor it was
-    sold on to — with the quantities checked against each other."""
+    Owner warehouses and every Shopify order it was sold on — with the
+    quantities checked against each other."""
 
     template_name = "owner_inventory/batch_trace.html"
 
@@ -191,26 +180,8 @@ class ShopifySyncView(OwnerRequiredMixin, View):
     template_name = "owner_inventory/shopify_sync.html"
 
     def get(self, request):
-        rows, live_error = shopify_sync.status_rows()
-
-        # Shopify's own product list, for "link to an existing Shopify
-        # product" — only when this product is already sold there under
-        # another name or SKU.
-        shopify_products = []
-        if shopify_sync.shopify.is_configured() and not live_error:
-            try:
-                shopify_products = shopify_sync.shopify.list_products()
-            except ShopifyError as exc:
-                live_error = str(exc)
-
-        to_publish = [
-            {
-                "product": product,
-                "quantity": quantity,
-                "match": shopify_sync.match_on_shopify(product, shopify_products)[0],
-            }
-            for product, quantity in shopify_sync.products_to_publish()
-        ]
+        if request.GET.get("part") == "live":
+            return self._live_part(request)
 
         return render(
             request,
@@ -219,10 +190,6 @@ class ShopifySyncView(OwnerRequiredMixin, View):
                 "configured": shopify_sync.shopify.is_configured(),
                 "enabled": settings.SHOPIFY_INVENTORY_SYNC,
                 "state": ShopifySyncState.load(),
-                "rows": rows,
-                "to_publish": to_publish,
-                "shopify_products": shopify_products,
-                "live_error": live_error,
                 "orders": (
                     ShopifyOrder.objects
                     .prefetch_related("lines__product")[:50]
@@ -235,6 +202,57 @@ class ShopifySyncView(OwnerRequiredMixin, View):
                     )
                     .select_related("product", "batch", "from_location", "to_location")[:50]
                 ),
+            },
+        )
+
+    def _live_part(self, request):
+        """The two tables that need Shopify's own numbers, fetched by the
+        page's script once the page is already showing.
+
+        Shopify's product list (for "link to an existing Shopify product")
+        is fetched on a second thread while this one reads the database
+        and Shopify's stock levels — two waits on Shopify at once instead
+        of one after the other. The thread only talks to Shopify; every
+        database query stays on this request's thread."""
+        shopify_products = []
+        live_error = ""
+        products_call = None
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            if shopify_sync.shopify.is_configured():
+                try:
+                    shopify_sync.shopify._access_token()  # one token, shared by both calls
+                    products_call = pool.submit(shopify_sync.shopify.list_products)
+                except ShopifyError as exc:
+                    live_error = str(exc)
+
+            rows, status_error = shopify_sync.status_rows()
+            live_error = live_error or status_error
+
+            if products_call is not None:
+                try:
+                    products = products_call.result()
+                    if not live_error:
+                        shopify_products = products
+                except ShopifyError as exc:
+                    live_error = live_error or str(exc)
+
+        to_publish = [
+            {
+                "product": product,
+                "quantity": quantity,
+                "match": shopify_sync.match_on_shopify(product, shopify_products)[0],
+            }
+            for product, quantity in shopify_sync.products_to_publish()
+        ]
+
+        return render(
+            request,
+            "owner_inventory/_shopify_live.html",
+            {
+                "rows": rows,
+                "to_publish": to_publish,
+                "shopify_products": shopify_products,
+                "live_error": live_error,
             },
         )
 

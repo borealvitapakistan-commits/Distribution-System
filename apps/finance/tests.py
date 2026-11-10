@@ -10,8 +10,6 @@ from django.utils import timezone
 
 from apps.accounts.models import User
 from apps.core.models import Brand
-from apps.distributors.models import DistributorProfile
-from apps.distributors.services import approve_distributor, create_distributor
 from apps.manufacturers.services import (
     create_manufacturer,
     create_manufacturer_order,
@@ -19,13 +17,12 @@ from apps.manufacturers.services import (
     record_manufacturer_invoice,
 )
 from apps.owner_inventory.models import ShopifyOrder, ShopifyOrderLine, StockBatch, StockMovement
-from apps.owner_inventory.services import give_to_distributor
-from apps.owner_inventory.shopify_sync import post_line
+from apps.owner_inventory.services import post_stock_movement
+from apps.owner_inventory.shopify_sync import post_line, take_from_stock
 from apps.owner_warehouse.models import Location
 from apps.owner_warehouse.services import create_inventory, create_location
 from apps.products.models import ProductPackagePrice, ProductRetailPrice
 from apps.products.services import create_product
-from apps.requests.services import create_purchase_order, ship_purchase_order_item
 
 from .models import Expense, MarketResearch, SaleEntry
 from .services import (
@@ -178,85 +175,62 @@ class FinanceLedgerTests(TestCase):
         record_manufacturer_invoice(actor=self.owner, order_id=order.pk, to_location=self.warehouse)
         self.batch = StockBatch.objects.get(location=self.warehouse, product=self.product)
 
-        distributor_user = create_distributor(
-            actor=self.owner,
-            email="dist@finance.test",
-            temporary_password="TemporaryPassword123!",
-            name="Karachi Distributors",
+    def _sell(self, quantity, unit_price):
+        """A Shopify customer buys quantity bottles at unit_price (retail 900)."""
+        self._orders = getattr(self, "_orders", 0) + 1
+        order = ShopifyOrder.objects.create(
+            shopify_order_id=str(1000 + self._orders),
+            name=f"#{1000 + self._orders}",
+            placed_at=timezone.now(),
         )
-        approve_distributor(user=self.owner, distributor_id=distributor_user.pk)
-        distributor_user.refresh_from_db()
-        self.distributor_user = distributor_user
-        self.distributor = DistributorProfile.objects.get(user=distributor_user)
+        line = ShopifyOrderLine.objects.create(
+            order=order,
+            shopify_line_id=f"L{self._orders}",
+            title="Saw Palmetto",
+            product=self.product,
+            quantity=Decimal(quantity),
+            original_unit_price=Decimal("900.00"),
+            unit_price=Decimal(unit_price),
+            status=ShopifyOrderLine.Status.UNLINKED,
+        )
+        post_line(actor=self.owner, line=line, summary=defaultdict(int))
+        self.batch.refresh_from_db()
+        return line
 
-    def _ship(self, quantity, unit_price):
-        po = create_purchase_order(
-            actor=self.distributor_user,
-            items=[{"product": self.product, "quantity_requested": Decimal(quantity)}],
-        )
-        item = po.items.get()
-        item.unit_price = Decimal(unit_price)
-        item.save(update_fields=["unit_price"])
-        ship_purchase_order_item(
-            actor=self.owner, item_id=item.pk, allocations=[(self.batch, Decimal(quantity))]
+    def _write_off(self, quantity):
+        take_from_stock(
+            actor=self.owner,
+            product=self.product,
+            quantity=Decimal(quantity),
+            movement_type=StockMovement.MovementType.ADJUSTMENT,
+            reference="Damaged in storage",
         )
         self.batch.refresh_from_db()
-        return item
 
-    def test_distributor_shipment_records_a_sale_at_landed_cost(self):
-        item = self._ship(10, "200.00")
+    def test_shopify_sale_records_a_sale_at_landed_cost(self):
+        line = self._sell(10, "800.00")
 
-        entry = SaleEntry.objects.get(kind=SaleEntry.Kind.DISTRIBUTOR_SALE)
-        self.assertEqual(entry.purchase_order_item, item)
-        self.assertEqual(entry.distributor_profile, self.distributor)
+        entry = SaleEntry.objects.get(kind=SaleEntry.Kind.SHOPIFY_SALE)
+        self.assertEqual(entry.shopify_order_line, line)
         self.assertEqual(entry.unit_cost, Decimal("230.0000"))
         self.assertEqual(entry.cost_source, SaleEntry.CostSource.BATCH)
         self.assertEqual(entry.bottle_size, 60)
-        self.assertEqual(entry.retail_unit_price, item.list_price)
-        self.assertEqual(entry.net_unit_price, Decimal("200.00"))
+        self.assertEqual(entry.retail_unit_price, Decimal("900.00"))
+        self.assertEqual(entry.net_unit_price, Decimal("800.00"))
         self.assertEqual(entry.batch_number, self.batch.batch_number)
         self.assertEqual(entry.source_batch, self.batch.source_batch)
 
-    def test_receiving_the_shipment_does_not_count_the_sale_twice(self):
-        from apps.requests.services import receive_purchase_order_item
-
-        item = self._ship(10, "200.00")
-        receive_purchase_order_item(actor=self.distributor_user, item_id=item.pk, quantity=Decimal("10"))
-        sync_sales_ledger(actor=self.owner)
-
-        self.assertEqual(SaleEntry.objects.count(), 1)
-
-    def test_giving_stock_away_is_a_cost_with_no_revenue(self):
-        give_to_distributor(
-            actor=self.owner,
-            product=self.product,
-            quantity=Decimal("5"),
-            from_location=self.warehouse,
-            distributor_profile=self.distributor,
-            batch=self.batch,
-        )
+    def test_writing_stock_off_is_a_cost_with_no_revenue(self):
+        self._write_off(5)
 
         entry = SaleEntry.objects.get()
-        self.assertEqual(entry.kind, SaleEntry.Kind.GIFT)
+        self.assertEqual(entry.kind, SaleEntry.Kind.WRITE_OFF)
         self.assertEqual(entry.net_unit_price, Decimal("0"))
         self.assertEqual(entry.retail_unit_price, Decimal("900.00"))
         self.assertEqual(entry.cost, Decimal("1150"))
 
     def test_shopify_sale_uses_the_price_the_customer_paid(self):
-        order = ShopifyOrder.objects.create(
-            shopify_order_id="1001", name="#1001", placed_at=timezone.now()
-        )
-        line = ShopifyOrderLine.objects.create(
-            order=order,
-            shopify_line_id="L1",
-            title="Saw Palmetto",
-            product=self.product,
-            quantity=Decimal("2"),
-            original_unit_price=Decimal("900.00"),
-            unit_price=Decimal("810.00"),
-            status=ShopifyOrderLine.Status.UNLINKED,
-        )
-        post_line(actor=self.owner, line=line, summary=defaultdict(int))
+        line = self._sell(2, "810.00")
 
         entry = SaleEntry.objects.get()
         self.assertEqual(entry.kind, SaleEntry.Kind.SHOPIFY_SALE)
@@ -264,16 +238,23 @@ class FinanceLedgerTests(TestCase):
         self.assertEqual(entry.revenue, Decimal("1620"))
         self.assertEqual(entry.cut, Decimal("180"))
 
-    def test_period_report_profit_and_loss(self):
-        self._ship(10, "400.00")
-        give_to_distributor(
+    def test_archived_distributor_hand_offs_are_not_entries(self):
+        post_stock_movement(
             actor=self.owner,
             product=self.product,
-            quantity=Decimal("1"),
+            quantity=Decimal("3"),
+            movement_type=StockMovement.MovementType.TRANSFER,
             from_location=self.warehouse,
-            distributor_profile=self.distributor,
             batch=self.batch,
+            channel=StockMovement.Channel.DISTRIBUTOR,
         )
+
+        self.assertEqual(sync_sales_ledger(actor=self.owner), 0)
+        self.assertFalse(SaleEntry.objects.exists())
+
+    def test_period_report_profit_and_loss(self):
+        self._sell(10, "400.00")
+        self._write_off(1)
         today = timezone.localdate()
         Expense.objects.create(date=today, name="Rent", amount=Decimal("500.00"))
 
@@ -284,7 +265,7 @@ class FinanceLedgerTests(TestCase):
         self.assertEqual(totals.revenue, Decimal("4000"))
         self.assertEqual(totals.cogs, Decimal("2300"))
         self.assertEqual(totals.gross_profit, Decimal("1700"))
-        self.assertEqual(totals.free_cost, Decimal("230"))
+        self.assertEqual(totals.written_off_cost, Decimal("230"))
         self.assertEqual(totals.expenses, Decimal("500.00"))
         self.assertEqual(totals.net_profit, Decimal("970"))
         self.assertEqual(report.stock_bought, Decimal("23000"))
@@ -310,14 +291,14 @@ class FinanceLedgerTests(TestCase):
         self.assertEqual(totals.net_profit, Decimal("12000"))
 
     def test_sync_backfills_movements_made_before_the_ledger(self):
-        self._ship(10, "200.00")
+        self._sell(10, "200.00")
         SaleEntry.objects.all()._raw_delete(SaleEntry.objects.db)
 
         self.assertEqual(sync_sales_ledger(actor=self.owner), 1)
         self.assertEqual(sync_sales_ledger(actor=self.owner), 0)
         entry = SaleEntry.objects.get()
         self.assertEqual(entry.net_unit_price, Decimal("200.00"))
-        self.assertIsNotNone(entry.purchase_order_item)
+        self.assertIsNotNone(entry.shopify_order_line)
 
     def test_internal_moves_and_receipts_are_not_entries(self):
         sync_sales_ledger(actor=self.owner)
@@ -325,7 +306,7 @@ class FinanceLedgerTests(TestCase):
         self.assertFalse(SaleEntry.objects.exists())
 
     def test_entries_are_immutable(self):
-        self._ship(1, "200.00")
+        self._sell(1, "200.00")
         entry = SaleEntry.objects.get()
 
         entry.net_unit_price = Decimal("1")
@@ -345,7 +326,7 @@ class FinanceLedgerTests(TestCase):
             "owner-finance-market",
             "owner-finance-market-create",
         ]
-        self._ship(2, "200.00")
+        self._sell(2, "200.00")
 
         owner = Client()
         owner.force_login(self.owner)
@@ -354,12 +335,11 @@ class FinanceLedgerTests(TestCase):
         for period in ("daily", "weekly", "custom"):
             self.assertEqual(owner.get(reverse("owner-finance"), {"period": period}).status_code, 200)
         csv = owner.get(reverse("owner-finance-ledger"), {"format": "csv"})
-        self.assertIn(b"Distributor sale", csv.content)
+        self.assertIn(b"Shopify sale", csv.content)
 
-        distributor = Client()
-        distributor.force_login(self.distributor_user)
+        visitor = Client()
         for name in names:
-            self.assertEqual(distributor.get(reverse(name)).status_code, 403, name)
+            self.assertEqual(visitor.get(reverse(name)).status_code, 302, name)
 
     def test_owner_can_add_an_expense(self):
         client = Client()
@@ -374,15 +354,8 @@ class FinanceLedgerTests(TestCase):
         self.assertEqual(Expense.objects.get().amount, Decimal("670000"))
 
     def test_every_finance_page_downloads_as_csv_and_pdf(self):
-        self._ship(50, "400.00")
-        give_to_distributor(
-            actor=self.owner,
-            product=self.product,
-            quantity=Decimal("1"),
-            from_location=self.warehouse,
-            distributor_profile=self.distributor,
-            batch=self.batch,
-        )
+        self._sell(50, "400.00")
+        self._write_off(1)
         Expense.objects.create(name="Rent", amount=Decimal("500.00"))
         MarketResearch.objects.create(
             product=self.product, similar_product="Prozon", store="healthwire.pk",
@@ -398,7 +371,7 @@ class FinanceLedgerTests(TestCase):
             (reverse("owner-finance"), {"period": "custom", "start": "2026-01-01", "end": "2026-12-31"}),
             (reverse("owner-finance-product-finance"), {"group": "product"}),
             (reverse("owner-finance-product-finance"), {}),
-            (reverse("owner-finance-ledger"), {"kind": "DISTRIBUTOR_SALE"}),
+            (reverse("owner-finance-ledger"), {"kind": "SHOPIFY_SALE"}),
             (reverse("owner-finance-expenses"), {}),
             (reverse("owner-finance-prices"), {}),
             (reverse("owner-finance-market"), {}),
@@ -418,7 +391,7 @@ class FinanceLedgerTests(TestCase):
         self.assertIn("Net profit", report)
         self.assertIn("By batch", report)
         self.assertIn(self.batch.batch_number, report)
-        # 50 × 400 revenue, 51 × 230 cost of which 1 given free, 500 rent.
+        # 50 × 400 revenue, 51 × 230 cost of which 1 written off, 500 rent.
         self.assertIn("Revenue (what we actually received),20000.00", report)
         self.assertIn("Net profit,7770.00", report)
 
@@ -432,9 +405,8 @@ class FinanceLedgerTests(TestCase):
 
     def test_downloads_are_owner_only(self):
         client = Client()
-        client.force_login(self.distributor_user)
         for name in ("owner-finance", "owner-finance-ledger", "owner-finance-product-finance"):
-            self.assertEqual(client.get(reverse(name), {"format": "csv"}).status_code, 403)
+            self.assertEqual(client.get(reverse(name), {"format": "csv"}).status_code, 302)
 
     def test_bad_filters_fall_back_instead_of_failing(self):
         client = Client()
@@ -448,10 +420,10 @@ class FinanceLedgerTests(TestCase):
             200,
         )
 
-    def test_free_and_written_off_cost_keeps_paise(self):
+    def test_written_off_cost_keeps_paise(self):
         from .services import Figures
 
-        figures = Figures(free_cost=Decimal("10.40"), written_off_cost=Decimal("0.35"))
+        figures = Figures(written_off_cost=Decimal("10.75"))
         self.assertEqual(figures.lost_cost, Decimal("10.75"))
 
     def test_product_prices_list_each_manufacturers_package_price(self):
@@ -487,26 +459,19 @@ class FinanceLedgerTests(TestCase):
             actor=self.owner, sku="FIN-OTHER", barcode="", name="Other",
             base_retail_price=Decimal("100.00"), currency="pkr",
         )
-        self._ship(10, "400.00")
-        give_to_distributor(
-            actor=self.owner,
-            product=self.product,
-            quantity=Decimal("1"),
-            from_location=self.warehouse,
-            distributor_profile=self.distributor,
-            batch=self.batch,
-        )
+        self._sell(10, "400.00")
+        self._write_off(1)
         today = timezone.localdate()
         Expense.objects.create(date=today, name="Rent", amount=Decimal("500.00"))
 
         everything = period_report(today, today)
-        sales_only = period_report(today, today, kind=SaleEntry.Kind.DISTRIBUTOR_SALE)
+        sales_only = period_report(today, today, kind=SaleEntry.Kind.SHOPIFY_SALE)
         none = period_report(today, today, product_id=other.pk)
 
         self.assertEqual(everything.totals.expenses, Decimal("500.00"))
         self.assertTrue(sales_only.filtered)
         self.assertEqual(sales_only.totals.expenses, Decimal("0"))
-        self.assertEqual(sales_only.totals.free_cost, Decimal("0"))
+        self.assertEqual(sales_only.totals.written_off_cost, Decimal("0"))
         self.assertEqual(sales_only.totals.net_profit, Decimal("1700"))
         self.assertEqual(none.entries, [])
         self.assertEqual(
@@ -515,7 +480,7 @@ class FinanceLedgerTests(TestCase):
         )
 
     def test_reports_page_all_time_and_empty_period_notice(self):
-        self._ship(5, "400.00")
+        self._sell(5, "400.00")
         client = Client()
         client.force_login(self.owner)
 
@@ -527,46 +492,38 @@ class FinanceLedgerTests(TestCase):
         self.assertContains(empty, "show that month")
 
         filtered = client.get(
-            reverse("owner-finance"), {"period": "all", "distributor": str(self.distributor.pk)}
+            reverse("owner-finance"), {"period": "all", "product": str(self.product.pk)}
         )
-        self.assertEqual(filtered.context["active_filters"], ["Distributor: Karachi Distributors"])
-        self.assertIn("distributor=", filtered.context["filter_query"])
+        self.assertEqual(filtered.context["active_filters"], ["Product: Saw Palmetto"])
+        self.assertIn("product=", filtered.context["filter_query"])
 
     def test_ledger_filters_combine_and_only_offer_what_exists(self):
-        self._ship(5, "400.00")
-        give_to_distributor(
-            actor=self.owner,
-            product=self.product,
-            quantity=Decimal("1"),
-            from_location=self.warehouse,
-            distributor_profile=self.distributor,
-            batch=self.batch,
-        )
+        self._sell(5, "400.00")
+        self._write_off(1)
         client = Client()
         client.force_login(self.owner)
 
         page = client.get(reverse("owner-finance-ledger"))
         self.assertEqual(
             [value for value, _label in page.context["kinds"]],
-            [SaleEntry.Kind.DISTRIBUTOR_SALE, SaleEntry.Kind.GIFT],
+            [SaleEntry.Kind.SHOPIFY_SALE, SaleEntry.Kind.WRITE_OFF],
         )
         self.assertEqual(page.context["batches"], [self.batch.batch_number])
 
-        gifts = client.get(reverse("owner-finance-ledger"), {
-            "kind": "GIFT",
-            "distributor": str(self.distributor.pk),
+        write_offs = client.get(reverse("owner-finance-ledger"), {
+            "kind": "WRITE_OFF",
             "batch": self.batch.batch_number,
         })
-        self.assertEqual(gifts.context["page_obj"].paginator.count, 1)
-        self.assertEqual(gifts.context["summary"].free_units, Decimal("1"))
+        self.assertEqual(write_offs.context["page_obj"].paginator.count, 1)
+        self.assertEqual(write_offs.context["summary"].written_off_units, Decimal("1"))
 
-        csv = client.get(reverse("owner-finance-ledger"), {"kind": "GIFT", "format": "csv"})
+        csv = client.get(reverse("owner-finance-ledger"), {"kind": "WRITE_OFF", "format": "csv"})
         body = csv.content.decode("utf-8-sig")
-        self.assertIn("Given free to Distributor", body)
-        self.assertNotIn("Distributor sale", body)
+        self.assertIn("Stock written off", body)
+        self.assertNotIn("Shopify sale", body)
 
     def test_empty_columns_are_left_out(self):
-        self._ship(5, "400.00")
+        self._sell(5, "400.00")
         client = Client()
         client.force_login(self.owner)
 
@@ -576,6 +533,6 @@ class FinanceLedgerTests(TestCase):
 
         report = client.get(reverse("owner-finance"), {"period": "all", "format": "csv"})
         body = report.content.decode("utf-8-sig")
-        self.assertNotIn("Free / written off (cost)", body)
+        self.assertNotIn("Written off (cost)", body)
         self.assertNotIn("Expenses,Net profit", body)
-        self.assertIn("Distributor cut / discount", body)
+        self.assertIn("Discount", body)

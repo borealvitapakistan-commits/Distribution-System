@@ -7,8 +7,8 @@ from .views import (
     BrandDetailView,
     BrandListView,
     BrandUpdateView,
-    DistributorDashboardView,
     OwnerDashboardView,
+    brand_logo,
     dashboard_redirect,
 )
 
@@ -16,9 +16,9 @@ from .views import (
 urlpatterns = [
     path("owner/settings/data/", DataSettingsView.as_view(), name="data-settings"),
     path("owner/settings/data/export/", DataExportView.as_view(), name="data-export"),
+    path("brand/<uuid:pk>/logo/", brand_logo, name="brand-logo"),
     path("", dashboard_redirect, name="dashboard"),
     path("owner/", OwnerDashboardView.as_view(), name="owner-dashboard"),
-    path("distributor/", DistributorDashboardView.as_view(), name="distributor-dashboard"),
     path("owner/brand/", BrandListView.as_view(), name="brand-list"),
     path("owner/brand/new/", BrandCreateView.as_view(), name="brand-create"),
     path("owner/brand/<uuid:pk>/", BrandDetailView.as_view(), name="brand-detail"),

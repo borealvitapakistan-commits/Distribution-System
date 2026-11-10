@@ -1,5 +1,9 @@
 .venv/
 .env
+.env.*
+!.env.example
+.vercel/
+node_modules/
 
 db.sqlite3
 db.sqlite3-shm
@@ -14,3 +18,12 @@ media/
 
 # Private database/data snapshots (may contain account and financial data).
 data/backups/
+data.json
+data-supabase-ireland.json
+data-mumbai.json
+data*.json
+*.sqlite3*
+*.log
+.pytest_cache/
+.coverage*
+htmlcov/

@@ -12,6 +12,9 @@ from django.apps import apps
 from django.conf import settings
 from django.core import serializers
 from django.core.files.base import ContentFile
+from django.core.files.storage import FileSystemStorage, default_storage
+from django.core.management.color import no_style
+from django.core.cache import cache
 from django.db import connection, models, transaction
 from django.utils import timezone
 
@@ -47,22 +50,64 @@ def digest(rows):
     return hashlib.sha256(json.dumps(rows, ensure_ascii=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def external_file_fields(model):
+    return [field for field in model._meta.fields if isinstance(field, models.FileField)]
+
+
+def backup_storage():
+    if settings.USE_S3_STORAGE:
+        return default_storage
+    return FileSystemStorage(location=settings.DATA_BACKUP_ROOT,
+                             file_permissions_mode=0o600, directory_permissions_mode=0o700)
+
+
+def save_backup(payload):
+    name = timezone.localtime().strftime("before-import-%Y%m%d-%H%M%S-") + uuid.uuid4().hex + ".csv"
+    storage = backup_storage()
+    if settings.USE_S3_STORAGE:
+        return storage.save("data-backups/" + name, ContentFile(payload))
+    directory = settings.DATA_BACKUP_ROOT
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = directory / name
+    with path.open("xb") as target:
+        path.chmod(0o600)
+        target.write(payload)
+        target.flush()
+        os.fsync(target.fileno())
+    return name
+
+
 def export_snapshot():
+    with transaction.atomic():
+        if connection.vendor == "postgresql":
+            # SHARE locks give all exported tables a consistent snapshot and
+            # allow readers; imports already hold stronger locks.
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '15s'")
+                cursor.execute("LOCK TABLE " + ", ".join(connection.ops.quote_name(t) for t in transfer_tables())
+                               + " IN SHARE MODE")
+        return _export_snapshot()
+
+
+def _export_snapshot():
+    from .models import BrandLogo
+    database_logos = set(BrandLogo.objects.values_list("brand_id", flat=True))
     rows = []
     media = {}
     for model in snapshot_models():
         for obj in model._base_manager.order_by("pk").iterator():
             record = json.loads(serializers.serialize("json", [obj]))[0]
             rows.append(["record", record["model"], str(record["pk"]), json.dumps(record["fields"], ensure_ascii=True)])
-            for field in model._meta.fields:
-                if isinstance(field, models.FileField):
-                    file = getattr(obj, field.name)
-                    if file and file.name not in media:
-                        try:
-                            with file.storage.open(file.name, "rb") as source:
-                                media[file.name] = base64.b64encode(source.read()).decode("ascii")
-                        except OSError as exc:
-                            raise SnapshotError("An attached file is missing or unreadable. Restore it before exporting or importing.") from exc
+            for field in external_file_fields(model):
+                if model._meta.label_lower == "core.brand" and field.name == "logo" and obj.pk in database_logos:
+                    continue
+                file = getattr(obj, field.name)
+                if file and file.name not in media:
+                    try:
+                        with file.storage.open(file.name, "rb") as source:
+                            media[file.name] = base64.b64encode(source.read()).decode("ascii")
+                    except (OSError, FileNotFoundError) as exc:
+                        raise SnapshotError("An attached file is missing or unreadable. Restore it before exporting or importing.") from exc
     rows.extend(["file", "", name, data] for name, data in sorted(media.items()))
     manifest = {"format": "distribution-data", "version": 1, "created_at": timezone.now().isoformat(),
                 "schema": schema(), "rows": len(rows), "sha256": digest(rows)}
@@ -118,12 +163,14 @@ def parse_snapshot(payload):
                    and not r["fields"]["password"].startswith("!") for r in records):
             raise SnapshotError("The CSV must contain an active owner account with a usable password.")
         referenced = set()
+        database_logos = {r["pk"] for r in records if r["model"] == "core.brandlogo"}
         for record in records:
-            for field in allowed[record["model"]]._meta.fields:
-                if isinstance(field, models.FileField):
-                    name = record["fields"].get(field.name)
-                    if name:
-                        referenced.add(name)
+            for field in external_file_fields(allowed[record["model"]]):
+                if record["model"] == "core.brand" and field.name == "logo" and record["pk"] in database_logos:
+                    continue
+                name = record["fields"].get(field.name)
+                if name:
+                    referenced.add(name)
         if referenced != set(files):
             raise ValueError()
         # Convert field types before touching the current database.
@@ -136,26 +183,39 @@ def parse_snapshot(payload):
         raise SnapshotError("Invalid or incomplete export CSV. Use an unchanged CSV exported by this version of the app.") from exc
 
 
+def transfer_tables():
+    tables = set()
+    for model in [*snapshot_models(), *(apps.get_model(label) for label in EXCLUDED)]:
+        tables.add(model._meta.db_table)
+        for field in model._meta.local_many_to_many:
+            tables.add(field.remote_field.through._meta.db_table)
+    return sorted(tables)
+
+
 def import_snapshot(payload):
     records, files = parse_snapshot(payload)
     saved_files = []
-    backup_path = None
     try:
-        # SQLite requires disabling FK checks before opening the transaction.
-        # IMMEDIATE transactions serialize writers, including the backup read.
+        # SQLite FK checks must be disabled before the transaction begins.
         with connection.constraint_checks_disabled(), transaction.atomic():
-            backup = export_snapshot()
-            directory = settings.DATA_BACKUP_ROOT
-            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-            backup_path = directory / (timezone.localtime().strftime("before-import-%Y%m%d-%H%M%S-") + uuid.uuid4().hex + ".csv")
-            with backup_path.open("xb") as target:
-                backup_path.chmod(0o600)
-                target.write(backup)
-                target.flush()
-                os.fsync(target.fileno())
-            # Use separate paths so restoring attachments cannot overwrite old files.
+            tables = transfer_tables()
+            if connection.vendor == "postgresql":
+                with connection.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '15s'")
+                    cursor.execute("LOCK TABLE " + ", ".join(connection.ops.quote_name(t) for t in tables)
+                                   + " IN ACCESS EXCLUSIVE MODE")
+                    cursor.execute("SET CONSTRAINTS ALL DEFERRED")
+            elif connection.vendor == "sqlite":
+                # Acquire the writer lock before reading the backup, even if
+                # the test/local database uses DEFERRED transactions.
+                with connection.cursor() as cursor:
+                    cursor.execute("UPDATE core_dataversion SET number = number WHERE id = 1")
+            else:
+                raise SnapshotError("Data replacement supports PostgreSQL and SQLite databases.")
+            from .models import DataVersion
+            previous_version = DataVersion.objects.filter(pk=1).values_list("number", flat=True).first() or 0
+            backup_name = save_backup(export_snapshot())
             replacements = {}
-            from django.core.files.storage import default_storage
             prefix = "data-imports/" + uuid.uuid4().hex
             for name, content in files.items():
                 saved = default_storage.save(prefix + "/" + PurePosixPath(name).name[-48:], ContentFile(content))
@@ -163,27 +223,29 @@ def import_snapshot(payload):
                 replacements[name] = saved
             allowed = {m._meta.label_lower: m for m in snapshot_models()}
             for record in records:
-                for field in allowed[record["model"]]._meta.fields:
-                    if isinstance(field, models.FileField) and record["fields"].get(field.name):
+                for field in external_file_fields(allowed[record["model"]]):
+                    if record["fields"].get(field.name) in replacements:
                         record["fields"][field.name] = replacements[record["fields"][field.name]]
-            # Delete without model cascades/signals: every exported table and its
-            # automatic M2M tables is replaced, including protected ledger rows.
-            tables = set()
-            for model in [*snapshot_models(), *(apps.get_model(label) for label in EXCLUDED)]:
-                tables.add(model._meta.db_table)
-                for field in model._meta.local_many_to_many:
-                    tables.add(field.remote_field.through._meta.db_table)
+            # Replace protected ledger rows and automatic M2M tables without
+            # model cascades/signals; all relationships are checked below.
             with connection.cursor() as cursor:
-                for table in sorted(tables):
+                for table in tables:
                     cursor.execute("DELETE FROM " + connection.ops.quote_name(table))
             for obj in serializers.deserialize("json", json.dumps(records)):
                 obj.save()
+            # A restored cache version must never revive pages saved before
+            # import, including pages held by other application workers.
+            import time
+            DataVersion.objects.update_or_create(pk=1, defaults={"number": max(previous_version + 1, time.time_ns())})
             connection.check_constraints()
+            with connection.cursor() as cursor:
+                for statement in connection.ops.sequence_reset_sql(no_style(), snapshot_models()):
+                    cursor.execute(statement)
+            transaction.on_commit(cache.clear)
         from django.contrib.contenttypes.models import ContentType
         ContentType.objects.clear_cache()
-        return backup_path
+        return PurePosixPath(backup_name)
     except Exception:
-        from django.core.files.storage import default_storage
         for name in saved_files:
             default_storage.delete(name)
         raise

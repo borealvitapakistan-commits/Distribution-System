@@ -7,7 +7,7 @@
                 <th>Type</th>
                 <th>Product</th>
                 <th>Batch</th>
-                <th>Distributor / order</th>
+                <th>Reference</th>
                 <th class="num">Qty</th>
                 <th class="num">Cost / unit</th>
                 <th class="num">Retail / unit</th>
@@ -32,8 +32,7 @@
                         {% else %}—{% endif %}
                     </td>
                     <td>
-                        {{ entry.distributor_profile.name|default:"" }}
-                        <small class="table-secondary">{{ entry.reference|default:"—" }}</small>
+                        {{ entry.reference|default:"—" }}
                     </td>
                     <td class="num">{{ entry.quantity|qty }}</td>
                     <td class="num">

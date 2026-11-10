@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}
+    New Order
+{% endblock %}
+
+{% block content %}
+<a class="mo-back-link" href="{% url 'manufacturer-order-list' %}">← Manufacturer Orders</a>
+
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Buying from manufacturers</p>
+        <h1>How do you want to start?</h1>
+        <p>Both ways meet at the Purchase Order and follow the same steps from there.</p>
+    </div>
+</div>
+
+<form method="post" class="workflow-choice-form">
+    {% csrf_token %}
+    {% for name, values in carried %}
+        {% for value in values %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+    {% endfor %}
+
+    <fieldset class="workflow-choices">
+        <legend class="sr-only">Workflow</legend>
+
+        <label class="workflow-choice">
+            <input type="radio" name="workflow" value="{{ workflows.PURCHASE_ORDER.value }}" {% if default == workflows.PURCHASE_ORDER %}checked{% endif %}>
+            <span class="workflow-choice-body">
+                <strong>Purchase Order → Invoice</strong>
+                <span>Prices are already agreed. Go straight to the Purchase Order.</span>
+                <ol class="workflow-steps">
+                    <li>Purchase Order</li>
+                    <li>Stamped PO</li>
+                    <li>Payment proof</li>
+                    <li>Invoice</li>
+                    <li>Payment proof</li>
+                </ol>
+            </span>
+        </label>
+
+        <label class="workflow-choice">
+            <input type="radio" name="workflow" value="{{ workflows.REQUEST_TO_QUOTE.value }}" {% if default == workflows.REQUEST_TO_QUOTE %}checked{% endif %}>
+            <span class="workflow-choice-body">
+                <strong>Request to Quote → Invoice</strong>
+                <span>Ask the manufacturer for prices first, then turn their quote into the Purchase Order.</span>
+                <ol class="workflow-steps">
+                    <li>Request to Quote</li>
+                    <li>Quote received</li>
+                    <li>Purchase Order</li>
+                    <li>Stamped PO</li>
+                    <li>Payment proof</li>
+                    <li>Invoice</li>
+                    <li>Payment proof</li>
+                </ol>
+            </span>
+        </label>
+    </fieldset>
+
+    <div class="form-actions">
+        <a class="button button-secondary" href="{% url 'manufacturer-order-list' %}">Cancel</a>
+        <button type="submit" class="button button-primary">Continue →</button>
+    </div>
+</form>
+{% endblock %}

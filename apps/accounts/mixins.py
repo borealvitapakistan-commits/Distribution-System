@@ -19,17 +19,6 @@ class RoleRequiredMixin(LoginRequiredMixin):
                     "You are not allowed to access this page."
                 )
 
-            if user.is_distributor:
-                profile = getattr(user, "distributor_profile", None)
-                if profile is None:
-                    raise PermissionDenied(
-                        "Your Distributor profile is not configured."
-                    )
-                if profile.approval_status != "APPROVED":
-                    raise PermissionDenied(
-                        "Your Distributor profile is not approved."
-                    )
-
         return super().dispatch(
             request,
             *args,
@@ -39,7 +28,3 @@ class RoleRequiredMixin(LoginRequiredMixin):
 
 class OwnerRequiredMixin(RoleRequiredMixin):
     allowed_roles = ("OWNER",)
-
-
-class DistributorRequiredMixin(RoleRequiredMixin):
-    allowed_roles = ("DISTRIBUTOR",)

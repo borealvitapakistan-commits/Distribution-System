@@ -9,6 +9,7 @@ order in the order it happened, with the real files in it —
     1. Request to Quote        (our document, as sent)
     2. Manufacturer's quote    (the picture / PDF they replied with)
     3. Purchase Order          (our document)
+       Stamped Purchase Order  (the photo of it with the official stamp)
     4. Advance payment proof   (only if an advance was paid)
     5. Manufacturer's invoice  (the picture / PDF that came with the goods)
     6. Payment proof           (the final payment)
@@ -476,6 +477,14 @@ def _finish(order, brand, record_context, parts, number):
         # 3. Our Purchase Order.
         parts.append(document_pdf(order, kind="purchase_order", brand=brand))
         number += 1
+
+        # The printed Purchase Order with the official stamp, as photographed.
+        if order.stamped_po_file:
+            parts += _attachment_parts(
+                brand, section("Stamped Purchase Order"), order.stamped_po_file,
+                when=order.stamped_po_uploaded_at,
+                missing="The stamped Purchase Order photo is no longer on the server.",
+            )
 
         payments = list(order.payments.all())
         advances = [payment for payment in payments if payment.kind == payment.Kind.ADVANCE]

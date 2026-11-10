@@ -22,7 +22,7 @@ class ManufacturerAdmin(admin.ModelAdmin):
 class ManufacturerOrderItemInline(admin.TabularInline):
     model = ManufacturerOrderItem
     extra = 0
-    readonly_fields = ("product", "quantity", "unit_price", "source_purchase_order_item")
+    readonly_fields = ("product", "quantity", "unit_price")
 
     def has_add_permission(self, request, obj=None):
         return False

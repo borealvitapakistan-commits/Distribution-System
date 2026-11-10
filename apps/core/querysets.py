@@ -21,3 +21,24 @@ class OwnerManagedQuerySet(models.QuerySet):
             return self.none()
 
         return self.all()
+
+
+def count_many(**querysets):
+    """{name: count} for several querysets in a single database round
+    trip, instead of one trip per .count()."""
+    from django.core.exceptions import EmptyResultSet
+    from django.db import connection
+
+    parts, params = [], []
+    for queryset in querysets.values():
+        try:
+            sql, query_params = queryset.order_by().values("pk").query.sql_with_params()
+        except EmptyResultSet:  # e.g. .none(): nothing to count
+            parts.append("0")
+            continue
+        parts.append(f"(SELECT COUNT(*) FROM ({sql}) AS counted)")
+        params.extend(query_params)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT " + ", ".join(parts), params)
+        row = cursor.fetchone()
+    return dict(zip(querysets, row))

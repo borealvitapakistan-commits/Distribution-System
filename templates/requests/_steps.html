@@ -1,6 +1,0 @@
-{% load order_flow %}
-{% if request.user.is_owner %}
-    {% stage_tracker steps "owner" %}
-{% else %}
-    {% stage_tracker steps "distributor" %}
-{% endif %}

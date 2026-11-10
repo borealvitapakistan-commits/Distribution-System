@@ -2,12 +2,13 @@ from decimal import Decimal
 
 from django import forms
 
-from apps.distributors.models import DistributorProfile
 from apps.products.models import Product
 from apps.owner_warehouse.models import Location
 
-from .models import StockBatch
-from .services import shippable_batches_fefo
+
+class WarehouseChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        return f"{obj.name} · {obj.inventory.name}"
 
 
 class ReceiveStockForm(forms.Form):
@@ -19,12 +20,14 @@ class ReceiveStockForm(forms.Form):
         decimal_places=4,
         min_value=Decimal("0.0001"),
     )
-    to_location = forms.ModelChoiceField(
+    to_location = WarehouseChoiceField(
         label="Warehouse",
         queryset=Location.objects.filter(
             location_type=Location.LocationType.OWN,
             active=True,
-        ),
+            inventory__active=True,
+        ).select_related("inventory"),
+        empty_label="Choose a warehouse",
     )
     batch_number = forms.CharField(
         label="Batch number",
@@ -49,46 +52,3 @@ class ReceiveStockForm(forms.Form):
         required=False,
         widget=forms.Textarea(attrs={"rows": 2}),
     )
-
-
-class BatchChoiceField(forms.ModelChoiceField):
-    def label_from_instance(self, batch):
-        expiry = (
-            f"expires {batch.expiry_date}"
-            if batch.expiry_date
-            else "no expiry set"
-        )
-        number = f"{batch.batch_number} | " if batch.batch_number else ""
-        return (
-            f"{number}{batch.product.sku} - {batch.product.name} | "
-            f"{batch.location.name} | received {batch.received_date} | "
-            f"{expiry} | {batch.quantity_remaining} remaining"
-        )
-
-
-class GiveToDistributorForm(forms.Form):
-    batch = BatchChoiceField(
-        label="Product batch (oldest/soonest-to-expire suggested first)",
-        queryset=StockBatch.objects.none(),
-    )
-    quantity = forms.DecimalField(
-        max_digits=18,
-        decimal_places=4,
-        min_value=Decimal("0.0001"),
-    )
-    distributor = forms.ModelChoiceField(
-        queryset=DistributorProfile.objects.filter(
-            approval_status=DistributorProfile.ApprovalStatus.APPROVED,
-        ),
-    )
-    reference = forms.CharField(
-        label="Note",
-        max_length=255,
-        required=False,
-        widget=forms.Textarea(attrs={"rows": 2}),
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.fields["batch"].queryset = shippable_batches_fefo()

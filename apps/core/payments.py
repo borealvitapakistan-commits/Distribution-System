@@ -1,7 +1,6 @@
 """The advance / final payment flow shared by every kind of purchase order.
 
-Whoever pays (the Owner paying a Manufacturer, or a Distributor paying the
-Owner) settles an order in up to two parts: an ADVANCE right after the
+The Owner paying a Manufacturer settles an order in up to two parts: an ADVANCE right after the
 order is placed, and a FINAL payment for whatever is left once the goods
 arrive. Either part can be the whole amount or nothing, which gives the
 three ways an order gets paid: 100% up front, nothing up front, or a split.

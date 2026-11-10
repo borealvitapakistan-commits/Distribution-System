@@ -7,6 +7,19 @@ from apps.core.money import format_amount
 register = template.Library()
 
 
+@register.filter(name="quantity")
+def quantity(value):
+    """Stock quantities without padded decimals, with readable thousands."""
+    try:
+        number = Decimal(str(value))
+        if not number.is_finite():
+            return value
+        rendered = format(number, ",f")
+        return rendered.rstrip("0").rstrip(".") if "." in rendered else rendered
+    except (InvalidOperation, TypeError, ValueError):
+        return value
+
+
 @register.filter(name="money")
 def money(value):
     return format_amount(value)

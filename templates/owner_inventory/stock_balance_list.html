@@ -1,93 +1,104 @@
-{% extends "base.html" %}
-
-{% block title %}
-    Stock Balances
-{% endblock %}
-
-{% block content %}
-<div class="page-header">
+{% extends "owner_warehouse/workspace_base.html" %}
+{% load money_filters %}
+{% block title %}All stock{% endblock %}
+{% block inventory_content %}
+<div class="iw-page-heading">
     <div>
-        <p class="eyebrow">Warehouse</p>
-        <h1>Stock Balances</h1>
-        <p>Every batch on hand, soonest-to-expire first. Each batch keeps its own quantity and expiry — batches of the same product are never added together.</p>
+        <p class="eyebrow">
+            EVERY BATCH, IN ONE PLACE
+        </p>
+        <h1>
+            All stock
+        </h1>
+        <p>
+            See each batch, its quantity, and where it is stored.
+        </p>
     </div>
-
-    <div>
-        <a
-            class="button button-secondary"
-            href="{% url 'inventory-list' %}"
-        >
-            Back to Inventory
-        </a>
-        <a
-            class="button button-secondary"
-            href="{% url 'stock-batch-list' %}"
-        >
-            View Batches
-        </a>
-        <a
-            class="button button-secondary"
-            href="{% url 'stock-movement-list' %}"
-        >
-            View Stock Movements
-        </a>
-        <a
-            class="button button-secondary"
-            href="{% url 'inventory-give' %}"
-        >
-            Give to Distributor
-        </a>
-        <a
-            class="button button-primary"
-            href="{% url 'inventory-add' %}"
-        >
-            Add Inventory
-        </a>
-    </div>
+    <a class="button button-primary" href="{% url 'inventory-add' %}">{% include "_icon.html" with name="plus" %} Add stock</a>
 </div>
-
-<section class="panel">
-    <div class="table-wrapper">
-        <table>
+{% include "owner_warehouse/_nav.html" %}
+<form class="iw-filterbar iw-panel" method="get" role="search" aria-label="Find stock">
+    <div class="iw-search-input">
+        {% include "_icon.html" with name="search" %}<input type="search" name="q" value="{{ search }}" placeholder="Search a product or batch number" aria-label="Search stock">
+    </div>
+    <label class="iw-filter-select"><span class="iw-sr-only">Placement status</span><select name="status"><option value="">All stock</option><option value="waiting" {% if selected_status == 'waiting' %}selected{% endif %}>Waiting for a warehouse</option><option value="stored" {% if selected_status == 'stored' %}selected{% endif %}>In a warehouse</option></select></label><button class="button button-secondary" type="submit">Apply filters</button>{% if search or selected_status %}<a class="iw-text-link" href="{% url 'stock-balance-list' %}">Clear</a>{% endif %}
+</form>
+<section class="iw-panel">
+    <div class="iw-panel-heading">
+        <div>
+            <h2>
+                {{ paginator.count }} batch{{ paginator.count|pluralize }} on hand
+            </h2>
+            <p>
+                Sorted by soonest expiry. Separate deliveries keep their own batch details.
+            </p>
+        </div>
+        <a class="iw-text-link" href="{% url 'stock-movement-list' %}">Stock movement history {% include "_icon.html" with name="arrow" %}</a>
+    </div>
+    {% if batches %}
+    <div class="iw-table-scroll">
+        <table class="iw-table iw-responsive-table">
             <thead>
                 <tr>
-                    <th>Product</th>
-                    <th>SKU</th>
-                    <th>Location</th>
-                    <th>Type</th>
-                    <th>Batch</th>
-                    <th>Received</th>
-                    <th>Expiry</th>
-                    <th>Quantity</th>
+                    <th scope="col">
+                        Product &amp; batch
+                    </th>
+                    <th scope="col">
+                        Quantity
+                    </th>
+                    <th scope="col">
+                        Where it is
+                    </th>
+                    <th scope="col">
+                        Expiry
+                    </th>
+                    <th scope="col">
+                        <span class="iw-sr-only">Action</span>
+                    </th>
                 </tr>
             </thead>
             <tbody>
                 {% for batch in batches %}
-                    <tr>
-                        <td>{{ batch.product.name }}</td>
-                        <td>{{ batch.product.sku }}</td>
-                        <td>{{ batch.location.name }}</td>
-                        <td>{{ batch.location.get_location_type_display }}</td>
-                        <td class="nowrap">{{ batch.batch_number|default:"No batch number" }}</td>
-                        <td>{{ batch.received_date|date:"M d, Y" }}</td>
-                        <td>
-                            {% if batch.expiry_date %}
-                                {{ batch.expiry_date|date:"M d, Y" }}
-                            {% else %}
-                                <span class="badge badge-pending">No expiry set</span>
-                            {% endif %}
-                        </td>
-                        <td>{{ batch.quantity_remaining }}</td>
-                    </tr>
-                {% empty %}
-                    <tr>
-                        <td colspan="8" class="empty-table">
-                            No stock recorded yet.
-                        </td>
-                    </tr>
+                <tr>
+                    <td data-label="Product">
+                        <strong>{{ batch.product.name }}</strong><span class="iw-table-note">{{ batch.batch_number|default:"No batch number" }}{% if batch.product.sku %} · {{ batch.product.sku }}{% endif %}</span><span class="iw-table-note">Received {{ batch.received_date|date:"d M Y" }}</span>
+                    </td>
+                    <td data-label="Quantity">
+                        <strong class="iw-quantity">{{ batch.quantity_remaining|quantity }}</strong><span class="iw-table-note">units</span>
+                    </td>
+                    <td data-label="Location">
+                        {% if batch.location.location_type == "UNALLOCATED" %}<span class="iw-badge iw-badge-amber">Waiting for a warehouse</span><span class="iw-table-note">{{ batch.location.inventory.name|default:"No region assigned" }}</span>{% else %}{{ batch.location.name }}<span class="iw-table-note">{{ batch.location.inventory.name }}</span>{% endif %}
+                    </td>
+                    <td data-label="Expiry">
+                        {{ batch.expiry_date|date:"d M Y"|default:"Not provided" }}{% if batch.expiry_date and batch.expiry_date < today %}<span class="iw-table-note iw-text-danger">Expired</span>{% endif %}
+                    </td>
+                    <td class="iw-table-action">
+                        {% if batch.location.location_type == "UNALLOCATED" %}<a class="button button-primary button-small" href="{% url 'inventory-allocate' batch.pk %}">Place stock {% include "_icon.html" with name="arrow" %}</a>{% elif batch.location.location_type == "OWN" %}<a class="button button-secondary button-small" href="{% url 'location-detail' batch.location.pk %}">View warehouse</a>{% endif %}
+                    </td>
+                </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+    {% else %}
+    <div class="iw-empty">
+        <span class="iw-empty-icon">{% include "_icon.html" with name="box" %}</span>
+        <h3>
+            {% if search or selected_status %}No matching stock{% else %}Your stock will appear here{% endif %}
+        </h3>
+        <p>
+            {% if search or selected_status %}Try another search or clear your filters.{% else %}Receive a purchase order or record a delivery to get started.{% endif %}
+        </p>
+        <a class="iw-text-link" href="{% url 'inventory-add' %}">Record a delivery {% include "_icon.html" with name="arrow" %}</a>
+    </div>
+    {% endif %}
+    {% if page_obj.has_other_pages %}
+    <nav class="iw-pagination" aria-label="Stock pages">
+        <span>Page {{ page_obj.number }} of {{ paginator.num_pages }}</span>
+        <div>
+            {% if page_obj.has_previous %}<a class="button button-secondary button-small" href="?{{ page_query }}&amp;page={{ page_obj.previous_page_number }}">Previous</a>{% endif %}{% if page_obj.has_next %}<a class="button button-secondary button-small" href="?{{ page_query }}&amp;page={{ page_obj.next_page_number }}">Next</a>{% endif %}
+        </div>
+    </nav>
+    {% endif %}
 </section>
 {% endblock %}

@@ -8,8 +8,6 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from apps.accounts.models import User
-from apps.distributors.models import DistributorProfile
-from apps.distributors.services import approve_distributor, create_distributor
 from apps.owner_warehouse.models import Location
 from apps.owner_warehouse.services import create_inventory, create_location, update_location
 from apps.products import shopify
@@ -26,7 +24,7 @@ from .models import (
 )
 from .services import (
     get_or_create_unallocated_location,
-    give_to_distributor,
+    post_stock_movement,
     receive_stock,
 )
 
@@ -217,29 +215,20 @@ class ShopifySyncTests(TestCase):
         self.assertEqual(self.pushed, {ITEM_GID: 10})
 
     @override_settings(SHOPIFY_INVENTORY_SYNC=True)
-    def test_distributor_sale_updates_shopify_after_commit(self):
+    def test_stock_leaving_a_warehouse_updates_shopify_after_commit(self):
         self._connect()
-        distributor_user = create_distributor(
-            actor=self.owner,
-            email="dist@shopifysync.test",
-            temporary_password="TemporaryPassword123!",
-            name="Sync Distributor",
-        )
-        approve_distributor(user=self.owner, distributor_id=distributor_user.pk)
-        profile = DistributorProfile.objects.get(user=distributor_user)
         batch = StockBatch.objects.get(batch_number="LOT-A")
 
         with self.captureOnCommitCallbacks(execute=True) as callbacks:
-            give_to_distributor(
+            post_stock_movement(
                 actor=self.owner, product=self.product, quantity=Decimal("4"),
-                from_location=self.warehouse_a, distributor_profile=profile, batch=batch,
+                movement_type=StockMovement.MovementType.ADJUSTMENT,
+                from_location=self.warehouse_a, batch=batch,
+                channel=StockMovement.Channel.INTERNAL,
             )
 
         self.assertEqual(len(callbacks), 1)
         self.assertEqual(self.pushed, {ITEM_GID: 8})
-        self.assertEqual(
-            StockMovement.objects.filter(channel=StockMovement.Channel.DISTRIBUTOR).count(), 1
-        )
 
     @override_settings(SHOPIFY_INVENTORY_SYNC=True)
     def test_shopify_outage_never_blocks_a_stock_change(self):
@@ -260,10 +249,18 @@ class ShopifySyncTests(TestCase):
         self._connect()
         self.client.force_login(self.owner)
 
-        with mock.patch.object(shopify, "fetch_available", return_value={ITEM_GID: 12}):
+        # The page itself never waits on Shopify...
+        with mock.patch.object(shopify, "fetch_available") as fetch_available:
             response = self.client.get("/owner/inventory/shopify/")
+        fetch_available.assert_not_called()
+        self.assertContains(response, 'data-live-fragment="/owner/inventory/shopify/?part=live"')
+
+        # ...its script loads Shopify's numbers right after.
+        with mock.patch.object(shopify, "fetch_available", return_value={ITEM_GID: 12}):
+            response = self.client.get("/owner/inventory/shopify/", {"part": "live"})
 
         self.assertContains(response, "In step")
+        self.assertNotContains(response, "<html")
 
 
 @override_settings(
@@ -274,9 +271,8 @@ class ShopifySyncTests(TestCase):
     SHOPIFY_INVENTORY_SYNC=True,
 )
 class WhiteboardFlowTests(TestCase):
-    """Purchase Order → Manufacturer → Items → Inventory → Warehouses, and
-    that one Inventory feeding both the Software (Distributors) and
-    Shopify — checked end to end through the real services."""
+    """Purchase Order → Manufacturer → Items → Inventory → Warehouses →
+    Shopify, checked end to end through the real services."""
 
     def setUp(self):
         self.owner = User.objects.create_user(
@@ -346,11 +342,6 @@ class WhiteboardFlowTests(TestCase):
             mark_manufacturer_order_received,
             record_manufacturer_invoice,
         )
-        from apps.requests.services import (
-            create_purchase_order,
-            receive_purchase_order_item,
-            ship_purchase_order_item,
-        )
 
         from .services import reallocate_batch, unallocated_batches
 
@@ -401,52 +392,20 @@ class WhiteboardFlowTests(TestCase):
         self.assertEqual(self.software_total(), Decimal("100"))
         self.assertEqual(self.shopify_shows(), 100)
 
-        # 4a. Inventory → Software: Majid buys 30 and receives them;
-        #     ABC buys 10, still on the way.
-        def distributor(name, email):
-            user = create_distributor(
-                actor=self.owner, email=email,
-                temporary_password="TemporaryPassword123!", name=name,
-            )
-            approve_distributor(user=self.owner, distributor_id=user.pk)
-            user.refresh_from_db()
-            return user
+        self.assertEqual(warehouse_batch.quantity_remaining, Decimal("100"))
 
-        def ship(user, quantity):
-            po = create_purchase_order(
-                actor=user,
-                items=[{"product": self.product, "quantity_requested": quantity}],
-            )
-            po_item = po.items.get()
-            with self.saved():
-                ship_purchase_order_item(
-                    actor=self.owner, item_id=po_item.pk,
-                    allocations=[(warehouse_batch, quantity)],
-                )
-            return po_item
-
-        majid = distributor("Majid", "majid@flow.test")
-        majid_item = ship(majid, Decimal("30"))
-        self.assertEqual(self.shopify_shows(), 70)
-        with self.saved():
-            receive_purchase_order_item(actor=majid, item_id=majid_item.pk, quantity=Decimal("30"))
-
-        abc = distributor("ABC", "abc@flow.test")
-        ship(abc, Decimal("10"))
-        self.assertEqual(self.shopify_shows(), 60)
-
-        # 4b. Inventory → Shopify: an online customer buys 2
+        # 4. Inventory → Shopify: an online customer buys 2
         self.orders = [shopify_order(order_id="2001", quantity=2, product_id="555")]
         shopify_sync.sync(actor=self.owner)
 
-        self.assertEqual(self.shopify_shows(), 58)
+        self.assertEqual(self.shopify_shows(), 98)
         self.assertEqual(
             StockBalance.objects.get(product=self.product, location=warehouse).quantity,
-            Decimal("58"),
+            Decimal("98"),
         )
 
         # 5. Tracing the batch: manufacturer → warehouse/inventory →
-        #    each distributor by name → each Shopify order.
+        #    each Shopify order.
         trace = trace_batch_code(batch_code)
         steps = [(e.stage, e.from_label, e.to_label, e.quantity) for e in trace["events"]]
 
@@ -454,14 +413,6 @@ class WhiteboardFlowTests(TestCase):
         self.assertIn(("Manufacturer → Inventory (received)", "Flow Labs", "Unallocated", Decimal("100")), steps)
         self.assertIn(
             ("Inventory → Warehouse (stored)", "Unallocated — Lahore", "Johar Town (Lahore)", Decimal("100")),
-            steps,
-        )
-        self.assertIn(
-            ("Inventory → Distributor (shipped)", "Johar Town (Lahore)", "Majid (in transit)", Decimal("30")),
-            steps,
-        )
-        self.assertIn(
-            ("Inventory → Distributor (shipped)", "Johar Town (Lahore)", "ABC (in transit)", Decimal("10")),
             steps,
         )
         self.assertIn(
@@ -473,14 +424,8 @@ class WhiteboardFlowTests(TestCase):
         self.assertEqual(totals["ordered"], Decimal("100"))
         self.assertEqual(totals["received_by_owner"], Decimal("100"))
         self.assertEqual(totals["sold_on_shopify"], Decimal("2"))
-        self.assertEqual(totals["in_transit"], Decimal("10"))
-        self.assertEqual(totals["received_by_distributors"], Decimal("30"))
-        self.assertEqual(totals["owner_on_hand"], Decimal("58"))
-        self.assertEqual(trace["where_now"], [("Johar Town (Lahore)", Decimal("58"))])
-        self.assertEqual(
-            {row.name: (row.shipped, row.received) for row in trace["distributors"]},
-            {"Majid": (Decimal("30"), Decimal("30")), "ABC": (Decimal("10"), Decimal("0"))},
-        )
+        self.assertEqual(totals["owner_on_hand"], Decimal("98"))
+        self.assertEqual(trace["where_now"], [("Johar Town (Lahore)", Decimal("98"))])
 
         # 6. Every action is in the audit log.
         from apps.audit.models import AuditEvent
@@ -489,7 +434,6 @@ class WhiteboardFlowTests(TestCase):
         for action in (
             "manufacturer.order_invoice_recorded",
             "inventory.stock_movement_posted",
-            "requests.purchase_order_item_shipped",
             "inventory.shopify_order_imported",
             "inventory.shopify_quantities_pushed",
         ):

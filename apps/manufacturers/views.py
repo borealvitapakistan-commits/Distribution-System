@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from django.contrib import messages
 from django.core.exceptions import PermissionDenied, ValidationError
-from django.db.models import Q
+from django.db.models import Prefetch, Q
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -34,12 +34,14 @@ from .forms import (
     ManufacturerOrderReceiveForm,
     ManufacturerQuoteForm,
     PurchaseOrderEditForm,
+    StampedPurchaseOrderForm,
 )
-from .models import Manufacturer, ManufacturerOrder, OrderRevision
+from .models import Manufacturer, ManufacturerOrder, ManufacturerOrderItem, OrderRevision
 from .deletion import review_manufacturer
-from .guide import STAGES, list_status, next_step_guide
+from .guide import annotate_list_status, next_step_guide, workflow_steps
 from .record_pdf import payment_pages, document_pdf, order_record_pdf
 from .services import (
+    record_stamped_purchase_order,
     awaiting_manufacturer_reply,
     confirm_purchase_order,
     create_manufacturer,
@@ -231,9 +233,6 @@ def manufacturer_order_item_rows(formset):
                 "bottle_size": form.cleaned_data.get("bottle_size"),
                 "quantity": form.cleaned_data["quantity"],
                 "unit_price": form.cleaned_data["unit_price"],
-                "source_purchase_order_item": form.cleaned_data.get(
-                    "source_purchase_order_item"
-                ),
                 "save_price": form.cleaned_data.get("save_price", False),
             }
         )
@@ -287,9 +286,7 @@ class ManufacturerOrderListView(OwnerRequiredMixin, ListView):
 
         # Whose turn it is depends on the conversation and the stock, not
         # just a column, so it's worked out per order.
-        orders = list(queryset)
-        for order in orders:
-            order.stage_number, order.next_text, order.waiting_on = list_status(order)
+        orders = annotate_list_status(queryset)
 
         self.tab_counts = {
             "you": sum(1 for order in orders if order.waiting_on == "you"),
@@ -343,14 +340,19 @@ def _brand_sheet_data(brand):
         "email": brand.email,
         "color": brand.primary_color,
         "soft": brand.primary_color_soft,
-        "logo": brand.logo.url if brand.logo else "",
+        "logo": brand.logo_url,
     }
 
 
-def document_sheet_data():
+def document_sheet_data(manufacturers=None, brands=None):
     """Everything the on-screen document needs to fill itself in as the
     Owner picks a manufacturer (the vendor on the document) or brand:
-    {"manufacturers": {id: {...}}, "brands": {id: {...}}}."""
+    {"manufacturers": {id: {...}}, "brands": {id: {...}}}. Pass the active
+    manufacturers/brands when they're already loaded."""
+    if manufacturers is None:
+        manufacturers = Manufacturer.objects.filter(active=True)
+    if brands is None:
+        brands = Brand.objects.filter(active=True)
     return {
         "manufacturers": {
             str(manufacturer.pk): {
@@ -359,11 +361,11 @@ def document_sheet_data():
                 "email": manufacturer.email,
                 "phone": manufacturer.phone,
             }
-            for manufacturer in Manufacturer.objects.filter(active=True)
+            for manufacturer in manufacturers
         },
         "brands": {
             str(brand.pk): _brand_sheet_data(brand)
-            for brand in Brand.objects.filter(active=True)
+            for brand in brands
         },
     }
 
@@ -380,6 +382,16 @@ def _order_saved_prices(order):
     return prices
 
 
+def _use_loaded_choices(field, objects):
+    """Fills a model drop-down from objects already loaded for the page
+    (the same rows its queryset selects), so rendering it doesn't query
+    the database again. Submitted values are still checked against the
+    queryset."""
+    choices = [("", field.empty_label)] if field.empty_label is not None else []
+    choices += [(str(obj.pk), field.label_from_instance(obj)) for obj in objects]
+    field.choices = choices
+
+
 class RequestToQuoteFormMixin:
     """Shared by creating and editing a Request to Quote."""
 
@@ -388,11 +400,24 @@ class RequestToQuoteFormMixin:
     mode = "rtq"
 
     def render_form(self, request, form, formset, order=None, service_error=None):
+        # Each list is read once and shared by the form's drop-downs, the
+        # on-screen document and the page's scripts.
+        manufacturers = list(Manufacturer.objects.filter(active=True))
+        brands = list(Brand.objects.filter(active=True))
+        _use_loaded_choices(form.fields["manufacturer"], manufacturers)
+        _use_loaded_choices(form.fields["brand"], brands)
+
+        if not form.is_bound and not form.initial.get("brand") and brands and "brand" in form.initial:
+            form.initial["brand"] = brands[0]
+
         brand = None
         brand_id = form["brand"].value()
-        brand_id = getattr(brand_id, "pk", brand_id)
+        brand_id = str(getattr(brand_id, "pk", brand_id) or "")
         if brand_id:
-            brand = Brand.objects.filter(pk=brand_id).first()
+            brand = next((b for b in brands if str(b.pk) == brand_id), None)
+            if brand is None:
+                brand = Brand.objects.filter(pk=brand_id).first()
+        shared = formset.shared_choices
 
         return render(
             request,
@@ -405,18 +430,16 @@ class RequestToQuoteFormMixin:
                 "bottle_prices": bottle_price_map(),
                 "manufacturer_prices": manufacturer_price_map(),
                 "product_prices": product_price_map(),
-                "sheet_data": document_sheet_data(),
+                "sheet_data": document_sheet_data(manufacturers, brands),
                 "brand": brand,
                 "today": timezone.localdate(),
                 "mode": self.mode,
-                "product_labels": {
-                    str(pk): f"{sku} - {name}"
-                    for pk, sku, name in Product.objects.filter(active=True).values_list("pk", "sku", "name")
-                },
+                "product_labels": shared["labels"],
                 "standard_sizes": [30, 40, 50, 60, 70, 80, 90, 120],
                 "advance_defaults": {
                     str(maker.pk): f"{maker.upfront_payment_percentage.normalize():f}"
-                    for maker in Manufacturer.objects.filter(active=True, archived_at__isnull=True)
+                    for maker in manufacturers
+                    if maker.archived_at is None
                 },
             },
         )
@@ -444,7 +467,6 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
                 {
                     "product": product_id,
                     "quantity": request.GET.get("quantity") or "",
-                    "source_purchase_order_item": request.GET.get("source_item") or "",
                 }
             ]
 
@@ -459,7 +481,8 @@ class ManufacturerOrderCreateView(OwnerRequiredMixin, RequestToQuoteFormMixin, V
             request,
             ManufacturerOrderForm(
                 initial={
-                    "brand": Brand.objects.filter(active=True).first(),
+                    # Filled with the first active brand by render_form.
+                    "brand": None,
                     "terms": last_terms or "",
                     "manufacturer": self._requested_manufacturer(request),
                 }
@@ -510,6 +533,36 @@ def default_payment_terms(manufacturer, advance=None):
         f"{advance:f}% advance with this Purchase Order.\n"
         f"{(100 - advance):f}% balance on completion of production, before dispatch."
     )
+
+
+class ManufacturerOrderStartView(OwnerRequiredMixin, View):
+    """Where buying from a manufacturer starts: choose the workflow —
+    straight from a Purchase Order (the default), or a Request to Quote
+    first. Anything passed along (?product=…&manufacturer=…) is kept."""
+
+    template_name = "manufacturers/manufacturer_order_start.html"
+    WORKFLOW_PAGES = {
+        ManufacturerOrder.Workflow.PURCHASE_ORDER: "manufacturer-po-create",
+        ManufacturerOrder.Workflow.REQUEST_TO_QUOTE: "manufacturer-order-create",
+    }
+
+    def get(self, request):
+        carried = request.GET.copy()
+        carried.pop("workflow", None)
+        return render(request, self.template_name, {
+            "workflows": ManufacturerOrder.Workflow,
+            "default": ManufacturerOrder.Workflow.PURCHASE_ORDER,
+            "carried": list(carried.lists()),
+        })
+
+    def post(self, request):
+        workflow = request.POST.get("workflow", ManufacturerOrder.Workflow.PURCHASE_ORDER)
+        page = self.WORKFLOW_PAGES.get(workflow, self.WORKFLOW_PAGES[ManufacturerOrder.Workflow.PURCHASE_ORDER])
+        carried = request.POST.copy()
+        for name in ("workflow", "csrfmiddlewaretoken"):
+            carried.pop(name, None)
+        query = carried.urlencode()
+        return redirect(reverse(page) + (f"?{query}" if query else ""))
 
 
 class ManufacturerPurchaseOrderCreateView(ManufacturerOrderCreateView):
@@ -575,7 +628,6 @@ class ManufacturerOrderEditView(OwnerRequiredMixin, RequestToQuoteFormMixin, Vie
                 "bottle_size": item.bottle_size,
                 "quantity": f"{item.quantity.normalize():f}",
                 "unit_price": item.requested_unit_price,
-                "source_purchase_order_item": item.source_purchase_order_item_id,
             }
             for item in order.items.all()
         ]
@@ -717,10 +769,10 @@ class ConfirmPurchaseOrderView(OwnerRequiredMixin, View):
 
         messages.success(
             request,
-            f"Purchase Order {order.po_number} is ready — download it and send it "
-            "to the manufacturer. Now tell us about the advance payment.",
+            f"Purchase Order {order.po_number} is ready. Print it, have it stamped, "
+            "then upload a photo of the stamped copy.",
         )
-        return redirect("manufacturer-order-advance", pk=order.pk)
+        return redirect("manufacturer-order-stamped", pk=order.pk)
 
 
 def _latest_lines(order):
@@ -879,81 +931,11 @@ class ManufacturerPurchaseOrderEditView(OrderLinesFormView):
         )
 
 
-def order_steps(order):
-    """The Request to Quote → Quote → Purchase Order → Invoice tracker at
-    the top of an order. Each step is "done", "current" or "upcoming".
-
-    Quote is the back-and-forth with the Manufacturer: it starts with
-    their first reply and lasts until the Purchase Order is sent."""
-    invoiced = order.invoice_approved_at is not None
-    revisions = list(order.revisions.order_by("number").values_list("stage", "created_at"))
-    quotes = [at for stage, at in revisions if stage == OrderRevision.Stage.QUOTE]
-    counters = sum(1 for stage, _ in revisions if stage == OrderRevision.Stage.COUNTER)
-    po_versions = sum(1 for stage, _ in revisions if stage == OrderRevision.Stage.PURCHASE_ORDER)
-
-    if order.is_quote and order.quoted_at is None:
-        states = ["current", "upcoming", "upcoming", "upcoming"]
-    elif order.is_quote:
-        states = ["done", "current", "upcoming", "upcoming"]
-    elif not invoiced and order.status == ManufacturerOrder.Status.SENT:
-        states = ["done", "done", "current", "upcoming"]
-    elif not invoiced:
-        # Goods in, invoice still to record.
-        states = ["done", "done", "done", "current"]
-    else:
-        states = ["done", "done", "done", "done"]
-
-    if order.is_quote and awaiting_manufacturer_reply(order):
-        quote_note = "Waiting for the manufacturer's reply"
-    elif counters:
-        quote_note = f"Negotiating — {len(quotes)} repl{'y' if len(quotes) == 1 else 'ies'}, {counters} counter-offer{'' if counters == 1 else 's'}"
-    else:
-        quote_note = "Review the manufacturer's prices"
-
-    po_note = "With the manufacturer"
-    if order.status == ManufacturerOrder.Status.RECEIVED or order.received_at:
-        po_note = "Goods received"
-    if po_versions > 1:
-        po_note += f" · v{po_versions}"
-
-    # Older orders went straight to a Purchase Order, with no quote at all.
-    skipped_quote = not order.is_quote and order.quoted_at is None
-
-    steps = [
-        {
-            "number": 1,
-            "title": "Request to Quote",
-            "state": states[0],
-            "date": order.created_at,
-            "note": "Waiting for the prices from the manufacturer",
-        },
-        {
-            "number": 2,
-            "title": "Quote",
-            "state": states[1],
-            "date": None if skipped_quote else (quotes[-1] if quotes else order.quoted_at),
-            "note": quote_note if states[1] == "current" else "Upcoming",
-            "done_note": "Ordered directly" if skipped_quote else "",
-        },
-        {
-            "number": 3,
-            "title": "Purchase Order",
-            "state": states[2],
-            "date": order.purchase_order_date,
-            "note": po_note if states[2] == "current" else "Upcoming",
-        },
-        {
-            "number": 4,
-            "title": "Invoice",
-            "state": states[3],
-            "date": order.invoice_approved_at,
-            "note": "Upcoming",
-        },
-    ]
-    for step, meta in zip(steps, STAGES):
-        step["plain"] = meta["plain"]
-        step["help"] = meta["help"]
-    return steps
+def order_steps(order, current=None):
+    """The stage bar at the top of an order: the steps of its own
+    workflow (Purchase Order → Invoice, or Request to Quote → Invoice),
+    each "done", "current" or "upcoming" — see guide.workflow_steps."""
+    return workflow_steps(order, current=current)
 
 
 class ManufacturerOrderConversationView(OwnerRequiredMixin, View):
@@ -986,9 +968,10 @@ class ManufacturerOrderDetailView(OwnerRequiredMixin, DetailView):
             .for_user(self.request.user)
             .select_related("manufacturer", "brand")
             .prefetch_related(
-                "items__product",
-                "items__batch",
-                "items__source_purchase_order_item__purchase_order",
+                Prefetch(
+                    "items",
+                    queryset=ManufacturerOrderItem.objects.select_related("product", "batch"),
+                ),
                 "payments",
             )
         )
@@ -1067,6 +1050,47 @@ def _order_brand(order):
     return order.brand or Brand.objects.filter(active=True).first() or Brand()
 
 
+class ManufacturerOrderStampedView(OwnerRequiredMixin, View):
+    """After printing the Purchase Order: upload a real photo of it with
+    the official stamp. Payment proof comes after this."""
+
+    template_name = "manufacturers/manufacturer_order_stamped.html"
+
+    def _render(self, request, order, form):
+        return render(request, self.template_name, {"order": order, "form": form})
+
+    def _not_open(self, request, order):
+        if order.status != ManufacturerOrder.Status.SENT:
+            messages.info(request, "This order is no longer with the manufacturer.")
+            return redirect("manufacturer-order-detail", pk=order.pk)
+        return None
+
+    def get(self, request, pk):
+        order = _get_owner_order(request, pk)
+        return self._not_open(request, order) or self._render(request, order, StampedPurchaseOrderForm())
+
+    def post(self, request, pk):
+        order = _get_owner_order(request, pk)
+        closed = self._not_open(request, order)
+        if closed:
+            return closed
+
+        form = StampedPurchaseOrderForm(request.POST, request.FILES)
+        if not form.is_valid():
+            return self._render(request, order, form)
+
+        try:
+            record_stamped_purchase_order(actor=request.user, order_id=order.pk, photo=form.cleaned_data["photo"])
+        except (PermissionDenied, ValidationError) as exc:
+            form.add_error("photo", " ".join(getattr(exc, "messages", [str(exc)])))
+            return self._render(request, order, form)
+
+        messages.success(request, "Stamped Purchase Order saved. Next, the payment proof.")
+        if order.pays_advance is None:
+            return redirect("manufacturer-order-advance", pk=order.pk)
+        return redirect("manufacturer-order-detail", pk=order.pk)
+
+
 class ManufacturerOrderAdvanceView(OwnerRequiredMixin, View):
     """Step two of placing an order: "Are you paying in advance?"."""
 
@@ -1087,12 +1111,18 @@ class ManufacturerOrderAdvanceView(OwnerRequiredMixin, View):
             return redirect("manufacturer-order-detail", pk=order.pk)
         return None
 
+    def _needs_stamp(self, request, order):
+        if not order.stamped_po_file:
+            messages.info(request, "Upload the photo of the stamped Purchase Order first — payment proof comes after it.")
+            return redirect("manufacturer-order-stamped", pk=order.pk)
+        return None
+
     def get(self, request, pk):
         order = _get_owner_order(request, pk)
-        return self._already_answered(request, order) or self._render(
-            request,
-            order,
-            ManufacturerAdvancePaymentForm(),
+        return (
+            self._already_answered(request, order)
+            or self._needs_stamp(request, order)
+            or self._render(request, order, ManufacturerAdvancePaymentForm())
         )
 
     def post(self, request, pk):

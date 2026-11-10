@@ -9,7 +9,6 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.distributors.services import approve_distributor, create_distributor
 from apps.products.services import create_product
 
 from .models import Manufacturer, ManufacturerOrder, ManufacturerOrderPayment
@@ -24,6 +23,7 @@ from .services import (
     record_manufacturer_payment,
     set_manufacturer_order_outcome,
 )
+from apps.manufacturers.test_helpers import stamp_purchase_order
 
 MEDIA_ROOT = tempfile.mkdtemp()
 
@@ -114,16 +114,13 @@ class ManufacturerDeletionTests(TestCase):
         response = self.client.post(reverse("manufacturer-delete", args=[uuid.uuid4()]))
         self.assertEqual(response.status_code, 404)
 
-    def test_anonymous_and_distributor_cannot_delete(self):
+    def test_anonymous_cannot_delete(self):
+        from django.contrib.auth.models import AnonymousUser
+
         self.client.logout()
         self.assertEqual(self.client.post(self.url).status_code, 302)
-        distributor = User.objects.create_user(
-            email="dist@delete.test", role=User.Role.DISTRIBUTOR,
-        )
-        self.client.force_login(distributor)
-        self.assertEqual(self.client.post(self.url).status_code, 403)
         with self.assertRaises(PermissionDenied):
-            delete_manufacturer(actor=distributor, manufacturer_id=self.manufacturer.pk)
+            delete_manufacturer(actor=AnonymousUser(), manufacturer_id=self.manufacturer.pk)
         self.assertTrue(Manufacturer.objects.filter(pk=self.manufacturer.pk).exists())
 
     def test_delete_requires_csrf_token(self):
@@ -167,14 +164,6 @@ class ManufacturerOrderTests(TestCase):
             base_retail_price=Decimal("100.00"),
             currency="pkr",
         )
-        self.distributor_user = create_distributor(
-            actor=self.owner,
-            email="dist@morder.test",
-            temporary_password="TemporaryPassword123!",
-            name="MOrder Distributor",
-        )
-        approve_distributor(user=self.owner, distributor_id=self.distributor_user.pk)
-        self.distributor_user.refresh_from_db()
 
     def make_order(self):
         return create_manufacturer_order(
@@ -197,9 +186,11 @@ class ManufacturerOrderTests(TestCase):
         self.assertEqual(order.grand_total, Decimal("650.00"))
 
     def test_only_owner_can_create(self):
+        from django.contrib.auth.models import AnonymousUser
+
         with self.assertRaises(PermissionDenied):
             create_manufacturer_order(
-                actor=self.distributor_user,
+                actor=AnonymousUser(),
                 manufacturer=self.manufacturer,
                 items=[
                     {"product": self.product, "quantity": Decimal("1"), "unit_price": Decimal("1")}
@@ -377,18 +368,18 @@ class ManufacturerOrderTests(TestCase):
         self.assertNotContains(response, 'name="shipping_amount"')
         self.assertNotContains(response, 'name="note"')
 
-    def test_distributor_cannot_access_manufacturer_order_pages(self):
+    def test_signed_out_visitor_cannot_access_manufacturer_order_pages(self):
         order = self.make_order()
-        self.client.force_login(self.distributor_user)
 
         response = self.client.get(
             reverse("manufacturer-order-detail", kwargs={"pk": order.pk})
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
 
     def test_full_lifecycle_via_views(self):
         order = self.make_order()
         item = order.items.get()
+        stamp_purchase_order(order.pk)
         record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
         self.client.force_login(self.owner)
 
@@ -486,6 +477,7 @@ class ManufacturerPaymentFlowTests(TestCase):
         return self.order
 
     def test_full_advance_leaves_nothing_to_pay_on_receipt(self):
+        stamp_purchase_order(self.order.pk)
         record_advance_decision(
             actor=self.owner,
             order_id=self.order.pk,
@@ -504,6 +496,7 @@ class ManufacturerPaymentFlowTests(TestCase):
         self.assertEqual(order.payment_scenario, "100% paid in advance")
 
     def test_no_advance_pays_everything_on_receipt(self):
+        stamp_purchase_order(self.order.pk)
         record_advance_decision(actor=self.owner, order_id=self.order.pk, pays_advance=False)
         self.assertIs(self._refresh().pays_advance, False)
         self.assertEqual(self.order.payments.count(), 0)
@@ -523,6 +516,7 @@ class ManufacturerPaymentFlowTests(TestCase):
         self.assertEqual(order.payment_scenario, "No advance — paid in full on receipt")
 
     def test_split_advance_and_final_each_keep_their_proof(self):
+        stamp_purchase_order(self.order.pk)
         record_advance_decision(
             actor=self.owner,
             order_id=self.order.pk,
@@ -551,6 +545,7 @@ class ManufacturerPaymentFlowTests(TestCase):
 
     def test_payment_needs_proof_and_cannot_overpay(self):
         with self.assertRaises(ValidationError):
+            stamp_purchase_order(self.order.pk)
             record_advance_decision(
                 actor=self.owner,
                 order_id=self.order.pk,
@@ -561,6 +556,7 @@ class ManufacturerPaymentFlowTests(TestCase):
             )
 
         with self.assertRaises(ValidationError):
+            stamp_purchase_order(self.order.pk)
             record_advance_decision(
                 actor=self.owner,
                 order_id=self.order.pk,
@@ -574,9 +570,11 @@ class ManufacturerPaymentFlowTests(TestCase):
         self.assertIsNone(self._refresh().pays_advance)
 
     def test_advance_is_answered_only_once(self):
+        stamp_purchase_order(self.order.pk)
         record_advance_decision(actor=self.owner, order_id=self.order.pk, pays_advance=False)
 
         with self.assertRaises(ValidationError):
+            stamp_purchase_order(self.order.pk)
             record_advance_decision(actor=self.owner, order_id=self.order.pk, pays_advance=False)
 
     def test_pages_walk_through_place_advance_receive(self):
@@ -618,10 +616,26 @@ class ManufacturerPaymentFlowTests(TestCase):
         self.assertRedirects(response, detail_url)
 
         advance_url = reverse("manufacturer-order-advance", kwargs={"pk": order.pk})
+        stamped_url = reverse("manufacturer-order-stamped", kwargs={"pk": order.pk})
         response = self.client.post(
             reverse("manufacturer-order-confirm", kwargs={"pk": order.pk})
         )
+        # Accepting leads to the stamped Purchase Order first, not payment.
+        self.assertRedirects(response, stamped_url)
+
+        detail = self.client.get(detail_url)
+        self.assertContains(detail, "Upload Stamped Purchase Order")
+        self.assertRedirects(self.client.get(advance_url), stamped_url)
+
+        # Not a photo or PDF: refused, and nothing is saved.
+        bad = SimpleUploadedFile("stamp.txt", b"text", content_type="text/plain")
+        response = self.client.post(stamped_url, {"photo": bad})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(ManufacturerOrder.objects.get(pk=order.pk).stamped_po_uploaded_at)
+
+        response = self.client.post(stamped_url, {"photo": proof_file("stamped-po.png")})
         self.assertRedirects(response, advance_url)
+        self.assertIsNotNone(ManufacturerOrder.objects.get(pk=order.pk).stamped_po_uploaded_at)
 
         # Until the advance is answered, receiving is locked: the page asks
         # for the advance and doesn't offer the goods-arrived step yet.
@@ -721,6 +735,7 @@ class ManufacturerPaymentFlowTests(TestCase):
     def test_final_payment_follows_the_invoiced_total(self):
         """The invoice lowers the cost from 1,000 to 800 — with 300 paid in
         advance, only 500 is left, and paying more is refused."""
+        stamp_purchase_order(self.order.pk)
         record_advance_decision(
             actor=self.owner,
             order_id=self.order.pk,
@@ -805,6 +820,7 @@ class ManufacturerPaymentFlowTests(TestCase):
         self.assertEqual(self._refresh().status, ManufacturerOrder.Status.SENT)
 
     def test_cannot_receive_until_paid_in_full(self):
+        stamp_purchase_order(self.order.pk)
         record_advance_decision(actor=self.owner, order_id=self.order.pk, pays_advance=False)
 
         with self.assertRaisesMessage(ValidationError, "pay the full amount"):
@@ -824,6 +840,7 @@ class ManufacturerPaymentFlowTests(TestCase):
         brand = Brand.objects.create(name="Herbal Vita")
         self.order.brand = brand
         self.order.save(update_fields=["brand"])
+        stamp_purchase_order(self.order.pk)
         record_advance_decision(actor=self.owner, order_id=self.order.pk, pays_advance=False)
         receive_manufacturer_order(
             actor=self.owner,
@@ -877,6 +894,7 @@ class BatchIdentityTests(TestCase):
             items=[{"product": self.product, "quantity": Decimal(quantity), "unit_price": Decimal("50.00")}],
         )
         item = order.items.get()
+        stamp_purchase_order(order.pk)
         record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
         receive_manufacturer_order(
             actor=self.owner,
@@ -1581,13 +1599,16 @@ class RequestToQuoteFlowTests(TestCase):
                 ("Request to Quote", "current"),
                 ("Quote", "upcoming"),
                 ("Purchase Order", "upcoming"),
+                ("Stamped PO", "upcoming"),
+                ("Payment Proof", "upcoming"),
                 ("Invoice", "upcoming"),
+                ("Payment Proof", "upcoming"),
             ],
         )
 
         prices = {(item.product_id, item.bottle_size): "12" for item in order.items.all()}
         self.quote_reply(order, prices)
-        self.assertEqual([s for _, s in states(order)], ["done", "current", "upcoming", "upcoming"])
+        self.assertEqual([s for _, s in states(order)], ["done", "current"] + ["upcoming"] * 5)
 
         record_counter_offer(
             actor=self.owner,
@@ -1599,13 +1620,17 @@ class RequestToQuoteFlowTests(TestCase):
         self.quote_reply(order, prices)
         self.assertIn("Negotiating", order_steps(order)[1]["note"])
 
+        # Accepted: the Purchase Order exists, the stamped photo is next.
         confirm_purchase_order(actor=self.owner, order_id=order.pk)
         order.refresh_from_db()
-        self.assertEqual([s for _, s in states(order)], ["done", "done", "current", "upcoming"])
+        self.assertEqual([s for _, s in states(order)], ["done"] * 3 + ["current"] + ["upcoming"] * 3)
+
+        stamp_purchase_order(order.pk)
+        self.assertEqual([s for _, s in states(order)], ["done"] * 4 + ["current"] + ["upcoming"] * 2)
 
         record_manufacturer_invoice(actor=self.owner, order_id=order.pk)
         order.refresh_from_db()
-        self.assertEqual([s for _, s in states(order)], ["done"] * 4)
+        self.assertEqual([s for _, s in states(order)], ["done"] * 7)
 
 
 class OrderGuideTests(TestCase):
@@ -1668,10 +1693,16 @@ class OrderGuideTests(TestCase):
         self.quote_reply(order, prices)
         confirm_purchase_order(actor=self.owner, order_id=order.pk)
         guide = self.guide(order)
-        self.assertEqual(guide["heading"], "Record Your Advance Payment")
+        self.assertEqual(guide["heading"], "Upload the Stamped Purchase Order")
         self.assertEqual(guide["waiting_on"], YOU)
-        self.assertEqual(self.status(order)[:2], (3, "Record your advance payment"))
+        self.assertEqual(self.status(order)[:2], (4, "Upload the stamped Purchase Order"))
 
+        stamp_purchase_order(order.pk)
+        guide = self.guide(order)
+        self.assertEqual(guide["heading"], "Record Your Advance Payment")
+        self.assertEqual(self.status(order)[:2], (5, "Record your advance payment"))
+
+        stamp_purchase_order(order.pk)
         record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
         guide = self.guide(order)
         self.assertEqual(guide["heading"], "Wait for the Goods")
@@ -1686,7 +1717,7 @@ class OrderGuideTests(TestCase):
         guide = self.guide(order)
         self.assertEqual(guide["heading"], "Split the Stock Across Warehouses")
         self.assertEqual(guide["primary"]["url"], reverse("inventory-list"))
-        self.assertEqual(self.status(order)[:2], (5, "Split the stock across warehouses"))
+        self.assertEqual(self.status(order)[:2], (8, "Split the stock across warehouses"))
 
     def test_pages_show_the_stage_bar_and_list_columns(self):
         order = self.make_quote()
@@ -1703,7 +1734,7 @@ class OrderGuideTests(TestCase):
 
         listing = self.client.get(reverse("manufacturer-order-list"))
         self.assertContains(listing, "Waiting for the manufacturer&#x27;s prices")
-        self.assertContains(listing, "Stage 1 of 4")
+        self.assertContains(listing, "Step 1 of 7")
 
 
 class OlderOrderWithoutBatchTests(TestCase):
@@ -1730,6 +1761,7 @@ class OlderOrderWithoutBatchTests(TestCase):
             items=[{"product": product, "quantity": Decimal("5"), "unit_price": Decimal("10")}],
         )
         Batch.objects.filter(manufacturer_order_item__order=order).delete()
+        stamp_purchase_order(order.pk)
         record_advance_decision(actor=owner, order_id=order.pk, pays_advance=False)
 
         self.client.force_login(owner)
@@ -1799,6 +1831,7 @@ class FullOrderRecordTests(TestCase):
         prices = {(self.ashwagandha.pk, 60): "12", (self.ashwagandha.pk, 120): "30", (self.vitamin_d.pk, 60): "10"}
         self.quote_reply(order, prices, quote_file=real_png("their-quote.png"))
         confirm_purchase_order(actor=self.owner, order_id=order.pk)
+        stamp_purchase_order(order.pk)
         record_advance_decision(
             actor=self.owner, order_id=order.pk, pays_advance=True,
             amount=Decimal("500"), paid_at="2026-10-01", proof=real_png("advance.png"),
@@ -1816,12 +1849,13 @@ class FullOrderRecordTests(TestCase):
             "Request to Quote",
             "2. Manufacturer's quote",
             "Purchase Order",
-            "4. Advance payment proof",
-            "5. Manufacturer's invoice",
+            "4. Stamped Purchase Order",
+            "5. Advance payment proof",
+            "6. Manufacturer's invoice",
             "Manufacturer invoice page 1",
             "Manufacturer invoice page 2",
-            "6. Payment proof",
-            "7. Summary & conversation",
+            "7. Payment proof",
+            "8. Summary & conversation",
         ]
         position = 0
         for page in pages:
@@ -1840,11 +1874,12 @@ class FullOrderRecordTests(TestCase):
         order = self.make_quote()
         self.quote_reply(order, {(self.ashwagandha.pk, 60): "12", (self.ashwagandha.pk, 120): "30", (self.vitamin_d.pk, 60): "10"})
         confirm_purchase_order(actor=self.owner, order_id=order.pk)
+        stamp_purchase_order(order.pk)
         record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
 
         joined = "\n".join(self.page_titles(order))
         self.assertNotIn("Advance payment proof", joined)
-        self.assertIn("4. Summary & conversation", joined)
+        self.assertIn("5. Summary & conversation", joined)
 
 
 @override_settings(MEDIA_ROOT=MEDIA_ROOT)
@@ -1934,3 +1969,100 @@ class RequestToQuoteDocumentTests(TestCase):
         self.assertNotContains(detail, "Order at a glance")
         self.assertNotContains(detail, 'class="doc-sheet"')
         self.assertNotContains(detail, "Conversation history</h2>")
+
+
+@override_settings(MEDIA_ROOT=MEDIA_ROOT)
+class PurchasingWorkflowTests(TestCase):
+    """Two ways to start buying — straight from a Purchase Order (the
+    default) or from a Request to Quote — meeting at the Purchase Order,
+    after which a photo of the stamped PO comes before the payment proof."""
+
+    setUp = RequestToQuoteFlowTests.setUp
+    make_quote = RequestToQuoteFlowTests.make_quote
+
+    def make_po(self):
+        from apps.products.models import ProductManufacturer
+
+        ProductManufacturer.objects.get_or_create(product=self.ashwagandha, manufacturer=self.manufacturer)
+        return create_manufacturer_order(
+            actor=self.owner,
+            manufacturer=self.manufacturer,
+            brand=self.brand,
+            items=[{"product": self.ashwagandha, "bottle_size": 60, "quantity": "10", "unit_price": "12"}],
+        )
+
+    def test_chooser_defaults_to_purchase_order_and_keeps_what_was_passed(self):
+        self.client.force_login(self.owner)
+        start = reverse("manufacturer-order-start")
+
+        page = self.client.get(start, {"product": str(self.ashwagandha.pk)})
+        self.assertContains(page, 'value="PURCHASE_ORDER" checked')
+        self.assertNotContains(page, 'value="REQUEST_TO_QUOTE" checked')
+        self.assertContains(page, f'name="product" value="{self.ashwagandha.pk}"')
+
+        response = self.client.post(start, {"workflow": "PURCHASE_ORDER", "product": str(self.ashwagandha.pk)})
+        self.assertRedirects(
+            response, reverse("manufacturer-po-create") + f"?product={self.ashwagandha.pk}",
+            fetch_redirect_response=False,
+        )
+        response = self.client.post(start, {"workflow": "REQUEST_TO_QUOTE"})
+        self.assertRedirects(response, reverse("manufacturer-order-create"), fetch_redirect_response=False)
+        # Nothing chosen (or anything unknown) falls back to the default.
+        response = self.client.post(start, {})
+        self.assertRedirects(response, reverse("manufacturer-po-create"), fetch_redirect_response=False)
+
+    def test_each_workflow_has_its_own_steps(self):
+        from .guide import workflow_steps
+
+        po = self.make_po()
+        rtq = self.make_quote()
+        self.assertEqual(po.workflow, ManufacturerOrder.Workflow.PURCHASE_ORDER)
+        self.assertEqual(rtq.workflow, ManufacturerOrder.Workflow.REQUEST_TO_QUOTE)
+
+        self.assertEqual(
+            [(s["title"], s["state"]) for s in workflow_steps(po)],
+            [
+                ("Purchase Order", "done"),
+                ("Stamped PO", "current"),
+                ("Payment Proof", "upcoming"),
+                ("Invoice", "upcoming"),
+                ("Payment Proof", "upcoming"),
+            ],
+        )
+        self.assertEqual(
+            [s["title"] for s in workflow_steps(rtq)][:3], ["Request to Quote", "Quote", "Purchase Order"]
+        )
+
+    def test_payment_proof_needs_the_stamped_purchase_order_first(self):
+        from .services import record_advance_decision, record_stamped_purchase_order
+
+        order = self.make_po()
+        with self.assertRaisesMessage(ValidationError, "stamped Purchase Order first"):
+            record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
+
+        record_stamped_purchase_order(actor=self.owner, order_id=order.pk, photo=real_png("stamp.png"))
+        record_advance_decision(actor=self.owner, order_id=order.pk, pays_advance=False)
+        self.assertIs(ManufacturerOrder.objects.get(pk=order.pk).pays_advance, False)
+
+        # Once the goods are received the stamp can no longer change.
+        mark_manufacturer_order_received(actor=self.owner, order_id=order.pk)
+        with self.assertRaises(ValidationError):
+            record_stamped_purchase_order(actor=self.owner, order_id=order.pk, photo=real_png("late.png"))
+
+    def test_stamped_photo_is_in_the_full_order_record_after_the_purchase_order(self):
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        from .services import record_stamped_purchase_order
+
+        order = self.make_po()
+        record_stamped_purchase_order(actor=self.owner, order_id=order.pk, photo=real_png("stamp.png"))
+
+        self.client.force_login(self.owner)
+        pdf = self.client.get(reverse("manufacturer-order-record-pdf", kwargs={"pk": order.pk}))
+        pages = [page.extract_text() or "" for page in PdfReader(BytesIO(pdf.content)).pages]
+        po_page = next(i for i, text in enumerate(pages) if "Purchase Order" in text and "Stamped" not in text)
+        stamped_page = next(i for i, text in enumerate(pages) if "Stamped Purchase Order" in text)
+        self.assertLess(po_page, stamped_page)
+        self.assertNotIn("no longer on the server", pages[stamped_page])

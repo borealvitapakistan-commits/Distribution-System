@@ -1,7 +1,7 @@
 from decimal import Decimal
 
 from django import forms
-from django.forms import inlineformset_factory
+from django.forms import BaseInlineFormSet, inlineformset_factory
 
 from apps.core.forms import PaidQuestionForm
 from apps.core.models import Brand
@@ -171,10 +171,8 @@ class ManufacturerOrderItemForm(forms.ModelForm):
         model = ManufacturerOrderItem
         fields = [
             "product", "bottle_size", "quantity", "unit_price",
-            "source_purchase_order_item",
         ]
         widgets = {
-            "source_purchase_order_item": forms.HiddenInput(),
             "unit_price": forms.NumberInput(
                 attrs={"step": "0.001", "placeholder": "Optional", "class": "doc-line-input"}
             ),
@@ -188,18 +186,16 @@ class ManufacturerOrderItemForm(forms.ModelForm):
             "unit_price": "Unit price",
         }
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, shared=None, **kwargs):
         super().__init__(*args, **kwargs)
+        shared = shared or line_form_choices()
 
         self.fields["product"].queryset = Product.objects.filter(active=True)
         self.fields["product"].empty_label = "Choose a product…"
         # Just the name in the list; the hint under the line shows the SKU.
         self.fields["product"].label_from_instance = lambda product: product.name
-        sizes = {int(size) for size in BottleSize.values}
-        sizes |= {
-            int(amount) for amount in ProductPackagePrice.objects.values_list("amount", flat=True).distinct()
-            if amount == amount.to_integral_value() and amount <= 32767
-        }
+        self.fields["product"].choices = shared["products"]
+        sizes = set(shared["sizes"])
         current = self["bottle_size"].value()
         if str(current or "").isdigit():
             sizes.add(int(current))
@@ -207,7 +203,6 @@ class ManufacturerOrderItemForm(forms.ModelForm):
             choices=[("", "Bottle size (optional)")] + [(size, f"{size} capsules") for size in sorted(sizes)],
         )
         self.fields["unit_price"].required = False
-        self.fields["source_purchase_order_item"].required = False
         self.fields["quantity"] = bottle_quantity_field(
             label="Qty (bottles)", css_class="doc-line-input"
         )
@@ -230,10 +225,46 @@ class ManufacturerOrderItemForm(forms.ModelForm):
         pass
 
 
+def line_form_choices():
+    """The product list and bottle sizes every order line offers — read
+    once per page and shared by all its lines, not once per line."""
+    sizes = {int(size) for size in BottleSize.values}
+    sizes |= {
+        int(amount) for amount in ProductPackagePrice.objects.values_list("amount", flat=True).distinct()
+        if amount == amount.to_integral_value() and amount <= 32767
+    }
+    rows = list(Product.objects.filter(active=True).values_list("pk", "sku", "name"))
+    return {
+        "products": [("", "Choose a product…")] + [(str(pk), name) for pk, _sku, name in rows],
+        "labels": {str(pk): f"{sku} - {name}" for pk, sku, name in rows},
+        "sizes": sizes,
+    }
+
+
+class BaseManufacturerOrderItemFormSet(BaseInlineFormSet):
+    def get_queryset(self):
+        # A new order (its UUID is set before it's saved) has no lines yet.
+        if self.instance._state.adding:
+            return self.model.objects.none()
+        return super().get_queryset()
+
+    @property
+    def shared_choices(self):
+        if not hasattr(self, "_shared_choices"):
+            self._shared_choices = line_form_choices()
+        return self._shared_choices
+
+    def get_form_kwargs(self, index):
+        kwargs = super().get_form_kwargs(index)
+        kwargs["shared"] = self.shared_choices
+        return kwargs
+
+
 ManufacturerOrderItemFormSet = inlineformset_factory(
     ManufacturerOrder,
     ManufacturerOrderItem,
     form=ManufacturerOrderItemForm,
+    formset=BaseManufacturerOrderItemFormSet,
     extra=1,
     can_delete=True,
 )
@@ -621,6 +652,22 @@ class ManufacturerOrderPaymentForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["proof"].required = True
+
+
+class StampedPurchaseOrderForm(forms.Form):
+    photo = forms.FileField(
+        label="Photo of the stamped Purchase Order",
+        help_text="A clear photo or scan of the printed Purchase Order showing the official stamp (JPG, PNG, WebP or PDF).",
+        widget=forms.ClearableFileInput(attrs={"accept": "image/jpeg,image/png,image/webp,application/pdf"}),
+    )
+
+    ALLOWED = (".jpg", ".jpeg", ".png", ".webp", ".pdf")
+
+    def clean_photo(self):
+        photo = self.cleaned_data["photo"]
+        if not photo.name.lower().endswith(self.ALLOWED):
+            raise forms.ValidationError("Upload a photo (JPG, PNG or WebP) or a PDF of the stamped Purchase Order.")
+        return photo
 
 
 class ManufacturerAdvancePaymentForm(PaidQuestionForm):

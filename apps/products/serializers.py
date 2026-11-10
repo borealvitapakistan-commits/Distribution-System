@@ -192,33 +192,3 @@ class ProductSerializer(serializers.ModelSerializer):
             ingredients=ingredients,
             **validated_data,
         )
-
-
-class DistributorProductSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(
-        source="category.name",
-        read_only=True,
-        allow_null=True,
-    )
-
-    class Meta:
-        model = Product
-        fields = [
-            "id",
-            "sku",
-            "barcode",
-            "name",
-            "generic_name",
-            "brand_name",
-            "indications",
-            "form",
-            "pack_size",
-            "unit_of_measure",
-            "units_per_case",
-            "serving_size",
-            "strength_basis",
-            "base_retail_price",
-            "currency",
-            "category_name",
-        ]
-        read_only_fields = fields

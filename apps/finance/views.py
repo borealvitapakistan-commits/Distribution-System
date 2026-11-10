@@ -12,7 +12,6 @@ from django.utils.dateparse import parse_date
 from django.views import View
 
 from apps.accounts.mixins import OwnerRequiredMixin
-from apps.distributors.models import DistributorProfile
 from apps.products.models import Product
 
 from .exports import (
@@ -83,13 +82,12 @@ def _sale_filters(request):
     return {
         "kind": kind if kind in SaleEntry.Kind.values else "",
         "product_id": _uuid_param(request, "product"),
-        "distributor_id": _uuid_param(request, "distributor"),
         "batch_number": request.GET.get("batch", "").strip(),
     }
 
 
 def _filter_choices():
-    """Only the channels, products, Distributors and batches that have
+    """Only the channels, products and batches that have
     ledger entries, so no filter option can only ever show nothing."""
     entries = SaleEntry.objects.all()
     kinds = set(entries.values_list("kind", flat=True).distinct())
@@ -97,9 +95,6 @@ def _filter_choices():
         "kinds": [(value, label) for value, label in SaleEntry.Kind.choices if value in kinds],
         "products": list(
             Product.objects.filter(sale_entries__isnull=False).distinct().order_by("name")
-        ),
-        "distributors": list(
-            DistributorProfile.objects.filter(sale_entries__isnull=False).distinct().order_by("name")
         ),
         "batches": sorted(
             set(entries.exclude(batch_number="").values_list("batch_number", flat=True))
@@ -115,11 +110,6 @@ def _active_filters(filters, choices):
     if filters["product_id"]:
         product = next((p for p in choices["products"] if str(p.pk) == filters["product_id"]), None)
         labels.append("Product: " + (product.name if product else "unknown"))
-    if filters["distributor_id"]:
-        distributor = next(
-            (d for d in choices["distributors"] if str(d.pk) == filters["distributor_id"]), None
-        )
-        labels.append("Distributor: " + (distributor.name if distributor else "unknown"))
     if filters["batch_number"]:
         labels.append("Batch: " + filters["batch_number"])
     return labels
@@ -140,7 +130,6 @@ def _filter_query(filters):
     params = {
         "kind": filters["kind"],
         "product": filters["product_id"],
-        "distributor": filters["distributor_id"],
         "batch": filters["batch_number"],
     }
     return urlencode({name: value for name, value in params.items() if value})
@@ -329,7 +318,7 @@ class SalesLedgerView(FinanceMixin, View):
     def get(self, request):
         entries = (
             SaleEntry.objects.for_user(request.user)
-            .select_related("product", "distributor_profile", "source_batch")
+            .select_related("product", "source_batch")
             .order_by("-occurred_at")
         )
         filters = _sale_filters(request)
@@ -342,8 +331,6 @@ class SalesLedgerView(FinanceMixin, View):
             entries = entries.filter(kind=filters["kind"])
         if filters["product_id"]:
             entries = entries.filter(product_id=filters["product_id"])
-        if filters["distributor_id"]:
-            entries = entries.filter(distributor_profile_id=filters["distributor_id"])
         if filters["batch_number"]:
             entries = entries.filter(batch_number=filters["batch_number"])
         if start:

@@ -4,6 +4,9 @@ document.addEventListener("DOMContentLoaded", () => {
     const mobileMenuButton = document.getElementById(
         "mobileMenuButton"
     );
+    const sidebarClose = document.getElementById("sidebarClose");
+    const mobileViewport = window.matchMedia("(max-width: 53.125em)");
+    const pageShell = document.querySelector(".page-shell");
 
     function openSidebar() {
         if (!sidebar || !overlay) {
@@ -12,16 +15,49 @@ document.addEventListener("DOMContentLoaded", () => {
 
         sidebar.classList.add("open");
         overlay.classList.add("visible");
+        sidebar.inert = false;
+        if (pageShell) pageShell.inert = true;
+        document.body.classList.add("navigation-open");
+        mobileMenuButton?.setAttribute("aria-expanded", "true");
+        sidebarClose?.focus();
     }
 
-    function closeSidebar() {
+    function closeSidebar(restoreFocus = true) {
         if (!sidebar || !overlay) {
             return;
         }
 
         sidebar.classList.remove("open");
         overlay.classList.remove("visible");
+        sidebar.inert = mobileViewport.matches;
+        if (pageShell) pageShell.inert = false;
+        document.body.classList.remove("navigation-open");
+        mobileMenuButton?.setAttribute("aria-expanded", "false");
+        if (restoreFocus && mobileViewport.matches) mobileMenuButton?.focus();
     }
+
+    if (sidebar) sidebar.inert = mobileViewport.matches;
+    sidebarClose?.addEventListener("click", () => closeSidebar());
+    mobileViewport.addEventListener("change", () => closeSidebar(false));
+    document.addEventListener("keydown", (event) => {
+        if (!sidebar?.classList.contains("open")) return;
+        if (event.key === "Escape") {
+            closeSidebar();
+            return;
+        }
+        if (event.key !== "Tab") return;
+        const focusable = [...sidebar.querySelectorAll("a[href], button:not([disabled])")]
+            .filter((element) => element.getClientRects().length && !element.closest("[inert]"));
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first?.focus();
+        }
+    });
 
     mobileMenuButton?.addEventListener(
         "click",
@@ -79,6 +115,8 @@ document.addEventListener("DOMContentLoaded", () => {
                 button.textContent = showing
                     ? "Show"
                     : "Hide";
+                button.setAttribute("aria-pressed", String(!showing));
+                button.setAttribute("aria-label", showing ? "Show password" : "Hide password");
             });
         });
 
@@ -115,7 +153,6 @@ function initializePartnersMenu() {
 
     const toggle = menu.querySelector("[data-partners-toggle]");
     const links = menu.querySelector(".partners-links");
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
     function setOpen(open) {
         toggle.setAttribute("aria-expanded", String(open));
@@ -134,19 +171,7 @@ function initializePartnersMenu() {
         }
     });
 
-    links.querySelectorAll("a").forEach((link) => {
-        link.addEventListener("click", (event) => {
-            if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) {
-                return;
-            }
-            event.preventDefault();
-            setOpen(false);
-            toggle.focus();
-            window.setTimeout(() => {
-                window.location.assign(link.href);
-            }, reducedMotion.matches ? 0 : 200);
-        });
-    });
+    setOpen(toggle.getAttribute("aria-expanded") === "true");
 }
 
 
@@ -1141,3 +1166,48 @@ document.addEventListener("DOMContentLoaded", () => {
         dialog.close();
     });
 });
+
+
+// Parts of a page that wait on something slow (Shopify's own numbers)
+// are left out of the first response and fetched here once the page is
+// already showing: <div data-live-fragment="url">placeholder</div>.
+(function () {
+    function load(holder) {
+        var status = holder.querySelector("[data-live-status]");
+        fetch(holder.getAttribute("data-live-fragment"), {
+            credentials: "same-origin",
+            headers: { "X-Requested-With": "fetch" },
+        })
+            .then(function (response) {
+                if (!response.ok) throw new Error(response.status);
+                return response.text();
+            })
+            .then(function (html) {
+                holder.innerHTML = html;
+            })
+            .catch(function () {
+                if (status) {
+                    status.textContent = "Couldn't load this part. ";
+                    var retry = document.createElement("a");
+                    retry.href = "#";
+                    retry.textContent = "Try again";
+                    retry.addEventListener("click", function (event) {
+                        event.preventDefault();
+                        status.textContent = "Loading…";
+                        load(holder);
+                    });
+                    status.appendChild(retry);
+                }
+            });
+    }
+
+    function start() {
+        document.querySelectorAll("[data-live-fragment]").forEach(load);
+    }
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", start);
+    } else {
+        start();
+    }
+})();

@@ -6,11 +6,11 @@
 {% endblock %}
 
 {% block content %}
-{% order_stage_bar order current=3 %}
+{% order_stage_bar order current="advance" %}
 
 <div class="page-header">
     <div>
-        <p class="eyebrow">Stage 3 of 4 · Purchase Order · {{ order.po_number }}</p>
+        <p class="eyebrow">Payment proof · {{ order.po_number }}</p>
         <h1>Did you pay {{ order.manufacturer.name }} in advance?</h1>
         <p>
             Choose <strong>Advance</strong> and upload the bank slip or screenshot, or choose

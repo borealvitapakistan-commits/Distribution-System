@@ -6,7 +6,7 @@
 {% endblock %}
 
 {% block content %}
-{% order_stage_bar order current=2 %}
+{% order_stage_bar order current="quote" %}
 
 <form method="post" enctype="multipart/form-data" id="quoteForm" novalidate>
     {% csrf_token %}

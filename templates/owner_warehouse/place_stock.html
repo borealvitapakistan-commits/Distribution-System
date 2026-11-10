@@ -1,0 +1,74 @@
+{% extends "owner_warehouse/workspace_base.html" %}
+{% load money_filters l10n %}
+{% block title %}Move stock{% endblock %}
+{% block inventory_content %}
+<div class="iw-simple-placement">
+    <nav class="iw-breadcrumb" aria-label="Breadcrumb">
+        <a href="{{ back_url }}#stock-to-place">Inventory</a><span aria-hidden="true">/</span><span>Move stock</span>
+    </nav>
+    <div class="iw-page-heading">
+        <div>
+            <h1>Choose a warehouse</h1>
+            <p>Pick a warehouse below, then confirm the move.</p>
+        </div>
+    </div>
+
+    <section class="iw-panel iw-selected-batch" aria-label="Stock you are moving">
+        <div class="iw-selected-batch-main">
+            <span class="iw-summary-icon">{% include "_icon.html" with name="box" %}</span>
+            <div><h2>{{ batch.product.name }}</h2><p>Batch {{ batch.batch_number|default:"number not provided" }}{% if batch.location.inventory %} <span aria-hidden="true">·</span> {{ batch.location.inventory.name }}{% endif %}</p></div>
+            <div class="iw-selected-batch-quantity"><strong>{{ batch.quantity_remaining|quantity }}</strong><span>{{ batch.quantity_remaining|pluralize:"unit,units" }} available</span></div>
+        </div>
+        {% if batch.expiry_date and batch.expiry_date < today %}
+            <p class="iw-expiry-note">Expired on {{ batch.expiry_date|date:"d M Y" }}. Check this batch before making it available for sale.</p>
+        {% endif %}
+        <details class="iw-batch-details">
+            <summary>Batch details</summary>
+            <dl class="iw-detail-grid">
+                <div><dt>Product code</dt><dd>{{ batch.product.sku|default:"Not provided" }}</dd></div>
+                <div><dt>Received</dt><dd>{{ batch.received_date|date:"d M Y" }}</dd></div>
+                <div><dt>Expiry</dt><dd>{{ batch.expiry_date|date:"d M Y"|default:"Not provided" }}</dd></div>
+                <div><dt>Current region</dt><dd>{{ batch.location.inventory.name|default:"Not assigned yet" }}</dd></div>
+            </dl>
+        </details>
+    </section>
+
+    {% if can_place and has_destinations %}
+    <form method="post" class="iw-panel iw-placement-form iw-simple-placement-form" data-placement-form data-available="{{ batch.quantity_remaining|unlocalize }}">
+        {% csrf_token %}{{ formset.management_form }}
+        {% if formset.non_form_errors %}<div class="iw-form-errors" role="alert">{{ formset.non_form_errors }}</div>{% endif %}
+        <div class="iw-placement-body">
+            <div data-placement-rows>
+                {% for row_form in formset %}
+                    {% include "owner_warehouse/_placement_row.html" with row_index=forloop.counter %}
+                {% endfor %}
+            </div>
+            <template data-placement-template>
+                {% include "owner_warehouse/_placement_row.html" with row_form=formset.empty_form row_index="" %}
+            </template>
+            <button type="button" class="iw-text-link iw-split-link" data-add-destination hidden>{% include "_icon.html" with name="plus" %} Use more than one warehouse</button>
+        </div>
+
+        <div class="iw-placement-review iw-simple-review" aria-live="polite" aria-atomic="true">
+            <p class="iw-placement-plan" data-placement-plan>Choose a warehouse above to move this stock.</p>
+            <ul class="iw-move-breakdown" data-placement-breakdown hidden></ul>
+            <p data-placement-feedback>You can change the amount if you only want to move part of the batch.</p>
+        </div>
+        <div class="iw-form-footer iw-move-footer">
+            <a class="iw-text-link" href="{{ back_url }}#stock-to-place">Cancel</a>
+            <button type="submit" class="button button-primary" data-place-submit>Move {{ batch.quantity_remaining|quantity }} {{ batch.quantity_remaining|pluralize:"unit,units" }} {% include "_icon.html" with name="arrow" %}</button>
+        </div>
+    </form>
+    {% else %}
+    <section class="iw-panel iw-empty">
+        <span class="iw-empty-icon">{% include "_icon.html" with name="warehouse" %}</span>
+        <h2>{% if not can_place %}This stock is already placed{% elif not regions_exist %}Add your first region{% else %}Add a warehouse first{% endif %}</h2>
+        <p>{% if not can_place %}Go back to see the stock that still needs a warehouse.{% else %}Create the place where you will store these products.{% endif %}</p>
+        {% if can_place %}
+            {% if regions_exist %}<a class="button button-primary" href="{% url 'location-create' %}{% if batch.location.inventory_id %}?inventory={{ batch.location.inventory_id }}{% endif %}">Add warehouse</a>
+            {% else %}<a class="button button-primary" href="{% url 'inventory-create' %}?next=warehouse">Add your first region</a>{% endif %}
+        {% else %}<a class="button button-secondary" href="{{ back_url }}">Back to inventory</a>{% endif %}
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

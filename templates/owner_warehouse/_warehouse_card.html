@@ -1,0 +1,23 @@
+{% load money_filters %}
+<a class="iw-place-card" href="{% url 'location-detail' warehouse.pk %}">
+<div class="iw-card-top">
+    <span class="iw-card-icon">{% include "_icon.html" with name="warehouse" %}</span>{% include "owner_warehouse/_sales_status.html" with warehouse=warehouse %}
+</div>
+<h3>
+    {{ warehouse.name }}
+</h3>
+<p class="iw-muted">
+    {{ warehouse.inventory.name }} <span aria-hidden="true">·</span> {{ warehouse.code }}
+</p>
+<div class="iw-card-numbers">
+    <div>
+        <strong>{{ warehouse.on_hand|quantity }}</strong><span>units stored</span>
+    </div>
+    <div>
+        <strong>{{ warehouse.product_count }}</strong><span>product{{ warehouse.product_count|pluralize }}</span>
+    </div>
+</div>
+<div class="iw-card-footer">
+    <span>Open warehouse</span>{% include "_icon.html" with name="arrow" %}
+</div>
+</a>

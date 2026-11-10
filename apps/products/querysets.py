@@ -1,7 +1,5 @@
 from django.db import models
 
-from apps.distributors.querysets import is_approved_distributor
-
 
 def active_user(user):
     return bool(
@@ -27,15 +25,10 @@ class ProductQuerySet(OwnerOnlyQuerySet):
         if not active_user(user):
             return self.none()
 
-        queryset = self.filter(archived_at__isnull=True)
-
         if user.is_owner:
-            return queryset
+            return self.filter(archived_at__isnull=True)
 
-        if not is_approved_distributor(user):
-            return self.none()
-
-        return queryset.filter(active=True)
+        return self.none()
 
 
 class ProductIngredientQuerySet(models.QuerySet):

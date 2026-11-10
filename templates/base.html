@@ -1,343 +1,163 @@
-{% load static %}
-
+{% load static assets %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1"
-    >
-
-    <title>
-        {% block title %}
-            Distribution Platform
-        {% endblock %}
-    </title>
-
-    <link
-        rel="stylesheet"
-        href="{% static 'css/app.css' %}?v={% now 'U' %}"
-    >
-
-    <script
-        src="{% static 'js/app.js' %}?v={% now 'U' %}"
-        defer
-    ></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#102f35">
+    <title>{% block title %}Owner workspace{% endblock %} · Boreal Vita</title>
+    <link rel="icon" type="image/svg+xml" sizes="any" href="{% static 'images/boreal-favicon.svg' %}">
+    <link rel="apple-touch-icon" href="{{ brand_logo_url }}">
+    <link rel="stylesheet" href="{% asset 'css/app.css' %}">
+    <link rel="stylesheet" href="{% asset 'css/boreal.css' %}">
+    <script src="{% asset 'js/app.js' %}" defer></script>
+    {% if request.user.is_authenticated %}
+        {# Start loading a page while the pointer rests on its link, so the #}
+        {# click shows it almost at once (Edge/Chrome; others just ignore it). #}
+        {# Kept only for this page, so nothing stale is shown later. Leaves #}
+        {# out downloads, PDFs and delete pages. #}
+        <script type="speculationrules">
+        {"prefetch": [{
+            "where": {"and": [
+                {"href_matches": "/*"},
+                {"not": {"href_matches": ["/accounts/logout/*", "/*/delete/*", "/*/pdf/*", "/*.pdf", "/*/export/*", "/*?*format=*", "/*?*download=*", "/admin/*"]}},
+                {"not": {"selector_matches": "[download], [target=_blank], [data-no-prefetch]"}}
+            ]},
+            "eagerness": "moderate"
+        }]}
+        </script>
+    {% endif %}
+    {% block extra_head %}{% endblock %}
 </head>
-
-<body>
+<body class="{% if request.user.is_authenticated %}workspace-page{% else %}auth-page{% endif %}">
+<a class="skip-link" href="#mainContent">Skip to content</a>
 <div class="app-layout">
     {% if request.user.is_authenticated %}
-        <aside class="sidebar" id="sidebar">
-            <a class="brand" href="{% if request.user.is_owner %}{% url 'owner-dashboard' %}{% else %}{% url 'distributor-dashboard' %}{% endif %}">
-                {% if brand.logo %}
-                    <img class="brand-logo" src="{{ brand.logo.url }}" alt="">
-                {% else %}
-                    <div class="brand-mark">{{ brand.name|default:"D"|slice:":1"|upper }}</div>
-                {% endif %}
-
-                <div>
-                    <strong>{{ brand.name|default:"Distribution" }}</strong>
-                    <span>{% if request.user.is_owner %}Owner panel{% else %}Distributor panel{% endif %}</span>
-                </div>
-            </a>
-
+        <aside class="sidebar" id="sidebar" aria-label="Owner navigation">
+            <div class="sidebar-brand-area">
+                <a class="brand" href="{% url 'owner-dashboard' %}" aria-label="Boreal Vita home">
+                    <img class="brand-wordmark" src="{{ brand_logo_url }}" alt="{{ brand.name|default:'Boreal Vita' }}" width="1749" height="496">
+                </a>
+                <button type="button" class="sidebar-close" id="sidebarClose" aria-label="Close navigation">{% include "_icon.html" with name="close" %}</button>
+                <span class="workspace-label"><span class="workspace-dot" aria-hidden="true"></span> Owner workspace</span>
+            </div>
             <nav class="sidebar-nav" aria-label="Main">
                 {% if request.user.is_owner %}
-                    <a href="{% url 'owner-dashboard' %}" class="{% if nav_section == 'dashboard' %}active{% endif %}">
-                        {% include "_icon.html" with name="home" %}
-                        Dashboard
+                    <span class="nav-group">Workspace</span>
+                    <a href="{% url 'owner-dashboard' %}" class="{% if nav_section == 'dashboard' %}active{% endif %}" {% if nav_section == 'dashboard' %}aria-current="page"{% endif %}>
+                        {% include "_icon.html" with name="home" %} Dashboard
                     </a>
-
-                    <div class="partners-menu" data-partners-menu>
-                        <button
-                            type="button"
-                            class="partners-toggle{% if nav_section == 'partners' %} active{% endif %}"
-                            aria-expanded="false"
-                            aria-controls="partnersLinks"
-                            data-partners-toggle
-                        >
-                            {% include "_icon.html" with name="partners" %}
-                            Partners
+                    <div class="partners-menu{% if nav_section == 'partners' %} is-open{% endif %}" data-partners-menu>
+                        <button type="button" class="partners-toggle{% if nav_section == 'partners' %} active{% endif %}" aria-expanded="{% if nav_section == 'partners' %}true{% else %}false{% endif %}" aria-controls="partnersLinks" data-partners-toggle>
+                            {% include "_icon.html" with name="partners" %} Partners
                             <svg class="partners-chevron" viewBox="0 0 20 20" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m5 7.5 5 5 5-5"/></svg>
                         </button>
-                        <div class="partners-links" id="partnersLinks" inert>
+                        <div class="partners-links" id="partnersLinks" {% if nav_section != 'partners' %}inert{% endif %}>
                             <div class="partners-links-inner">
-                                <a href="{% url 'manufacturer-list' %}" class="{% if request.resolver_match.url_name|slice:':13' == 'manufacturer-' %}active{% endif %}">
-                                    {% include "_icon.html" with name="factory" %}
-                                    Manufacturers
-                                </a>
-                                <a href="{% url 'owner-list' %}" class="{% if request.resolver_match.url_name == 'owner-list' or request.resolver_match.url_name == 'owner-create' %}active{% endif %}">
-                                    {% include "_icon.html" with name="user" %}
-                                    Owners
-                                </a>
-                                <a href="{% url 'brand-list' %}" class="{% if request.resolver_match.url_name|slice:':6' == 'brand-' %}active{% endif %}">
-                                    {% include "_icon.html" with name="box" %}
-                                    Brand
-                                </a>
-                                <a href="{% url 'distributor-list' %}" class="{% if request.resolver_match.url_name == 'distributor-list' or request.resolver_match.url_name == 'distributor-invite' %}active{% endif %}">
-                                    {% include "_icon.html" with name="partners" %}
-                                    Distributors
-                                </a>
+                                <a href="{% url 'manufacturer-list' %}" class="{% if request.resolver_match.url_name|slice:':13' == 'manufacturer-' %}active{% endif %}">{% include "_icon.html" with name="factory" %} Manufacturers</a>
+                                <a href="{% url 'owner-list' %}" class="{% if request.resolver_match.url_name == 'owner-list' or request.resolver_match.url_name == 'owner-create' %}active{% endif %}">{% include "_icon.html" with name="user" %} Owners</a>
+                                <a href="{% url 'brand-list' %}" class="{% if request.resolver_match.url_name|slice:':6' == 'brand-' %}active{% endif %}">{% include "_icon.html" with name="leaf" %} Brand</a>
                             </div>
                         </div>
                     </div>
-
-                    <span class="nav-group">Buying &amp; selling</span>
-                    <a href="{% url 'owner-purchase-orders-hub' %}" class="{% if nav_section == 'purchase-orders' %}active{% endif %}">
-                        {% include "_icon.html" with name="cart" %}
-                        Purchase Orders
-                        {% if purchase_orders_attention_count %}
-                            <span class="nav-badge">{{ purchase_orders_attention_count }}</span>
-                        {% endif %}
+                    <span class="nav-group">Purchasing</span>
+                    <a href="{% url 'manufacturer-order-list' %}" class="{% if nav_section == 'purchase-orders' %}active{% endif %}" {% if nav_section == 'purchase-orders' %}aria-current="page"{% endif %}>
+                        {% include "_icon.html" with name="cart" %} Purchase Orders
                     </a>
-                    <a href="{% url 'owner-agreement-list' %}" class="{% if nav_section == 'agreements' %}active{% endif %}">
-                        {% include "_icon.html" with name="handshake" %}
-                        Agreements
+                    <span class="nav-group">Products &amp; stock</span>
+                    <a href="{% url 'product-list' %}" class="{% if nav_section == 'products' %}active{% endif %}" {% if nav_section == 'products' %}aria-current="page"{% endif %}>
+                        {% include "_icon.html" with name="box" %} Products
                     </a>
-
-                    <span class="nav-group">Stock</span>
-                    <a href="{% url 'product-list' %}" class="{% if nav_section == 'products' %}active{% endif %}">
-                        {% include "_icon.html" with name="box" %}
-                        Products
+                    <a href="{% url 'inventory-list' %}" class="{% if nav_section == 'inventory' %}active{% endif %}" {% if nav_section == 'inventory' %}aria-current="page"{% endif %}>
+                        {% include "_icon.html" with name="warehouse" %} Inventory
                     </a>
-                    <a href="{% url 'inventory-list' %}" class="{% if nav_section == 'inventory' %}active{% endif %}">
-                        {% include "_icon.html" with name="warehouse" %}
-                        Inventory
+                    <a href="{% url 'stock-batch-list' %}" class="{% if request.resolver_match.url_name == 'stock-batch-list' %}active{% endif %}" {% if request.resolver_match.url_name == 'stock-batch-list' %}aria-current="page"{% endif %}>
+                        {% include "_icon.html" with name="layers" %} Stock / Batches
                     </a>
-                    <a href="{% url 'stock-batch-list' %}" class="{% if request.resolver_match.url_name == 'stock-batch-list' %}active{% endif %}">
-                        {% include "_icon.html" with name="layers" %}
-                        Stock / Batches
+                    <a href="{% url 'batch-trace' %}" class="{% if request.resolver_match.url_name == 'batch-trace' %}active{% endif %}" {% if request.resolver_match.url_name == 'batch-trace' %}aria-current="page"{% endif %}>
+                        {% include "_icon.html" with name="search" %} Batch Trace
                     </a>
-                    <a href="{% url 'batch-trace' %}" class="{% if request.resolver_match.url_name == 'batch-trace' %}active{% endif %}">
-                        {% include "_icon.html" with name="search" %}
-                        Batch Trace
-                    </a>
-
-                    <span class="nav-group">Money</span>
-                    <a href="{% url 'owner-finance' %}" class="{% if nav_section == 'finance' %}active{% endif %}">
-                        {% include "_icon.html" with name="wallet" %}
-                        Finance
-                    </a>
-                {% else %}
-                    <a href="{% url 'distributor-dashboard' %}" class="{% if nav_section == 'dashboard' %}active{% endif %}">
-                        {% include "_icon.html" with name="home" %}
-                        Dashboard
-                    </a>
-
-                    <span class="nav-group">Buying</span>
-                    <a href="{% url 'distributor-orders-hub' %}" class="{% if nav_section == 'orders' %}active{% endif %}">
-                        {% include "_icon.html" with name="cart" %}
-                        Orders
-                        {% if order_updates_count %}
-                            <span class="nav-badge">{{ order_updates_count }}</span>
-                        {% endif %}
-                    </a>
-                    <a href="{% url 'distributor-agreement-list' %}" class="{% if nav_section == 'agreements' %}active{% endif %}">
-                        {% include "_icon.html" with name="handshake" %}
-                        Agreements
-                        {% if agreements_to_sign_count %}
-                            <span class="nav-badge">{{ agreements_to_sign_count }}</span>
-                        {% endif %}
-                    </a>
-
-                    <span class="nav-group">Stock &amp; sales</span>
-                    <a href="{% url 'distributor-region-list' %}" class="{% if nav_section == 'inventory' %}active{% endif %}">
-                        {% include "_icon.html" with name="warehouse" %}
-                        Inventory
-                    </a>
-                    <a href="{% url 'distributor-stock-balance-list' %}" class="{% if nav_section == 'stock' %}active{% endif %}">
-                        {% include "_icon.html" with name="layers" %}
-                        My Stock
-                    </a>
-                    <a href="{% url 'distributor-sale-list' %}" class="{% if nav_section == 'sales' %}active{% endif %}">
-                        {% include "_icon.html" with name="chart" %}
-                        Sales
-                    </a>
-
-                    <span class="nav-group">Account</span>
-                    <a href="{% url 'distributor-profile' %}" class="{% if nav_section == 'profile' %}active{% endif %}">
-                        {% include "_icon.html" with name="user" %}
-                        My Profile
+                    <span class="nav-group">Business</span>
+                    <a href="{% url 'owner-finance' %}" class="{% if nav_section == 'finance' %}active{% endif %}" {% if nav_section == 'finance' %}aria-current="page"{% endif %}>
+                        {% include "_icon.html" with name="wallet" %} Finance
                     </a>
                 {% endif %}
             </nav>
-
             <div class="sidebar-footer">
-                <div class="sidebar-user">
-                    <div class="avatar">
-                        {{ request.user.email|slice:":1"|upper }}
-                    </div>
-
+                <a class="sidebar-user" href="{% url 'owner-profile' %}">
+                    <div class="avatar">{{ request.user.first_name|default:request.user.email|slice:":1"|upper }}</div>
                     <div>
-                        <strong>
-                            {{ request.user.get_full_name|default:request.user.email }}
-                        </strong>
-
-                        <span>
-                            {{ request.user.get_role_display }}
-                        </span>
+                        <strong>{{ request.user.get_full_name|default:request.user.email }}</strong>
+                        <span>{{ request.user.get_role_display }} account</span>
                     </div>
-                </div>
+                    {% include "_icon.html" with name="settings" %}
+                </a>
             </div>
         </aside>
     {% endif %}
-
     <div class="page-shell">
         {% if request.user.is_authenticated %}
             <header class="topbar">
-                <button
-                    type="button"
-                    class="mobile-menu-button"
-                    id="mobileMenuButton"
-                    aria-label="Open navigation"
-                >
-                    ☰
-                </button>
-
-                <div class="topbar-company">
-                    <strong>
-                        {{ brand.name|default:"—" }}
-                    </strong>
-
-                    <span>
-                        {{ brand.base_currency }}
-                    </span>
+                <div class="topbar-leading">
+                    <button type="button" class="mobile-menu-button" id="mobileMenuButton" aria-label="Open navigation" aria-expanded="false" aria-controls="sidebar">{% include "_icon.html" with name="menu" %}</button>
+                    <div class="topbar-company">
+                        <span class="topbar-workspace">Owner workspace</span>
+                        <span class="breadcrumb-divider" aria-hidden="true">/</span>
+                        <strong>{% if nav_section == 'dashboard' %}Overview{% elif nav_section == 'purchase-orders' %}Purchasing{% elif nav_section == 'partners' %}Partners{% elif nav_section == 'products' %}Products{% elif nav_section == 'inventory' %}Inventory{% elif nav_section == 'batches' %}Stock &amp; batches{% elif nav_section == 'finance' %}Finance{% else %}Account &amp; activity{% endif %}</strong>
+                    </div>
                 </div>
-
                 <div class="topbar-actions">
+                    <span class="topbar-date">{% include "_icon.html" with name="calendar" %} {% now "d M Y" %}</span>
+                    {% if brand.base_currency %}<span class="currency-chip">{{ brand.base_currency }}</span>{% endif %}
                     {% if request.user.is_owner %}
                         <div class="settings-menu" data-settings-menu>
-                            <button
-                                type="button"
-                                class="button button-secondary button-small settings-toggle{% if request.resolver_match.url_name in "owner-profile audit-event-list stock-movement-list data-settings" %} active{% endif %}"
-                                aria-haspopup="true"
-                                aria-expanded="false"
-                                data-settings-toggle
-                            >
-                                <span aria-hidden="true">⚙</span>
-                                Settings
+                            <button type="button" class="button button-secondary button-small settings-toggle{% if request.resolver_match.url_name in 'owner-profile audit-event-list stock-movement-list data-settings' %} active{% endif %}" aria-label="Settings" aria-haspopup="true" aria-expanded="false" data-settings-toggle>
+                                {% include "_icon.html" with name="settings" %}<span class="settings-label">Settings</span>
                             </button>
-
-                            <nav class="settings-dropdown" data-settings-dropdown hidden>
-                                <a href="{% url 'data-settings' %}" class="{% if request.resolver_match.url_name == 'data-settings' %}active{% endif %}">
-                                    <span class="nav-icon">⇄</span>
-                                    Export &amp; Import Data
-                                </a>
-                                <a
-                                    href="{% url 'owner-profile' %}"
-                                    class="{% if request.resolver_match.url_name == 'owner-profile' %}active{% endif %}"
-                                >
-                                    <span class="nav-icon">◈</span>
-                                    My Profile
-                                </a>
-
-                                <a
-                                    href="{% url 'audit-event-list' %}"
-                                    class="{% if request.resolver_match.url_name == 'audit-event-list' %}active{% endif %}"
-                                >
-                                    <span class="nav-icon">✓</span>
-                                    Audit Events
-                                </a>
-
-                                <a
-                                    href="{% url 'stock-movement-list' %}"
-                                    class="{% if request.resolver_match.url_name == 'stock-movement-list' %}active{% endif %}"
-                                >
-                                    <span class="nav-icon">☰</span>
-                                    Records
-                                </a>
+                            <nav class="settings-dropdown" data-settings-dropdown hidden aria-label="Settings">
+                                <a href="{% url 'data-settings' %}" class="{% if request.resolver_match.url_name == 'data-settings' %}active{% endif %}">{% include "_icon.html" with name="layers" %} Export &amp; Import Data</a>
+                                <a href="{% url 'owner-profile' %}" class="{% if request.resolver_match.url_name == 'owner-profile' %}active{% endif %}">{% include "_icon.html" with name="user" %} My Profile</a>
+                                <a href="{% url 'audit-event-list' %}" class="{% if request.resolver_match.url_name == 'audit-event-list' %}active{% endif %}">{% include "_icon.html" with name="activity" %} Audit Events</a>
+                                <a href="{% url 'stock-movement-list' %}" class="{% if request.resolver_match.url_name == 'stock-movement-list' %}active{% endif %}">{% include "_icon.html" with name="layers" %} Records</a>
                             </nav>
                         </div>
                     {% endif %}
-
                     <form method="post" action="{% url 'logout' %}">
                         {% csrf_token %}
-
-                        <button
-                            type="submit"
-                            class="button button-secondary button-small"
-                        >
-                            Sign out
-                        </button>
+                        <button type="submit" class="button button-secondary button-small signout-button">{% include "_icon.html" with name="logout" %}<span>Sign out</span></button>
                     </form>
                 </div>
             </header>
         {% endif %}
-
-        <main class="{% if request.user.is_authenticated %}main-content{% else %}auth-main{% endif %}">
+        <main class="{% if request.user.is_authenticated %}main-content{% else %}auth-main{% endif %}" id="mainContent" tabindex="-1">
             {% if messages %}
                 <div class="messages">
                     {% for message in messages %}
                         <div class="alert alert-{{ message.tags|default:'info' }}" role="status">
                             <span>{{ message }}</span>
-
-                            <button
-                                type="button"
-                                class="alert-close"
-                                aria-label="Close"
-                            >
-                                ×
-                            </button>
+                            <button type="button" class="alert-close" aria-label="Dismiss notification">{% include "_icon.html" with name="close" %}</button>
                         </div>
                     {% endfor %}
                 </div>
             {% endif %}
-
-            {% block content %}
-            {% endblock %}
+            {% block content %}{% endblock %}
         </main>
+        {% if request.user.is_authenticated %}
+            <footer class="workspace-footer"><span>Boreal Vita <span aria-hidden="true">·</span> Herbal by nature.</span><span>Your business, connected.</span></footer>
+        {% endif %}
     </div>
 </div>
-
-<div
-    class="sidebar-overlay"
-    id="sidebarOverlay"
-></div>
-
-<dialog
-    class="modal proof-modal"
-    id="proofModal"
-    aria-labelledby="proofModalTitle"
->
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
+<dialog class="modal proof-modal" id="proofModal" aria-labelledby="proofModalTitle">
     <div class="proof-modal-body">
         <div class="modal-header">
             <h2 id="proofModalTitle">Payment proof</h2>
-
-            <button
-                type="button"
-                class="modal-close"
-                data-proof-close
-                aria-label="Close"
-            >
-                ×
-            </button>
+            <button type="button" class="modal-close" data-proof-close aria-label="Close">{% include "_icon.html" with name="close" %}</button>
         </div>
-
-        <div
-            class="proof-frame"
-            id="proofModalContent"
-        ></div>
-
+        <div class="proof-frame" id="proofModalContent"></div>
         <div class="modal-actions">
-            <a
-                href="#"
-                class="button button-secondary"
-                id="proofModalDownload"
-                download
-            >
-                Download
-            </a>
-
-            <button
-                type="button"
-                class="button button-primary"
-                data-proof-close
-            >
-                Close
-            </button>
+            <a href="#" class="button button-secondary" id="proofModalDownload" download>Download</a>
+            <button type="button" class="button button-primary" data-proof-close>Close</button>
         </div>
     </div>
 </dialog>

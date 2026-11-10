@@ -155,8 +155,15 @@ class ProductForm(forms.ModelForm):
         self.fields["category"].label_from_instance = lambda category: (
             "Liquid (syrup)" if category.name == "Liquid" else category.name
         )
+        # Read the product types once, for both the drop-down and the
+        # unit each type pre-selects below.
+        categories = list(self.fields["category"].queryset)
+        self.fields["category"].choices = [("", self.fields["category"].empty_label)] + [
+            (str(category.pk), self.fields["category"].label_from_instance(category))
+            for category in categories
+        ]
         if self.instance.category_id and self.instance.category.name == "Syrup":
-            liquid = self.fields["category"].queryset.filter(name="Liquid").first()
+            liquid = next((category for category in categories if category.name == "Liquid"), None)
             if liquid:
                 self.initial["category"] = liquid.pk
         self.fields["unit_of_measure"].widget = forms.HiddenInput()
@@ -167,7 +174,7 @@ class ProductForm(forms.ModelForm):
         self.fields["category"].widget.attrs["data-unit-by-category"] = json.dumps(
             {
                 str(category.pk): default_unit(category)
-                for category in self.fields["category"].queryset
+                for category in categories
                 if default_unit(category)
             }
         )
@@ -212,19 +219,34 @@ class ProductIngredientForm(forms.ModelForm):
         labels = {"strength": "Quantity", "is_medicinal": "Medicinal"}
         widgets = {"strength": forms.TextInput(attrs={"placeholder": "e.g. 500 mg"})}
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, ingredient_choices=None, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.fields["ingredient"].queryset = (
-            Ingredient.objects
-            .filter(active=True)
-        )
+        field = self.fields["ingredient"]
+        field.queryset = Ingredient.objects.filter(active=True)
+        if ingredient_choices is not None:
+            field.choices = ingredient_choices
+
+
+class BaseProductIngredientFormSet(forms.BaseInlineFormSet):
+    def get_form_kwargs(self, index):
+        """The ingredient list is read once and shared by every row."""
+        kwargs = super().get_form_kwargs(index)
+        if not hasattr(self, "_ingredient_choices"):
+            field = ProductIngredientForm.base_fields["ingredient"]
+            self._ingredient_choices = [("", field.empty_label)] + [
+                (str(ingredient.pk), field.label_from_instance(ingredient))
+                for ingredient in Ingredient.objects.filter(active=True)
+            ]
+        kwargs["ingredient_choices"] = self._ingredient_choices
+        return kwargs
 
 
 ProductIngredientFormSet = inlineformset_factory(
     Product,
     ProductIngredient,
     form=ProductIngredientForm,
+    formset=BaseProductIngredientFormSet,
     extra=1,
     can_delete=True,
 )

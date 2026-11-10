@@ -1,5 +1,5 @@
 {# The four stages of an order as a slim step bar. steps: [{number, title, plain, help, state, date, done_note}]; compact=True hides the short lines (step pages). #}
-<ol class="stepper{% if compact %} stepper-compact{% endif %}" aria-label="Order stages">
+<ol class="stepper{% if compact %} stepper-compact{% endif %}" aria-label="Order stages" style="--steps: {{ steps|length }};">
     {% for step in steps %}
         <li class="stepper-step is-{{ step.state }}"{% if step.state == "current" %} aria-current="step"{% endif %}{% if step.help %} title="{{ step.help }}"{% endif %}>
             <span class="stepper-dot">{% if step.state == "done" %}✓{% else %}{{ step.number }}{% endif %}</span>

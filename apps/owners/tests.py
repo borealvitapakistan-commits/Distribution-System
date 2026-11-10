@@ -4,7 +4,6 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from apps.accounts.models import User
-from apps.distributors.services import create_distributor
 from apps.manufacturers.services import create_manufacturer
 from apps.products.services import create_product
 from apps.owner_warehouse.models import Location
@@ -92,12 +91,6 @@ class OwnerPagesTests(TestCase):
             location_type=Location.LocationType.OWN,
             inventory=self.inventory,
         )
-        self.distributor = create_distributor(
-            actor=self.owner,
-            email="distributor@pages.test",
-            temporary_password="TemporaryPassword123!",
-            name="Page Distributor",
-        )
 
     def test_all_owner_pages_render(self):
         self.client.force_login(self.owner)
@@ -105,8 +98,6 @@ class OwnerPagesTests(TestCase):
             reverse("owner-list"),
             reverse("owner-create"),
             reverse("owner-profile"),
-            reverse("distributor-list"),
-            reverse("distributor-invite"),
             reverse("manufacturer-list"),
             reverse("manufacturer-create"),
             reverse("manufacturer-detail", kwargs={"pk": self.manufacturer.pk}),
@@ -129,9 +120,10 @@ class OwnerPagesTests(TestCase):
             reverse("stock-balance-list"),
             reverse("owner-finance"),
             reverse("brand-list"),
-            reverse("owner-purchase-orders-hub"),
-            reverse("owner-purchase-order-list"),
             reverse("manufacturer-order-list"),
+            reverse("manufacturer-order-start"),
+            reverse("owner-dashboard"),
+            reverse("batch-trace"),
         ]
 
         for route in routes:

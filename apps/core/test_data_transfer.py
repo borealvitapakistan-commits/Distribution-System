@@ -15,7 +15,7 @@ from apps.accounts.models import User
 from apps.audit.models import AuditEvent
 from apps.manufacturers.models import Manufacturer
 from apps.products.models import Product
-from apps.core.models import Brand
+from apps.core.models import Brand, BrandLogo, DataVersion
 from apps.core.data_transfer import (
     SnapshotError, digest, export_snapshot, import_snapshot, parse_snapshot,
 )
@@ -26,12 +26,18 @@ class DataTransferTests(TransactionTestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.override = override_settings(MEDIA_ROOT=self.root / "media", DATA_BACKUP_ROOT=self.root / "backups")
+        self.override = override_settings(
+            MEDIA_ROOT=self.root / "media", DATA_BACKUP_ROOT=self.root / "backups", USE_S3_STORAGE=False,
+            STORAGES={"default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+                      "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}},
+        )
         self.override.enable()
         self.addCleanup(self.override.disable)
         self.owner = User.objects.create_user("owner@example.com", "secret-password", role="OWNER")
         self.brand = Brand.objects.create(name="Original برانڈ", address='Line one, "quoted"\nLine two')
-        self.brand.logo.save("brand.png", ContentFile(b"original-image"))
+        self.brand.logo = ContentFile(b"original-image", name="brand.png")
+        self.brand.save()
+        self.supplier = Manufacturer.objects.create(name="Media supplier", logo=ContentFile(b"supplier-image", name="supplier.png"))
 
     def rewrite(self, payload, modify):
         rows = list(csv.reader(io.StringIO(payload.decode("utf-8-sig"))))
@@ -54,7 +60,7 @@ class DataTransferTests(TransactionTestCase):
         self.brand.name = "Current version"
         self.brand.save()
         extra = Brand.objects.create(name="Remove me")
-        backup = import_snapshot(exported)
+        backup = self.root / "backups" / import_snapshot(exported).name
         restored = Brand.objects.get(pk=self.brand.pk)
         self.assertEqual(Product.objects.get(pk=product.pk).manufacturer_id, manufacturer.pk)
         self.assertEqual(Product.objects.get(pk=product.pk).brand_id, restored.pk)
@@ -62,8 +68,9 @@ class DataTransferTests(TransactionTestCase):
         self.assertEqual(restored.name, "Original برانڈ")
         self.assertEqual(restored.address, self.brand.address)
         self.assertFalse(Brand.objects.filter(pk=extra.pk).exists())
-        with restored.logo.open("rb") as file:
-            self.assertEqual(file.read(), b"original-image")
+        self.assertEqual(bytes(BrandLogo.objects.get(brand=restored).data), b"original-image")
+        with Manufacturer.objects.get(pk=self.supplier.pk).logo.open("rb") as file:
+            self.assertEqual(file.read(), b"supplier-image")
         self.assertEqual(set(User.objects.get(pk=self.owner.pk).groups.values_list("name", flat=True)), before_groups)
         self.assertTrue(User.objects.get(pk=self.owner.pk).check_password("secret-password"))
         self.assertTrue(backup.name.startswith("before-import-"))
@@ -130,11 +137,11 @@ class DataTransferTests(TransactionTestCase):
     def test_permissions(self):
         for url in ("data-settings", "data-export"):
             self.assertEqual(self.client.get(reverse(url)).status_code, 302)
-        distributor = User.objects.create_user("distributor@example.com", "secret", role="DISTRIBUTOR")
-        self.client.force_login(distributor)
+        inactive = User.objects.create_user("inactive@example.com", "secret", role="OWNER", is_active=False)
+        self.client.force_login(inactive)
         for url in ("data-settings", "data-export"):
-            self.assertEqual(self.client.get(reverse(url)).status_code, 403)
-            self.assertEqual(self.client.post(reverse(url)).status_code, 403)
+            self.assertEqual(self.client.get(reverse(url)).status_code, 302)
+            self.assertEqual(self.client.post(reverse(url)).status_code, 302)
 
     def test_invalid_foreign_key_rolls_back_replacement(self):
         Manufacturer.objects.create(name="Supplier", created_by=self.owner)
@@ -147,4 +154,47 @@ class DataTransferTests(TransactionTestCase):
         with self.assertRaises(IntegrityError):
             import_snapshot(self.rewrite(payload, break_reference))
         self.assertTrue(Brand.objects.filter(pk=self.brand.pk).exists())
-        self.assertEqual(Manufacturer.objects.get().created_by_id, self.owner.pk)
+        self.assertEqual(Manufacturer.objects.get(name="Supplier").created_by_id, self.owner.pk)
+
+    def test_hosted_backup_uses_persistent_storage_and_keeps_previous_backups(self):
+        from django.core.files.storage import default_storage
+        with override_settings(USE_S3_STORAGE=True):
+            payload = export_snapshot()
+            first = import_snapshot(payload)
+            second = import_snapshot(payload)
+            self.assertTrue(str(first).startswith("data-backups/before-import-"))
+            self.assertNotEqual(first, second)
+            self.assertTrue(default_storage.exists(str(first)))
+            self.assertTrue(default_storage.exists(str(second)))
+            with default_storage.open(str(first), "rb") as backup:
+                records, _ = parse_snapshot(backup.read())
+            self.assertTrue(any(r["model"] == "core.brandlogo" for r in records))
+
+    def test_import_changes_cache_version_and_clears_cached_sessions(self):
+        from django.core.cache import cache
+        from django.contrib.sessions.backends.cached_db import SessionStore
+        session = SessionStore()
+        session["old"] = "old data"
+        session.save()
+        old_key = session.session_key
+        DataVersion.objects.update_or_create(pk=1, defaults={"number": 123})
+        payload = export_snapshot()
+        cache.set("stale-brand", "old value")
+        import_snapshot(payload)
+        self.assertIsNone(cache.get("stale-brand"))
+        self.assertNotEqual(DataVersion.objects.get(pk=1).number, 123)
+        self.assertNotIn("old", SessionStore(old_key))
+
+    def test_auto_increment_records_can_be_created_after_import(self):
+        import_snapshot(export_snapshot())
+        self.assertIsNotNone(Group.objects.create(name="After import").pk)
+
+    def test_legacy_file_logo_survives_without_a_database_logo_row(self):
+        from django.core.files.storage import default_storage
+        BrandLogo.objects.filter(brand=self.brand).delete()
+        name = default_storage.save("brand/logos/legacy.png", ContentFile(b"legacy-logo"))
+        Brand.objects.filter(pk=self.brand.pk).update(logo=name)
+        import_snapshot(export_snapshot())
+        restored = Brand.objects.get(pk=self.brand.pk)
+        with restored.logo.open("rb") as logo:
+            self.assertEqual(logo.read(), b"legacy-logo")

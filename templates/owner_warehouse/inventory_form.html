@@ -1,53 +1,60 @@
-{% extends "base.html" %}
-
-{% block title %}
-    {% if object %}Edit Inventory{% else %}Add Inventory{% endif %}
-{% endblock %}
-
-{% block content %}
-<div class="page-header">
+{% extends "owner_warehouse/workspace_base.html" %}
+{% block title %}{% if object %}Edit region{% else %}Add region{% endif %}{% endblock %}
+{% block inventory_content %}
+<nav class="iw-breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'inventory-list' %}">Inventory</a><span aria-hidden="true">/</span><span>{% if object %}Edit region{% else %}Add region{% endif %}</span>
+</nav>
+<div class="iw-page-heading">
     <div>
-        <p class="eyebrow">Inventory</p>
+        <p class="eyebrow">
+            ORGANIZE YOUR LOCATIONS
+        </p>
         <h1>
-            {% if object %}Edit Inventory{% else %}Add Inventory{% endif %}
+            {% if object %}Edit region{% else %}Add a region{% endif %}
         </h1>
-        <p>A region or city — e.g. Lahore, Islamabad, Karachi.</p>
+        <p>
+            A city or area that groups your warehouses together.
+        </p>
     </div>
-
-    <a class="button button-secondary" href="{% url 'inventory-list' %}">
-        Back
-    </a>
 </div>
-
-<section class="panel form-panel form-panel-narrow">
-    <form method="post" class="form-layout">
-        {% csrf_token %}
-
-        {% if form.non_field_errors %}
-            <div class="form-errors">
-                {{ form.non_field_errors }}
-            </div>
+<div class="iw-form-layout">
+    <form method="post" class="iw-panel iw-setup-form">
+        {% csrf_token %}{% firstof request.POST.next request.GET.next "" as next_step %}<input type="hidden" name="next" value="{{ next_step }}">{% if form.non_field_errors %}
+        <div class="iw-form-errors" role="alert">
+            {{ form.non_field_errors }}
+        </div>
         {% endif %}
-
-        {% for field in form %}
-            <div class="form-group">
-                <label for="{{ field.id_for_label }}">
-                    {{ field.label }}
-                </label>
-
-                {{ field }}
-
-                {% for error in field.errors %}
-                    <span class="field-error">{{ error }}</span>
-                {% endfor %}
-            </div>
-        {% endfor %}
-
-        <div class="form-actions">
-            <button class="button button-primary" type="submit">
-                Save Inventory
-            </button>
+        <div class="iw-form-body">
+            <h2>
+                {% if object %}Region details{% else %}Where do you keep your stock?{% endif %}
+            </h2>
+            {% include "owner_warehouse/_field.html" with field=form.name %}
+            <details class="iw-form-disclosure" {% if form.code.errors %}open{% endif %}>
+                <summary>
+                    Reference code <span class="iw-optional">Optional</span>
+                </summary>
+                {% include "owner_warehouse/_field.html" with field=form.code %}
+            </details>
+            {% if object %}<label class="iw-toggle-card">{{ form.active }}<span><strong>{{ form.active.label }}</strong><small>Inactive regions cannot receive new stock placements.</small></span></label>{% else %}<input type="hidden" name="active" value="on">{% endif %}
+        </div>
+        <div class="iw-form-footer">
+            <a class="iw-text-link" href="{% if object %}{% url 'inventory-detail' object.pk %}{% else %}{% url 'inventory-list' %}{% endif %}">Cancel</a><button type="submit" class="button button-primary">{% if object %}Save changes{% else %}Create region{% endif %} {% include "_icon.html" with name="arrow" %}</button>
         </div>
     </form>
-</section>
+    <aside class="iw-form-help">
+        <span class="iw-summary-icon">{% include "_icon.html" with name="warehouse" %}</span>
+        <h2>
+            A simple way to organize stock.
+        </h2>
+        <p>
+            For example, your <strong>Lahore</strong> region could contain <strong>Johar Town</strong> and <strong>Township</strong> warehouses.
+        </p>
+        <div class="iw-example-tree">
+            <strong>Lahore</strong><span>Johar Town warehouse</span><span>Township warehouse</span>
+        </div>
+        <p>
+            After creating a region, add a warehouse. You can then place your product batches there.
+        </p>
+    </aside>
+</div>
 {% endblock %}

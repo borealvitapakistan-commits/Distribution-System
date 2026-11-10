@@ -17,10 +17,7 @@ from django.views.generic import (
     ListView,
 )
 
-from apps.accounts.mixins import (
-    DistributorRequiredMixin,
-    OwnerRequiredMixin,
-)
+from apps.accounts.mixins import OwnerRequiredMixin
 from apps.manufacturers.models import Manufacturer
 
 from . import shopify, shopify_import
@@ -213,12 +210,17 @@ class ProductListView(OwnerRequiredMixin, ListView):
                     f"{amount.normalize():f}" for amount in amounts
                 ) + f" {unit_plural(product)}"
 
-        counts = dict(
+        # Products per category and per status, in one query.
+        counts = {}
+        status_counts = {True: 0, False: 0}
+        for category, active, total in (
             self._all_products()
             .order_by()
-            .values_list("category")
+            .values_list("category", "active")
             .annotate(total=Count("id"))
-        )
+        ):
+            counts[category] = counts.get(category, 0) + total
+            status_counts[active] += total
         tiles = []
 
         for category in ProductCategory.objects.for_user(self.request.user).filter(
@@ -271,8 +273,8 @@ class ProductListView(OwnerRequiredMixin, ListView):
                     (key, label) for key, (label, _fields) in self.SORTS.items()
                 ],
                 "current_sort": current.lstrip("-"),
-                "active_count": self._all_products().filter(active=True).count(),
-                "hold_count": self._all_products().filter(active=False).count(),
+                "active_count": status_counts[True],
+                "hold_count": status_counts[False],
             }
         )
         manufacturers = list(Manufacturer.objects.for_user(self.request.user).filter(archived_at__isnull=True))
@@ -326,19 +328,6 @@ class RetailPriceSheetView(OwnerRequiredMixin, View):
         )
         response["Content-Disposition"] = 'attachment; filename="retail-price-sheet.csv"'
         return response
-
-
-class DistributorProductListView(DistributorRequiredMixin, ListView):
-    template_name = "products/distributor_product_list.html"
-    context_object_name = "products"
-
-    def get_queryset(self):
-        return (
-            Product.objects
-            .for_user(self.request.user)
-            .select_related("category")
-            .order_by("name", "sku")
-        )
 
 
 class ProductDetailView(OwnerRequiredMixin, View):

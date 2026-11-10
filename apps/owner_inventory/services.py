@@ -4,7 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from apps.accounts.services import require_approved_distributor, require_owner
+from apps.accounts.services import require_owner
 from apps.audit.services import record_audit_event
 
 from .models import StockBalance, StockBatch, StockMovement
@@ -51,21 +51,6 @@ def shippable_batches_fefo(*, product=None):
     )
 
 
-def _require_shippable_location(location):
-    from apps.owner_warehouse.models import Location
-
-    if location.location_type != Location.LocationType.OWN:
-        raise ValidationError(
-            "Stock can only be shipped from one of the Owner's own warehouses."
-        )
-
-    if not location.is_sellable:
-        raise ValidationError(
-            f"{location.name} is not sellable. Mark it as sellable before "
-            "shipping stock from it."
-        )
-
-
 @transaction.atomic
 def post_stock_movement(
     *,
@@ -79,7 +64,6 @@ def post_stock_movement(
     require_owner_actor=True,
     batch=None,
     channel="",
-    distributor_profile=None,
     shopify_order=None,
 ):
     """The single write path for stock. Every other function in this
@@ -87,8 +71,7 @@ def post_stock_movement(
     StockBalance.
 
     require_owner_actor=False is only for callers that have already done
-    their own equally-strict authorization check (e.g. a Distributor
-    confirming receipt of their own shipment) — every other call site
+    their own equally-strict authorization check — every other call site
     keeps the default Owner-only gate.
 
     batch, when a movement draws stock OUT of an owned warehouse
@@ -98,8 +81,8 @@ def post_stock_movement(
     attached to the movement for traceability only (no draw-down).
 
     channel records who the stock went to or came from (Manufacturer,
-    Distributor, Shopify); distributor_profile / shopify_order name the
-    exact Distributor or Shopify order, so a batch trace can say who got it. Once the transaction commits, Shopify is told
+    Shopify); shopify_order names the exact Shopify order, so a batch
+    trace can say who got it. Once the transaction commits, Shopify is told
     the new sellable total — see apps.owner_inventory.shopify_sync.
     """
     if require_owner_actor:
@@ -163,7 +146,6 @@ def post_stock_movement(
         quantity=quantity,
         movement_type=movement_type,
         channel=channel,
-        distributor_profile=distributor_profile,
         shopify_order=shopify_order,
         reference=reference,
         batch=batch,
@@ -183,9 +165,6 @@ def post_stock_movement(
             "movement_type": movement_type,
             "channel": channel,
             "batch_number": batch.batch_number if batch is not None else "",
-            "distributor_profile_id": (
-                str(distributor_profile.pk) if distributor_profile else None
-            ),
             "shopify_order": shopify_order.name if shopify_order else None,
             "from_location_id": (
                 str(from_location.pk) if from_location else None
@@ -384,207 +363,3 @@ def reallocate_batch(*, actor, batch, quantity, destination_location, reference=
 
     return new_batch
 
-
-@transaction.atomic
-def give_to_distributor(
-    *,
-    actor,
-    product,
-    quantity,
-    from_location,
-    distributor_profile,
-    batch,
-    reference="",
-):
-    """What the Owner's "Give to Distributor" form calls. The batch
-    chosen (normally the oldest/soonest-to-expire one, FEFO) determines
-    which of the Owner's own warehouses this ships from. The stock leaves
-    the Owner's tracked system entirely and lands in the Distributor's own
-    (separately tracked) unallocated pool, the same as any other stock
-    arriving in their warehouse system — they never see the Owner's
-    batches or warehouse names, and this Owner ledger has no relationship
-    to theirs beyond the one-time hand-off."""
-    from apps.distributor_inventory.services import receive_stock as distributor_receive_stock
-
-    if batch is None:
-        raise ValidationError("A batch to ship from is required.")
-
-    _require_shippable_location(from_location)
-
-    movement = post_stock_movement(
-        actor=actor,
-        product=product,
-        quantity=quantity,
-        movement_type=StockMovement.MovementType.TRANSFER,
-        from_location=from_location,
-        to_location=None,
-        reference=reference,
-        batch=batch,
-        channel=StockMovement.Channel.DISTRIBUTOR,
-        distributor_profile=distributor_profile,
-    )
-
-    from apps.finance.services import record_sale
-
-    record_sale(actor=actor, movement=movement)
-
-    distributor_receive_stock(
-        actor=actor,
-        distributor_profile=distributor_profile,
-        product=product,
-        quantity=quantity,
-        reference=reference or f"Gift from {from_location.name}",
-        batch_number=batch.batch_number,
-        expiry_date=batch.expiry_date,
-        require_distributor_actor=False,
-    )
-
-    return movement
-
-
-def _get_or_create_transit_location(*, actor):
-    from apps.owner_warehouse.models import Location
-
-    location = Location.objects.filter(
-        location_type=Location.LocationType.TRANSIT,
-    ).first()
-
-    if location is not None:
-        return location
-
-    location = Location(
-        code="TRANSIT",
-        name="In Transit",
-        location_type=Location.LocationType.TRANSIT,
-        on_book=True,
-        is_physical=True,
-        is_sellable=False,
-        created_by=actor,
-        updated_by=actor,
-    )
-    location.full_clean()
-    location.save()
-
-    return location
-
-
-@transaction.atomic
-def ship_stock_to_transit(
-    *, actor, product, quantity, from_location, batch, reference="", shipped_for=None
-):
-    """What a Purchase Order's "Ship" action calls: stock leaves one of the
-    Owner's own warehouses but isn't credited to the Distributor yet — it
-    sits in Transit until the Distributor confirms receipt. The batch it's
-    drawn from (the Owner's own choice, normally FEFO-suggested) still
-    gets decremented here, since that's when it physically leaves the
-    Owner's warehouse — and a new lot lands in Transit carrying the same
-    batch code/expiry forward, so that choice survives all the way to the
-    Distributor's own stock."""
-    if batch is None:
-        raise ValidationError("A batch to ship from is required.")
-
-    _require_shippable_location(from_location)
-
-    transit = _get_or_create_transit_location(actor=actor)
-    quantity = _as_decimal(quantity)
-
-    movement = post_stock_movement(
-        actor=actor,
-        product=product,
-        quantity=quantity,
-        movement_type=StockMovement.MovementType.TRANSFER,
-        from_location=from_location,
-        to_location=transit,
-        reference=reference,
-        batch=batch,
-        channel=StockMovement.Channel.DISTRIBUTOR,
-        distributor_profile=(
-            shipped_for.purchase_order.distributor_profile if shipped_for else None
-        ),
-    )
-
-    transit_batch = StockBatch(
-        product=product,
-        location=transit,
-        source_batch=batch.source_batch,
-        shipped_for=shipped_for,
-        batch_number=batch.batch_number,
-        received_date=batch.received_date,
-        expiry_date=batch.expiry_date,
-        quantity_received=quantity,
-        quantity_remaining=quantity,
-        reference=reference or f"Shipped from {from_location.name}",
-        created_by=actor,
-        updated_by=actor,
-    )
-    transit_batch.full_clean()
-    transit_batch.save()
-
-    return movement
-
-
-@transaction.atomic
-def release_stock_from_transit(
-    *, actor, product, quantity, reference="", shipped_for=None
-):
-    """What a Purchase Order's "Received" action calls: draws down the
-    specific Transit batch(es) for this product (FEFO — a receipt can
-    span more than one, if separate shipments landed there), closing out
-    the Owner's side of the hand-off. Returns [(batch, quantity), ...]
-    consumed, so the caller can hand each one to the Distributor's own
-    (separately tracked) system with its correct batch code and expiry —
-    see apps.distributor_inventory.services.receive_stock. Triggered by
-    the Distributor confirming their own shipment — not an Owner action,
-    so it does its own authorization (approved Distributor, acting on
-    their own profile) before writing to this ledger."""
-    require_approved_distributor(actor)
-
-    transit = _get_or_create_transit_location(actor=actor)
-    quantity = _as_decimal(quantity)
-
-    transit_batches = (
-        StockBatch.objects
-        .select_for_update()
-        .filter(location=transit, product=product)
-        .available()
-        .fefo_ordered()
-    )
-
-    # Only the lots shipped on this order line — every batch keeps its own
-    # identity, so another order's lot of the same product is never used.
-    if shipped_for is not None:
-        transit_batches = transit_batches.filter(shipped_for=shipped_for)
-
-    remaining = quantity
-    consumed = []
-
-    for batch in transit_batches:
-        if remaining <= 0:
-            break
-
-        take = min(remaining, batch.quantity_remaining)
-
-        post_stock_movement(
-            actor=actor,
-            product=product,
-            quantity=take,
-            movement_type=StockMovement.MovementType.TRANSFER,
-            from_location=transit,
-            to_location=None,
-            reference=reference,
-            batch=batch,
-            require_owner_actor=False,
-            channel=StockMovement.Channel.DISTRIBUTOR,
-            distributor_profile=(
-                shipped_for.purchase_order.distributor_profile if shipped_for else None
-            ),
-        )
-        consumed.append((batch, take))
-        remaining -= take
-
-    if remaining > 0:
-        raise ValidationError(
-            f"Only {quantity - remaining} of {product.name} available in Transit."
-        )
-
-    return consumed

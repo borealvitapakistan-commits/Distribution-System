@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "django",
+  "regions": ["bom1"],
+  "headers": [
+    {
+      "source": "/static/(.*)",
+      "has": [{ "type": "query", "key": "v" }],
+      "headers": [
+        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+      ]
+    }
+  ],
+  "functions": {
+    "**/*.py": {
+      "maxDuration": 300,
+      "excludeFiles": "{.git/**,.github/**,.claude/**,.planning/**,.venv/**,venv/**,media/**,data/**,docs/**,scripts/**,**/__pycache__/**,**/test*.py,**/*.sqlite3*,**/*.bak*,data*.json,.env*}"
+    }
+  }
+}

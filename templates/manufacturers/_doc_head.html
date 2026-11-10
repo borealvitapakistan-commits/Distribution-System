@@ -7,7 +7,7 @@ optionally doc_chip, number_label.
     <div>
         <div class="doc-logo {% if brand.logo %}has-logo{% elif brand.name %}has-name{% endif %}" data-doc-logo>
             {% if brand.logo %}
-                <img src="{{ brand.logo.url }}" alt="{{ brand.name }}">
+                <img src="{{ brand.logo_url }}" alt="{{ brand.name }}">
             {% elif brand.name %}
                 <span class="doc-logo-name">{{ brand.name }}</span>
             {% else %}

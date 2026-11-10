@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% load static assets %}
+{% block extra_head %}
+<link rel="stylesheet" href="{% asset 'css/inventory.css' %}">
+<script src="{% asset 'js/inventory.js' %}" defer></script>
+{% endblock %}
+{% block content %}
+<div class="inventory-workspace">
+    {% block inventory_content %}{% endblock %}
+</div>
+{% endblock %}

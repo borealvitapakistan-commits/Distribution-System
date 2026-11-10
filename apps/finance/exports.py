@@ -175,12 +175,12 @@ def export_response(request, build_document):
 FIGURE_COLUMNS = [
     ("Units sold", QTY),
     ("Retail value", MONEY),
-    ("Distributor cut / discount", MONEY),
+    ("Discount", MONEY),
     ("Revenue", MONEY),
     ("Cost of goods", MONEY),
     ("Gross profit", MONEY),
     ("Gross margin", PCT),
-    ("Free / written off (cost)", MONEY),
+    ("Written off (cost)", MONEY),
     ("Expenses", MONEY),
     ("Net profit", MONEY),
 ]
@@ -224,16 +224,16 @@ def _ledger_section(entries, heading="Entries"):
         heading=heading,
         columns=[
             ("Date", TEXT), ("Type", TEXT), ("Product", TEXT), ("SKU", TEXT),
-            ("Bottle size", TEXT), ("Batch", TEXT), ("Distributor", TEXT),
+            ("Bottle size", TEXT), ("Batch", TEXT),
             ("Quantity", QTY), ("Cost / unit", MONEY), ("Cost source", TEXT),
             ("Retail / unit", MONEY), ("We receive / unit", MONEY), ("Retail value", MONEY),
-            ("Distributor cut / discount", MONEY), ("Revenue", MONEY), ("Cost", MONEY),
+            ("Discount", MONEY), ("Revenue", MONEY), ("Cost", MONEY),
             ("Profit", MONEY), ("Reference", TEXT), ("Product / SKU", TEXT),
         ],
-        # Date, Type, Product / SKU, Batch, Distributor, Qty, Cost / unit,
+        # Date, Type, Product / SKU, Batch, Qty, Cost / unit,
         # Retail / unit, We receive / unit, Revenue, Cost, Profit.
-        pdf_columns=[0, 1, 18, 5, 6, 7, 8, 10, 11, 14, 15, 16],
-        csv_columns=list(range(18)),
+        pdf_columns=[0, 1, 17, 5, 6, 7, 9, 10, 13, 14, 15],
+        csv_columns=list(range(17)),
         rows=[
             [
                 timezone.localtime(entry.occurred_at).strftime("%Y-%m-%d %H:%M"),
@@ -242,7 +242,6 @@ def _ledger_section(entries, heading="Entries"):
                 entry.product.sku,
                 entry.bottle_size or "",
                 entry.batch_number,
-                entry.distributor_profile.name if entry.distributor_profile else "",
                 entry.quantity,
                 entry.unit_cost,
                 entry.get_cost_source_display(),
@@ -273,12 +272,11 @@ def report_document(report, stock, period, active_filters=()):
         columns=[("Line", TEXT), ("Amount", MONEY)],
         rows=[
             ["Retail sale value (retail price × units sold)", totals.retail_value],
-            ["- Distributor cut & Shopify discounts", totals.cut],
+            ["- Shopify discounts", totals.cut],
             ["Revenue (what we actually received)", totals.revenue],
             ["- Cost of goods sold (batch landed cost × units)", totals.cogs],
             ["Gross profit", totals.gross_profit],
             ["- Expenses", totals.expenses],
-            [f"- Stock given free ({_pretty(totals.free_units, QTY)} units, at cost)", totals.free_cost],
             [f"- Stock written off ({_pretty(totals.written_off_units, QTY)} units, at cost)", totals.written_off_cost],
             ["Net profit", totals.net_profit],
         ],
@@ -293,7 +291,6 @@ def report_document(report, stock, period, active_filters=()):
         rows=[
             [f"Stock bought (received, {_pretty(report.stock_bought_units, QTY)} units × landed cost)", report.stock_bought],
             ["Paid to Manufacturers", report.paid_to_manufacturers],
-            ["Received from Distributors (confirmed)", report.received_from_distributors],
             ["Expenses paid", totals.expenses],
             [f"Stock on hand now, at cost ({_pretty(stock.units, QTY)} units)", stock.cost],
             ["Stock on hand now, at retail", stock.retail],
@@ -316,13 +313,11 @@ def report_document(report, stock, period, active_filters=()):
         _figures_section("By product", "Product", report.by_product, with_detail=True, footer_figures=totals),
         _figures_section("By batch", "Batch", report.by_batch, with_detail=True, footer_figures=totals),
     ]
-    if report.by_distributor:
-        figures.append(_figures_section("By Distributor", "Distributor", report.by_distributor))
 
     empty = [
         label for label, has in (
-            ("Distributor cut / discount", report.columns["cut"]),
-            ("Free / written off (cost)", report.columns["lost"]),
+            ("Discount", report.columns["cut"]),
+            ("Written off (cost)", report.columns["lost"]),
             ("Expenses", report.columns["expenses"]),
         ) if not has
     ]

@@ -47,9 +47,8 @@ class ShareToSlackTests(TestCase):
         urlopen.assert_not_called()
 
     @override_settings(SLACK_WEBHOOK_URL=WEBHOOK)
-    def test_distributors_cannot_share(self):
-        self.client.force_login(User.objects.create_user(email="d@slack.test", role="DISTRIBUTOR"))
-        self.assertEqual(self.client.post(self.url).status_code, 403)
+    def test_signed_out_visitors_cannot_share(self):
+        self.assertEqual(self.client.post(self.url).status_code, 302)
 
 
 class OrderFromProductPageTests(TestCase):

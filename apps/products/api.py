@@ -9,7 +9,7 @@ from rest_framework.exceptions import (
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.accounts.permissions import IsDistributor, IsOwner
+from apps.accounts.permissions import IsOwner
 
 from .models import (
     Ingredient,
@@ -17,7 +17,6 @@ from .models import (
     ProductCategory,
 )
 from .serializers import (
-    DistributorProductSerializer,
     IngredientSerializer,
     ProductCategorySerializer,
     ProductSerializer,
@@ -279,24 +278,5 @@ class ProductDetailAPIView(APIView):
             ProductSerializer(
                 product,
                 context={"request": request},
-            ).data
-        )
-
-
-class DistributorProductListAPIView(APIView):
-    permission_classes = [IsDistributor]
-
-    def get(self, request):
-        products = (
-            Product.objects
-            .for_user(request.user)
-            .select_related("category")
-            .order_by("name", "sku")
-        )
-
-        return Response(
-            DistributorProductSerializer(
-                products,
-                many=True,
             ).data
         )

@@ -10,8 +10,8 @@
         <p class="eyebrow">Traceability</p>
         <h1>Batch Trace</h1>
         <p>
-            Follow one batch from the Manufacturer through your warehouses and
-            each Distributor, up to the sub-distributor it was sold to.
+            Follow one batch from the Manufacturer through your warehouses,
+            up to the Shopify orders it was sold on.
         </p>
     </div>
 </div>
@@ -117,29 +117,13 @@
                 <span class="stat-detail">Online orders</span>
             </article>
 
-            <article class="stat-card">
-                <span class="stat-label">In Transit</span>
-                <strong>{{ trace.totals.in_transit }}</strong>
-                <span class="stat-detail">Shipped, not yet received</span>
-            </article>
-
-            <article class="stat-card">
-                <span class="stat-label">Received by Distributors</span>
-                <strong>{{ trace.totals.received_by_distributors }}</strong>
-                <span class="stat-detail">All distributors</span>
-            </article>
-
-            <article class="stat-card">
-                <span class="stat-label">Distributors on Hand</span>
-                <strong>{{ trace.totals.distributor_on_hand }}</strong>
-                <span class="stat-detail">Not yet sold on</span>
-            </article>
-
-            <article class="stat-card">
-                <span class="stat-label">Sold to Sub-Distributors</span>
-                <strong>{{ trace.totals.sold_to_sub_distributors }}</strong>
-                <span class="stat-detail">End of the traced chain</span>
-            </article>
+            {% if trace.totals.sent_to_distributors %}
+                <article class="stat-card">
+                    <span class="stat-label">Sent to Distributors</span>
+                    <strong>{{ trace.totals.sent_to_distributors }}</strong>
+                    <span class="stat-detail">Before the Distributor panel was archived</span>
+                </article>
+            {% endif %}
         </div>
 
         {% if trace.where_now %}
@@ -164,42 +148,6 @@
                                 <tr>
                                     <td>{{ label }}</td>
                                     <td>{{ quantity }}</td>
-                                </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-        {% endif %}
-
-        {% if trace.distributors %}
-            <section class="panel">
-                <div class="panel-header">
-                    <div>
-                        <h2>By distributor</h2>
-                    </div>
-                </div>
-
-                <div class="table-wrapper">
-                    <table>
-                        <thead>
-                            <tr>
-                                <th>Distributor</th>
-                                <th>Shipped to them</th>
-                                <th>Received</th>
-                                <th>On Hand</th>
-                                <th>Sold to Sub-Distributors</th>
-                            </tr>
-                        </thead>
-
-                        <tbody>
-                            {% for row in trace.distributors %}
-                                <tr>
-                                    <td>{{ row.name }}</td>
-                                    <td>{{ row.shipped }}</td>
-                                    <td>{{ row.received }}</td>
-                                    <td>{{ row.on_hand }}</td>
-                                    <td>{{ row.sold }}</td>
                                 </tr>
                             {% endfor %}
                         </tbody>

@@ -1,58 +1,77 @@
-{% extends "base.html" %}
-
-{% block title %}
-    Add Inventory
-{% endblock %}
-
-{% block content %}
-<div class="page-header">
+{% extends "owner_warehouse/workspace_base.html" %}
+{% block title %}Add stock{% endblock %}
+{% block inventory_content %}
+<nav class="iw-breadcrumb" aria-label="Breadcrumb">
+    <a href="{% url 'inventory-list' %}">Inventory</a><span aria-hidden="true">/</span><span>Add stock</span>
+</nav>
+<div class="iw-page-heading">
     <div>
-        <p class="eyebrow">Warehouse</p>
-        <h1>Add Inventory</h1>
-        <p>Record stock coming into one of your warehouses.</p>
+        <p class="eyebrow">
+            RECORD A DELIVERY
+        </p>
+        <h1>
+            Add stock
+        </h1>
+        <p>
+            Record products that have arrived at one of your warehouses.
+        </p>
     </div>
-
-    <a
-        class="button button-secondary"
-        href="{% url 'stock-balance-list' %}"
-    >
-        Back
-    </a>
 </div>
-
-<section class="panel form-panel">
-    <form method="post" class="form-layout">
-        {% csrf_token %}
-
-        {% if form.non_field_errors %}
-            <div class="form-errors">
-                {{ form.non_field_errors }}
-            </div>
-        {% endif %}
-
-        <div class="form-grid">
-            {% for field in form %}
-                <div class="form-group">
-                    <label for="{{ field.id_for_label }}">
-                        {{ field.label }}
-                    </label>
-
-                    {{ field }}
-
-                    {% for error in field.errors %}
-                        <span class="field-error">
-                            {{ error }}
-                        </span>
-                    {% endfor %}
-                </div>
-            {% endfor %}
+{% if not form.to_location.field.queryset.exists %}
+<section class="iw-panel iw-empty">
+    <span class="iw-empty-icon">{% include "_icon.html" with name="warehouse" %}</span>
+    <h2>
+        Add a warehouse first
+    </h2>
+    <p>
+        Create the place where you store your products. Then you can record a delivery there.
+    </p>
+    <a class="button button-primary" href="{% url 'location-create' %}">Add a warehouse {% include "_icon.html" with name="arrow" %}</a>
+</section>
+{% else %}
+<div class="iw-form-layout">
+    <form method="post" class="iw-panel iw-setup-form">
+        {% csrf_token %}{% if form.non_field_errors %}
+        <div class="iw-form-errors" role="alert">
+            {{ form.non_field_errors }}
         </div>
-
-        <div class="form-actions">
-            <button class="button button-primary" type="submit">
-                Add Inventory
-            </button>
+        {% endif %}
+        <div class="iw-form-body">
+            <h2>
+                What arrived, and where?
+            </h2>
+            {% include "owner_warehouse/_field.html" with field=form.product %}{% include "owner_warehouse/_field.html" with field=form.to_location %}<a class="iw-text-link iw-add-region-link" href="{% url 'location-create' %}">{% include "_icon.html" with name="plus" %} Need a warehouse? Add one</a>{% include "owner_warehouse/_field.html" with field=form.quantity %}
+            <h2>
+                Batch details
+            </h2>
+            {% include "owner_warehouse/_field.html" with field=form.batch_number %}
+            <div class="iw-form-columns">
+                {% include "owner_warehouse/_field.html" with field=form.received_date %}{% include "owner_warehouse/_field.html" with field=form.expiry_date %}
+            </div>
+            {% include "owner_warehouse/_field.html" with field=form.reference %}
+        </div>
+        <div class="iw-form-footer">
+            <a class="iw-text-link" href="{% url 'inventory-list' %}">Cancel</a><button class="button button-primary" type="submit">Record delivery {% include "_icon.html" with name="arrow" %}</button>
         </div>
     </form>
-</section>
+    <aside class="iw-form-help">
+        <span class="iw-summary-icon">{% include "_icon.html" with name="box" %}</span>
+        <h2>
+            Every delivery gets its own batch.
+        </h2>
+        <p>
+            Use the batch number on your delivery or packaging. This keeps the quantity and expiry easy to track, even when you move stock.
+        </p>
+        <div class="iw-notice">
+            <div>
+                <strong>From a purchase order?</strong>
+                <p>
+                    Receive it on the purchase order page instead, so the delivery is linked to the order and counted once.
+                </p>
+                <a class="iw-text-link" href="{% url 'manufacturer-order-list' %}">View purchase orders {% include "_icon.html" with name="arrow" %}</a>
+            </div>
+        </div>
+    </aside>
+</div>
+{% endif %}
 {% endblock %}

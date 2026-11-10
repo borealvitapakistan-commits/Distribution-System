@@ -1,118 +1,81 @@
 {% extends "base.html" %}
-
-{% block title %}
-    Owner Dashboard
-{% endblock %}
-
+{% block title %}Business overview{% endblock %}
 {% block content %}
-<div class="page-header">
+<div class="page-header dashboard-heading">
     <div>
-        <p class="eyebrow">Overview</p>
-        <h1>Owner Dashboard</h1>
-        <p>
-            Brand identity, users and system activity.
-        </p>
+        <p class="eyebrow">Your workspace, at a glance</p>
+        <h1>Business overview<span class="heading-dot">.</span></h1>
+        <p>Welcome back{% if request.user.first_name %}, {{ request.user.first_name }}{% endif %}. Here’s what’s happening across your business.</p>
     </div>
-
-    <a
-        href="{% url 'distributor-invite' %}"
-        class="button button-primary"
-    >
-        Invite Distributor
+    <a href="{% url 'manufacturer-order-start' %}" class="button button-primary">{% include "_icon.html" with name="plus" %} New order</a>
+</div>
+<section class="dashboard-hero" aria-labelledby="heroTitle">
+    <div class="hero-copy">
+        <span class="hero-eyebrow">BOREAL VITA <span aria-hidden="true">/</span> OWNER OPERATIONS</span>
+        <h2 id="heroTitle">A little clarity.<br>A lot of possibility.</h2>
+        <p>Your products, partners, and stock. Thoughtfully connected,<br class="desktop-break"> so you can focus on what comes next.</p>
+        <a href="{% url 'inventory-list' %}" class="button hero-button">Explore inventory {% include "_icon.html" with name="arrow" %}</a>
+    </div>
+    <div class="hero-art" aria-hidden="true">
+        <svg viewBox="0 0 360 300" fill="none"><circle cx="208" cy="145" r="121" stroke="currentColor" stroke-opacity=".12"/><circle cx="208" cy="145" r="93" stroke="currentColor" stroke-opacity=".12"/><path d="M147 294c17-70 32-136 94-217" stroke="currentColor" stroke-width="2"/><path d="M192 171C126 174 115 129 118 94c46 7 83 29 74 77Z" fill="currentColor" fill-opacity=".08" stroke="currentColor" stroke-opacity=".55"/><path d="M212 132c-15-53 10-91 67-104 7 50-12 92-67 104Z" fill="currentColor" fill-opacity=".13" stroke="currentColor" stroke-opacity=".65"/><path d="M171 228c45 14 87-9 108-54-48-15-90-3-108 54Z" fill="currentColor" fill-opacity=".12" stroke="currentColor" stroke-opacity=".55"/><path d="m192 171-56-59m76 20 48-82m-89 178 88-40" stroke="currentColor" stroke-opacity=".4"/><circle cx="92" cy="205" r="4" fill="currentColor" fill-opacity=".45"/><circle cx="299" cy="127" r="3" fill="currentColor" fill-opacity=".6"/><path d="M87 61v12m-6-6h12" stroke="currentColor" stroke-opacity=".6"/></svg>
+        <span class="hero-art-caption">Rooted in nature. Built for growth.</span>
+    </div>
+</section>
+<div class="stats-grid dashboard-stats">
+    <a class="stat-card" href="{% url 'product-list' %}">
+        <div class="stat-top"><span class="stat-label">Products</span><span class="stat-icon">{% include "_icon.html" with name="box" %}</span></div>
+        <strong>{{ product_count }}</strong>
+        <div class="stat-bottom"><span class="stat-detail">In your catalogue</span>{% include "_icon.html" with name="arrow" %}</div>
+    </a>
+    <a class="stat-card" href="{% url 'manufacturer-list' %}">
+        <div class="stat-top"><span class="stat-label">Manufacturers</span><span class="stat-icon">{% include "_icon.html" with name="factory" %}</span></div>
+        <strong>{{ manufacturer_count }}</strong>
+        <div class="stat-bottom"><span class="stat-detail">Your supply partners</span>{% include "_icon.html" with name="arrow" %}</div>
+    </a>
+    <a class="stat-card" href="{% url 'owner-list' %}">
+        <div class="stat-top"><span class="stat-label">Active owners</span><span class="stat-icon">{% include "_icon.html" with name="partners" %}</span></div>
+        <strong>{{ owner_count }}</strong>
+        <div class="stat-bottom"><span class="stat-detail">Managing your business</span>{% include "_icon.html" with name="arrow" %}</div>
+    </a>
+    <a class="stat-card" href="{% url 'audit-event-list' %}">
+        <div class="stat-top"><span class="stat-label">Recorded activities</span><span class="stat-icon">{% include "_icon.html" with name="activity" %}</span></div>
+        <strong>{{ audit_count }}</strong>
+        <div class="stat-bottom"><span class="stat-detail">Your business history</span>{% include "_icon.html" with name="arrow" %}</div>
     </a>
 </div>
-
-{% if new_purchase_orders %}
-    <div class="notification-card">
-        <h2>
-            {{ new_purchase_orders_count }} new Purchase Order{{ new_purchase_orders_count|pluralize }}
-        </h2>
-
-        <div class="notification-list">
-            {% for order in new_purchase_orders %}
-                <a href="{% url 'owner-purchase-order-detail' order.pk %}">
-                    <span><strong>{{ order.po_number }}</strong> — {{ order.distributor_profile.name }}</span>
-                    <span>{{ order.created_at|date:"M d, Y H:i" }}</span>
-                </a>
+<div class="dashboard-grid">
+    <section class="panel dashboard-orders">
+        <div class="panel-header"><div><p class="eyebrow">Purchasing</p><h2>Recent orders</h2></div><a class="text-action" href="{% url 'manufacturer-order-list' %}">View all {% include "_icon.html" with name="arrow" %}</a></div>
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>Order</th><th>Manufacturer</th><th>Status</th><th>Created</th></tr></thead>
+                <tbody>
+                    {% for order in recent_orders %}
+                        <tr><td><a class="order-number" href="{% url 'manufacturer-order-detail' order.pk %}">{{ order.po_number }}</a></td><td>{{ order.manufacturer.name }}</td><td>{% include "manufacturers/_order_status_badge.html" %}</td><td class="nowrap">{{ order.created_at|date:"d M Y" }}</td></tr>
+                    {% empty %}
+                        <tr><td colspan="4"><div class="dashboard-empty"><span class="empty-icon">{% include "_icon.html" with name="cart" %}</span><strong>Your next order starts here</strong><p>Create a purchase order or request a quote from a manufacturer.</p><a class="button button-secondary button-small" href="{% url 'manufacturer-order-start' %}">Create your first order {% include "_icon.html" with name="arrow" %}</a></div></td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+    <section class="panel dashboard-shortcuts">
+        <div class="panel-header"><div><p class="eyebrow">Make it happen</p><h2>Quick actions</h2></div>{% include "_icon.html" with name="plus" %}</div>
+        <div class="action-list">
+            <a href="{% url 'product-create' %}"><span class="action-icon">{% include "_icon.html" with name="box" %}</span><span><strong>Add a product</strong><small>Grow your product catalogue</small></span>{% include "_icon.html" with name="arrow" %}</a>
+            <a href="{% url 'manufacturer-create' %}"><span class="action-icon">{% include "_icon.html" with name="factory" %}</span><span><strong>Add a manufacturer</strong><small>Connect a new supply partner</small></span>{% include "_icon.html" with name="arrow" %}</a>
+            <a href="{% url 'stock-balance-list' %}"><span class="action-icon">{% include "_icon.html" with name="layers" %}</span><span><strong>Check stock balances</strong><small>See what’s available and where</small></span>{% include "_icon.html" with name="arrow" %}</a>
+            <a href="{% url 'owner-finance' %}"><span class="action-icon">{% include "_icon.html" with name="wallet" %}</span><span><strong>Review finances</strong><small>Keep an eye on your numbers</small></span>{% include "_icon.html" with name="arrow" %}</a>
+        </div>
+    </section>
+    <section class="panel dashboard-activity">
+        <div class="panel-header"><div><p class="eyebrow">Across your workspace</p><h2>Latest activity</h2></div><a class="text-action" href="{% url 'audit-event-list' %}">Activity log {% include "_icon.html" with name="arrow" %}</a></div>
+        <div class="activity-list">
+            {% for event in recent_events %}
+                <div class="activity-item"><span class="activity-marker" aria-hidden="true">{% include "_icon.html" with name="activity" %}</span><div><strong>{{ event.object_label|default:event.object_type }}</strong><span>{{ event.action }} <span aria-hidden="true">·</span> {% if event.actor %}{{ event.actor.get_full_name|default:event.actor.email }}{% else %}System{% endif %}</span></div><time datetime="{{ event.created_at|date:'c' }}">{{ event.created_at|date:"d M, H:i" }}</time></div>
+            {% empty %}
+                <div class="dashboard-empty compact"><span class="empty-icon">{% include "_icon.html" with name="activity" %}</span><strong>A fresh start</strong><p>Changes to your products, orders, and partners will appear here.</p></div>
             {% endfor %}
-        </div>
-    </div>
-{% endif %}
-
-{% if purchase_order_updates %}
-    <div class="notification-card">
-        <h2>
-            {{ purchase_order_updates_count }} Purchase Order update{{ purchase_order_updates_count|pluralize }} from Distributors
-        </h2>
-
-        <div class="notification-list">
-            {% for order in purchase_order_updates %}
-                <a href="{% url 'owner-purchase-order-detail' order.pk %}">
-                    <span>
-                        <strong>{{ order.po_number }}</strong> — {{ order.distributor_profile.name }}:
-                        {% include "requests/_step_summary.html" with step=order.latest_step %}
-                    </span>
-                    <span>{{ order.latest_step.created_at|date:"M d, Y H:i" }}</span>
-                </a>
-            {% endfor %}
-        </div>
-    </div>
-{% endif %}
-
-<div class="stats-grid">
-    <article class="stat-card">
-        <span class="stat-label">Active Owners</span>
-        <strong>{{ owner_count }}</strong>
-        <span class="stat-detail">Administrators</span>
-    </article>
-
-    <article class="stat-card">
-        <span class="stat-label">Distributors</span>
-        <strong>{{ distributor_count }}</strong>
-        <span class="stat-detail">Approved accounts</span>
-    </article>
-
-    <article class="stat-card">
-        <span class="stat-label">Pending Approval</span>
-        <strong>{{ pending_count }}</strong>
-        <span class="stat-detail">Inactive invitations</span>
-    </article>
-
-    <article class="stat-card">
-        <span class="stat-label">Audit Events</span>
-        <strong>{{ audit_count }}</strong>
-        <span class="stat-detail">Recorded activities</span>
-    </article>
-</div>
-
-<div class="content-grid">
-    <section class="panel">
-        <div class="panel-header">
-            <div>
-                <h2>Quick Actions</h2>
-            </div>
-        </div>
-
-        <div class="quick-links">
-            <a href="{% url 'brand-list' %}">
-                <strong>Brands</strong>
-                <span>Manage brand information</span>
-            </a>
-
-            <a href="{% url 'owner-list' %}">
-                <strong>Owners</strong>
-                <span>Manage Owner accounts</span>
-            </a>
-
-            <a href="{% url 'distributor-list' %}">
-                <strong>Distributors</strong>
-                <span>Approve or suspend Distributors</span>
-            </a>
-
-            <a href="{% url 'audit-event-list' %}">
-                <strong>Audit Events</strong>
-                <span>Review recorded changes</span>
-            </a>
         </div>
     </section>
 </div>

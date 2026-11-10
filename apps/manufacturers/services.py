@@ -3,6 +3,7 @@ from decimal import Decimal, InvalidOperation
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from django.db.models import Prefetch
 from django.db.models.deletion import ProtectedError
 from django.utils import timezone
 from django.utils.text import slugify
@@ -134,7 +135,6 @@ def _validate_order_items(items, *, require_price=True):
         bottle_size = row.get("bottle_size") or None
         quantity = row.get("quantity")
         unit_price = row.get("unit_price")
-        source_purchase_order_item = row.get("source_purchase_order_item")
         save_price = bool(row.get("save_price"))
 
         if not product:
@@ -179,7 +179,6 @@ def _validate_order_items(items, *, require_price=True):
                 "bottle_size": bottle_size,
                 "quantity": quantity,
                 "unit_price": unit_price,
-                "source_purchase_order_item": source_purchase_order_item,
                 "save_price": save_price,
             }
         )
@@ -194,11 +193,6 @@ def _rows_payload(rows):
             "bottle_size": row["bottle_size"],
             "quantity": str(row["quantity"]),
             "unit_price": None if row["unit_price"] is None else str(row["unit_price"]),
-            "source_purchase_order_item_id": (
-                str(row["source_purchase_order_item"].pk)
-                if row.get("source_purchase_order_item")
-                else None
-            ),
         }
         for row in rows
     ]
@@ -213,7 +207,6 @@ def _create_order_lines(*, actor, order, rows):
             quantity=row["quantity"],
             requested_unit_price=row["unit_price"],
             unit_price=row["unit_price"],
-            source_purchase_order_item=row.get("source_purchase_order_item"),
             created_by=actor,
             updated_by=actor,
         )
@@ -498,6 +491,7 @@ def create_request_to_quote(
         brand=brand,
         po_number=_next_manufacturer_po_number(manufacturer),
         status=ManufacturerOrder.Status.QUOTE,
+        workflow=ManufacturerOrder.Workflow.REQUEST_TO_QUOTE,
         terms=(terms or "").strip(),
         created_by=actor,
         updated_by=actor,
@@ -779,8 +773,12 @@ def confirm_purchase_order(*, actor, order_id, message=""):
 def awaiting_manufacturer_reply(order):
     """On a Request to Quote: whose turn it is. True while our request
     or our counter-offer is the last thing said."""
-    latest = order.revisions.order_by("-number").first()
-    return latest is not None and latest.stage in (
+    if hasattr(order, "_latest_revision_stage"):
+        stage = order._latest_revision_stage  # worked out for a whole list at once
+    else:
+        latest = order.revisions.order_by("-number").first()
+        stage = latest.stage if latest is not None else None
+    return stage in (
         OrderRevision.Stage.REQUEST,
         OrderRevision.Stage.COUNTER,
     )
@@ -873,7 +871,9 @@ def update_purchase_order(
         )
 
     remove_item_ids = {str(pk) for pk in remove_item_ids}
-    items = list(order.items.select_for_update().select_related("product", "batch"))
+    # The optional batch uses an outer join. PostgreSQL can lock the order
+    # items, but cannot FOR UPDATE the nullable side of that join.
+    items = list(order.items.select_for_update(of=("self",)).select_related("product", "batch"))
 
     if all(str(item.pk) in remove_item_ids for item in items):
         raise ValidationError("At least one product must stay on the order.")
@@ -965,7 +965,7 @@ def revision_timeline(order):
     revisions = list(
         order.revisions
         .select_related("created_by")
-        .prefetch_related("lines__product")
+        .prefetch_related(Prefetch("lines", queryset=OrderRevisionLine.objects.select_related("product")))
         .order_by("number")
     )
 
@@ -1306,6 +1306,41 @@ def record_manufacturer_payment(
 
 
 @transaction.atomic
+def record_stamped_purchase_order(*, actor, order_id, photo):
+    """The step after printing the Purchase Order: a real photo of it
+    carrying the official stamp, as proof it was stamped. Required before
+    the payment proof. Can be replaced until the goods are received."""
+    require_owner(actor)
+
+    order = _get_order_for_update(order_id)
+
+    if order.status != ManufacturerOrder.Status.SENT:
+        raise ValidationError(
+            "The stamped Purchase Order can only be added while the order is "
+            "with the manufacturer."
+        )
+    if not photo:
+        raise ValidationError("Choose the photo of the stamped Purchase Order.")
+
+    replaced = bool(order.stamped_po_file)
+    order.stamped_po_file = photo
+    order.stamped_po_uploaded_at = timezone.now()
+    order.updated_by = actor
+    order.full_clean()
+    order.save(update_fields=[
+        "stamped_po_file", "stamped_po_uploaded_at", "updated_at", "updated_by",
+    ])
+
+    record_audit_event(
+        user=actor,
+        action="manufacturer.stamped_po_uploaded",
+        instance=order,
+        after_data={"file": order.stamped_po_file.name, "replaced": replaced},
+    )
+    return order
+
+
+@transaction.atomic
 def record_advance_decision(
     *, actor, order_id, pays_advance, amount=None, paid_at=None, proof=None, note=""
 ):
@@ -1324,6 +1359,12 @@ def record_advance_decision(
 
     if order.pays_advance is not None:
         raise ValidationError("The advance payment has already been answered.")
+
+    if not order.stamped_po_file:
+        raise ValidationError(
+            "Upload the photo of the stamped Purchase Order first — payment "
+            "proof comes after it."
+        )
 
     order.pays_advance = bool(pays_advance)
     order.updated_by = actor

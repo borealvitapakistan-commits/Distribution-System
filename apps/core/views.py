@@ -3,7 +3,8 @@ from django.contrib.auth.decorators import (
     login_required,
 )
 from django.core.exceptions import PermissionDenied
-from django.shortcuts import redirect, render
+from django.http import FileResponse, Http404, HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views import View
 from django.views.generic import (
@@ -13,16 +14,35 @@ from django.views.generic import (
     UpdateView,
 )
 
-from apps.accounts.mixins import (
-    DistributorRequiredMixin,
-    OwnerRequiredMixin,
-)
+from apps.accounts.mixins import OwnerRequiredMixin
 from apps.accounts.models import User
 from apps.audit.models import AuditEvent
 from apps.audit.services import record_audit_event
+from apps.manufacturers.models import Manufacturer, ManufacturerOrder
+from apps.products.models import Product
 
+from .context_processors import current_brand
+from .querysets import count_many
 from .forms import BrandForm
-from .models import Brand
+from .models import Brand, BrandLogo
+
+
+def brand_logo(request, pk):
+    """Public branding is also needed on sign-in pages, with DEBUG off."""
+    brand = current_brand()
+    if brand is None or brand.pk != pk:
+        brand = get_object_or_404(Brand, pk=pk)
+    if not brand.logo:
+        raise Http404("No brand logo has been uploaded.")
+    logo = BrandLogo.objects.filter(brand_id=brand.pk).first()
+    if logo is not None:
+        response = HttpResponse(bytes(logo.data), content_type=logo.content_type)
+        response["Cache-Control"] = "public, max-age=300"
+        return response
+    try:  # A logo saved as a file, before logos moved into the database.
+        return FileResponse(brand.logo.open("rb"))
+    except FileNotFoundError as exc:
+        raise Http404("The brand logo could not be found.") from exc
 
 
 @login_required
@@ -37,9 +57,6 @@ def dashboard_redirect(request):
     if user.is_owner:
         return redirect("owner-dashboard")
 
-    if user.is_distributor:
-        return redirect("distributor-dashboard")
-
     raise PermissionDenied(
         "Your user role is invalid."
     )
@@ -53,32 +70,26 @@ class OwnerDashboardView(OwnerRequiredMixin, TemplateView):
             **kwargs
         )
 
-        context["owner_count"] = User.objects.filter(
-            role=User.Role.OWNER,
-            is_active=True,
-        ).count()
+        counts = count_many(
+            owner=User.objects.filter(role=User.Role.OWNER, is_active=True),
+            manufacturer=Manufacturer.objects.all(),
+            product=Product.objects.all(),
+            audit=AuditEvent.objects.for_user(self.request.user),
+        )
+        for name, total in counts.items():
+            context[f"{name}_count"] = total
 
-        context["distributor_count"] = User.objects.filter(
-            role=User.Role.DISTRIBUTOR,
-            is_active=True,
-        ).count()
-
-        context["pending_count"] = User.objects.filter(
-            role=User.Role.DISTRIBUTOR,
-            is_active=False,
-        ).count()
-
-        context["audit_count"] = (
-            AuditEvent.objects
-            .for_user(self.request.user)
-            .count()
+        context["recent_orders"] = (
+            ManufacturerOrder.objects.for_user(self.request.user)
+            .select_related("manufacturer", "brand")
+            .order_by("-created_at")[:4]
+        )
+        context["recent_events"] = (
+            AuditEvent.objects.for_user(self.request.user)
+            .select_related("actor")[:5]
         )
 
         return context
-
-
-class DistributorDashboardView(DistributorRequiredMixin, TemplateView,):
-    template_name = "dashboards/distributor.html"
 
 
 class BrandListView(OwnerRequiredMixin, ListView):
