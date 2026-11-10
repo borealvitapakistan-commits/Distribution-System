@@ -1,6 +1,8 @@
 from django.urls import path
 
 from .views import (
+    DataSettingsView,
+    DataExportView,
     BrandCreateView,
     BrandDetailView,
     BrandListView,
@@ -12,6 +14,8 @@ from .views import (
 
 
 urlpatterns = [
+    path("owner/settings/data/", DataSettingsView.as_view(), name="data-settings"),
+    path("owner/settings/data/export/", DataExportView.as_view(), name="data-export"),
     path("brand/<uuid:pk>/logo/", brand_logo, name="brand-logo"),
     path("", dashboard_redirect, name="dashboard"),
     path("owner/", OwnerDashboardView.as_view(), name="owner-dashboard"),

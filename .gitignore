@@ -16,6 +16,8 @@ staticfiles/
 media/
 *.bak*
 
+# Private database/data snapshots (may contain account and financial data).
+data/backups/
 data.json
 data-supabase-ireland.json
 data-mumbai.json
@@ -25,3 +27,7 @@ data*.json
 .pytest_cache/
 .coverage*
 htmlcov/
+
+# macOS desktop metadata
+.DS_Store
+**/.DS_Store

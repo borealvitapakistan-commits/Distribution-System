@@ -336,3 +336,5 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ],
 }
+# Private, durable snapshots: never served as media or deleted on import.
+DATA_BACKUP_ROOT = BASE_DIR / "data" / "backups" / "data-imports"

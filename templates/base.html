@@ -111,10 +111,11 @@
                     {% if brand.base_currency %}<span class="currency-chip">{{ brand.base_currency }}</span>{% endif %}
                     {% if request.user.is_owner %}
                         <div class="settings-menu" data-settings-menu>
-                            <button type="button" class="button button-secondary button-small settings-toggle{% if request.resolver_match.url_name in 'owner-profile audit-event-list stock-movement-list' %} active{% endif %}" aria-label="Settings" aria-haspopup="true" aria-expanded="false" data-settings-toggle>
+                            <button type="button" class="button button-secondary button-small settings-toggle{% if request.resolver_match.url_name in 'owner-profile audit-event-list stock-movement-list data-settings' %} active{% endif %}" aria-label="Settings" aria-haspopup="true" aria-expanded="false" data-settings-toggle>
                                 {% include "_icon.html" with name="settings" %}<span class="settings-label">Settings</span>
                             </button>
                             <nav class="settings-dropdown" data-settings-dropdown hidden aria-label="Settings">
+                                <a href="{% url 'data-settings' %}" class="{% if request.resolver_match.url_name == 'data-settings' %}active{% endif %}">{% include "_icon.html" with name="layers" %} Export &amp; Import Data</a>
                                 <a href="{% url 'owner-profile' %}" class="{% if request.resolver_match.url_name == 'owner-profile' %}active{% endif %}">{% include "_icon.html" with name="user" %} My Profile</a>
                                 <a href="{% url 'audit-event-list' %}" class="{% if request.resolver_match.url_name == 'audit-event-list' %}active{% endif %}">{% include "_icon.html" with name="activity" %} Audit Events</a>
                                 <a href="{% url 'stock-movement-list' %}" class="{% if request.resolver_match.url_name == 'stock-movement-list' %}active{% endif %}">{% include "_icon.html" with name="layers" %} Records</a>

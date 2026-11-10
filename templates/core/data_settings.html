@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Export & Import Data{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Settings</p>
+        <h1>Export &amp; Import Data</h1>
+        <p>One Excel workbook. A separate sheet for each business section. One upload imports all sheets together.</p>
+    </div>
+</div>
+{% if error %}<div class="panel panel-body" role="alert"><p>{{ error }}</p></div>{% endif %}
+<section class="panel">
+    <div class="panel-header"><h2>Export Data</h2></div>
+    <div class="panel-body">
+    <p>Download an Excel workbook with separate named sheets for products, manufacturers, purchase orders, inventory, finance and other categories. Each sheet has serial numbers and individual columns for names, descriptions, prices and all other business fields. Account passwords and system tables are excluded.</p>
+    <p>This file contains your business records and attachments. Keep it private. Owner login accounts and system permissions stay in the app.</p>
+    <a class="button button-primary" href="{% url 'data-export' %}">Export Data (.xlsx)</a>
+    </div>
+</section>
+<section class="panel">
+    <div class="panel-header"><h2>Import Data</h2></div>
+    <div class="panel-body">
+    <p>Choose an Excel workbook (.xlsx) exported by this app (up to {{ upload_limit_mb }} MB). Edit values or add new rows in the category sheets. Stable identifiers are hidden; new rows receive IDs automatically. Import replaces business data across all category sheets together. Your owner login accounts and permissions are preserved.</p>
+    <p>Keep sheet names and column headers. Use unique matching names to link products, manufacturers and orders. The Read Me sheet explains dates, defaults and attachments.</p>
+    <p>You only upload this one business workbook. Before replacing anything, the app automatically saves a separate complete backup of your current records and attachments with today's date and time. Existing backups stay saved. Backup browsing will be added later.</p>
+    <p>If an attachment was already missing, its original path is kept and listed in Attachment Issues. Available files are included; storage connection or permission failures stop the operation.</p>
+    <p>After import, sign in with your existing owner account. If import fails, your current data stays unchanged.</p>
+    <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <div class="form-group">
+            <label for="data-file">Excel workbook</label>
+            <input type="file" id="data-file" name="data_file" data-max-bytes="{{ upload_limit_bytes }}" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+        </div>
+        <p><label class="checkbox-label"><input type="checkbox" name="confirm_replace" value="yes" required> I understand that this replaces all business data after the app saves a dated backup.</label></p>
+        <button class="button button-primary" type="submit">Back Up &amp; Import Data</button>
+    </form>
+    </div>
+</section>
+<script>
+(() => {
+    const input = document.getElementById('data-file');
+    input.addEventListener('change', () => {
+        const limit = Number(input.dataset.maxBytes);
+        const tooLarge = input.files.length && input.files[0].size > limit;
+        input.setCustomValidity(tooLarge ? `Choose a workbook of ${limit / 1048576} MB or smaller.` : '');
+        if (tooLarge) input.reportValidity();
+    });
+})();
+</script>
+{% endblock %}

@@ -18,7 +18,7 @@ UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
 # Pages that show things which change outside this app (Shopify's own
 # numbers) or are downloads rather than pages.
-SKIP_PREFIXES = ("/owner/inventory/shopify/", "/admin/", "/accounts/", "/api/", "/health/")
+SKIP_PREFIXES = ("/owner/inventory/shopify/", "/admin/", "/accounts/", "/api/", "/health/", "/owner/settings/data/")
 SKIP_PARAMS = ("format", "download", "part")
 
 

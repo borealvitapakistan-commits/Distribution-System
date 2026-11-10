@@ -1,4 +1,9 @@
 """Isolated test configuration. Never uses the application's Supabase database."""
+import os
+
+# The isolated runner must also start on machines without production credentials.
+os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
+
 from .settings import *  # noqa: F403
 
 # CI exercises real PostgreSQL locking and migrations. Local tests use SQLite.
