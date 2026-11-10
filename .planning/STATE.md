@@ -1,5 +1,12 @@
 # Current state
 
+Updated: 2026-11-10 — Supabase runtime connected
+
+- User requested switching the running local app from sample data to Supabase. Saved supplied database/private-storage credentials only in ignored .env (mode 0600). Enabled private S3 storage after successful read-only bucket check.
+- Read-only schema check: PostgreSQL reachable, all current model tables/columns present, 1 active owner, 2 brands, 12 products. Pending migration: core.0007_remove_brand_logo_data (removes legacy logo columns); not applied because it alters the shared database and is not necessary for connection verification.
+- Stopped the sample-data server. Normal config.settings app is running at http://127.0.0.1:8001 against Supabase. Health returned status ok / HTTP 200; sign-in page returned HTTP 200. Use an existing Supabase owner account, not the temporary preview credentials.
+- No production migration, data import or storage write performed during connection verification. The pending migration remains relevant to full write/import compatibility. Runtime session at completion: 36630.
+
 Updated: 2026-11-10 — GitHub integration
 
 - Completed `phases/01-partners/01-09-PLAN.md`: fetched origin/main `07d79f7` and merged its five newer commits with all local export/import work. Integration commit: `1e177e4`.
