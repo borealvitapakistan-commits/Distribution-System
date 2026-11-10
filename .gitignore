@@ -11,3 +11,6 @@ __pycache__/
 staticfiles/
 media/
 *.bak*
+
+# Private database/data snapshots (may contain account and financial data).
+data/backups/

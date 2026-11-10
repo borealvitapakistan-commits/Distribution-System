@@ -20,6 +20,8 @@ def create_role_groups(sender, **kwargs):
 
 @receiver(pre_save, sender=User)
 def remember_previous_active_state(sender, instance, **kwargs):
+    if kwargs.get("raw"):
+        return
     if not instance.pk:
         instance._previous_is_active = None
         return
@@ -37,6 +39,8 @@ def remember_previous_active_state(sender, instance, **kwargs):
 
 @receiver(post_save, sender=User)
 def enforce_role_group_and_deactivation(sender, instance, **kwargs):
+    if kwargs.get("raw"):
+        return
     role_groups = {
         User.Role.OWNER: "Owner",
         User.Role.DISTRIBUTOR: "Distributor",
