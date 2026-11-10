@@ -1,5 +1,13 @@
 # Current state
 
+Updated: 2026-11-10
+
+- Completed `phases/01-partners/01-08-PLAN.md`: Settings > Export & Import Data exports a single CSV with all persistent records, relationships, accounts and referenced attachments. Sessions/API tokens are excluded.
+- Import validates the unchanged CSV, requires replacement acknowledgement, saves a private dated backup to `data/backups/data-imports/`, then atomically replaces current records and uploads. Errors preserve previous data. Existing backups remain. Successful imports require sign-in with imported credentials.
+- Backup browsing is deferred at the user's request; backup contents are already retained. No migrations needed.
+- Validation: full suite 403 passed (8 transfer tests); actual-data round trip in an isolated temporary SQLite copy preserved all 1,142 records and 3 attachments. Real data unchanged. System/migration/whitespace checks passed.
+- Implementation commits: `ecae692`, `1d1af38`. See `phases/01-partners/01-08-SUMMARY.md`.
+
 Updated: 2026-11-01
 
 - Removed the "Order from [manufacturer]" shortcut from product pricing cards at the user's request. Commit: `74395d3`.
