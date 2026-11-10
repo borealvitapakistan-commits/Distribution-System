@@ -1,5 +1,13 @@
 # Current state
 
+Updated: 2026-11-10 — Readable category workbooks
+
+- Completed `phases/01-partners/01-10-PLAN.md`: Settings now exports/imports .xlsx workbooks, with named category sheets, S.No., separate field columns, readable linked names, field guidance/dropdowns and safe complete attachments. Users can edit rows or add new rows with generated IDs/defaults. Old CSV backups remain internally readable.
+- Implemented validation of scalar fields/choices, relations, required sheets/headers, formulas and multipart attachments; product descriptions use the existing sanitizer. Import refuses pending migrations before any backup/deletion. Dated backups now use .xlsx.
+- Delivered local-data workbook: `data/backups/exports/local-data-category-sheets-20261110-125742.xlsx`. Contains current-schema local records (18 products, 3 manufacturers, 2 orders) plus reference-only Archive sheets preserving retired distributor user/profile records. Complete original-schema workbook also retained at `data/backups/exports/local-data-original-categories-20261110-125740.xlsx`. Both private/ignored; source data unchanged.
+- Primary workbook fully restored in an isolated database. Full suite: 359 passed on SQLite and 359 on local PostgreSQL; 19 transfer tests. Browser XLSX download/import/dated backup succeeded on sample data. System/migration/whitespace checks passed.
+- Implementation commits: `04f32a8`, `52630b6`. Main Supabase app restarted at localhost:8001, health OK (session 82904). Temporary test servers stopped. No live migration/import; core.0007 remains pending and blocks live imports until completed. See `phases/01-partners/01-10-SUMMARY.md`.
+
 Updated: 2026-11-10 — Supabase runtime connected
 
 - User requested switching the running local app from sample data to Supabase. Saved supplied database/private-storage credentials only in ignored .env (mode 0600). Enabled private S3 storage after successful read-only bucket check.
