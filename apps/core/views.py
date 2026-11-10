@@ -203,7 +203,7 @@ class DataSettingsView(OwnerRequiredMixin, TemplateView):
         uploaded = request.FILES.get("data_file")
         error = None
         if request.POST.get("confirm_replace") != "yes":
-            error = "Confirm that the imported workbook will replace all current data."
+            error = "Confirm that this workbook will replace all business data."
         elif not uploaded or not uploaded.name.lower().endswith(".xlsx"):
             error = "Choose an Excel workbook (.xlsx) exported by this app."
         elif uploaded.size > MAX_BYTES:
@@ -211,7 +211,7 @@ class DataSettingsView(OwnerRequiredMixin, TemplateView):
         if error:
             return render(request, self.template_name, {"error": error}, status=400)
         try:
-            backup = import_snapshot(uploaded.read(MAX_BYTES + 1))
+            backup = import_snapshot(uploaded.read(MAX_BYTES + 1), business_only=True, actor=request.user.pk)
         except SnapshotError as exc:
             return render(request, self.template_name, {"error": str(exc)}, status=400)
         except Exception:
@@ -221,7 +221,7 @@ class DataSettingsView(OwnerRequiredMixin, TemplateView):
             }, status=400)
         logout(request)
         messages.success(request, "Data imported. Previous data was backed up as " + backup.name
-                         + ". Sign in with an owner account from the imported workbook.")
+                         + ". Sign in with your existing owner account.")
         return redirect("login")
 
 
@@ -230,11 +230,11 @@ class DataExportView(OwnerRequiredMixin, View):
         from django.db import transaction
         from django.http import HttpResponse
         from django.utils import timezone
-        from .data_transfer import SnapshotError, export_snapshot
+        from .data_transfer import SnapshotError, export_business_workbook
 
         try:
             with transaction.atomic():
-                payload = export_snapshot()
+                payload = export_business_workbook()
         except SnapshotError as exc:
             messages.error(request, str(exc))
             return redirect("data-settings")

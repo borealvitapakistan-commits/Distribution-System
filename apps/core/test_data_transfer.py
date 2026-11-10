@@ -295,3 +295,72 @@ class DataTransferTests(TransactionTestCase):
                 import_snapshot(payload)
         self.assertTrue(Brand.objects.filter(pk=self.brand.pk).exists())
         self.assertFalse((self.root / "backups").exists())
+
+    def test_business_workbook_has_business_sheets_without_account_data(self):
+        from openpyxl import load_workbook
+        from apps.core.data_transfer import export_business_workbook
+        book = load_workbook(io.BytesIO(export_business_workbook()))
+        self.assertIn("Products", book.sheetnames)
+        self.assertIn("Purchase Orders", book.sheetnames)
+        for title in ("Users", "User Groups", "Permissions", "Audit History", "Record Types", "Cache Version", "Brand Logos"):
+            self.assertNotIn(title, book.sheetnames)
+        self.assertEqual(book["Files"].sheet_state, "hidden")
+        headers = [cell.value for cell in book["Brands"][1]]
+        self.assertNotIn("Created By ID", headers)
+        from openpyxl.utils import get_column_letter
+        column = get_column_letter(headers.index("Record ID") + 1)
+        self.assertTrue(book["Brands"].column_dimensions[column].hidden)
+        book.close()
+
+    def test_business_import_preserves_current_accounts_permissions_and_history(self):
+        from apps.core.data_transfer import export_business_workbook
+        payload = export_business_workbook()
+        self.owner.set_password("new-current-password")
+        self.owner.save()
+        other = User.objects.create_user("another@example.com", "other-password", role="OWNER")
+        group = Group.objects.create(name="Current permission group")
+        self.owner.groups.add(group)
+        event = AuditEvent.objects.create(actor=self.owner, action="after.export", object_type="test")
+        payload = self.rewrite(payload, lambda book: book["Brands"].cell(2, 2, "Business sheet edited"))
+        backup = import_snapshot(payload)
+        self.assertEqual(Brand.objects.get(pk=self.brand.pk).name, "Business sheet edited")
+        self.assertTrue(User.objects.get(pk=self.owner.pk).check_password("new-current-password"))
+        self.assertTrue(User.objects.filter(pk=other.pk).exists())
+        self.assertTrue(User.objects.get(pk=self.owner.pk).groups.filter(pk=group.pk).exists())
+        self.assertTrue(AuditEvent.objects.filter(pk=event.pk).exists())
+        self.assertEqual(bytes(BrandLogo.objects.get(brand=self.brand).data), b"original-image")
+        records, _ = parse_snapshot((self.root / "backups" / backup.name).read_bytes())
+        self.assertTrue(any(r["model"] == "accounts.user" for r in records))
+
+    def test_business_workbook_creates_product_from_named_links_in_one_import(self):
+        from apps.core.data_transfer import export_business_workbook
+        def add_product(book):
+            sheet = book["Products"]
+            headers = [cell.value for cell in sheet[1]]
+            sheet.cell(2, headers.index("Name") + 1, "Business workbook product")
+            sheet.cell(2, headers.index("Manufacturer (Name)") + 1, "Media supplier")
+            sheet.cell(2, headers.index("Brand (Name)") + 1, self.brand.name)
+        import_snapshot(self.rewrite(export_business_workbook(), add_product))
+        product = Product.objects.get(name="Business workbook product")
+        self.assertEqual(product.manufacturer_id, self.supplier.pk)
+        self.assertEqual(product.brand_id, self.brand.pk)
+        self.assertIsNotNone(product.created_at)
+        self.assertEqual(product.created_by_id, self.owner.pk)
+
+    def test_business_owner_profile_keeps_existing_login_account(self):
+        from apps.owners.models import OwnerProfile
+        from apps.core.data_transfer import export_business_workbook
+        profile = OwnerProfile.objects.create(user=self.owner, name="Business Owner", email=self.owner.email)
+        payload = export_business_workbook()
+        import_snapshot(payload)
+        self.assertEqual(OwnerProfile.objects.get(pk=profile.pk).user_id, self.owner.pk)
+
+    def test_settings_rejects_private_full_backup_as_business_upload(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse("data-settings"), {
+            "confirm_replace": "yes", "data_file": SimpleUploadedFile("private-backup.xlsx", export_snapshot()),
+        })
+        self.assertEqual(response.status_code, 400)
+        self.assertContains(response, "Choose the business workbook", status_code=400)
+        self.assertTrue(User.objects.filter(pk=self.owner.pk).exists())
