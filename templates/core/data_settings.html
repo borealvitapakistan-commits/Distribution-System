@@ -23,6 +23,7 @@
     <p>Choose an Excel workbook (.xlsx) exported by this app (up to 100 MB). Edit values or add new rows in the category sheets. Stable identifiers are hidden; new rows receive IDs automatically. Import replaces business data across all category sheets together. Your owner login accounts and permissions are preserved.</p>
     <p>Keep sheet names and column headers. Use unique matching names to link products, manufacturers and orders. The Read Me sheet explains dates, defaults and attachments.</p>
     <p>You only upload this one business workbook. Before replacing anything, the app automatically saves a separate complete backup of your current records and attachments with today's date and time. Existing backups stay saved. Backup browsing will be added later.</p>
+    <p>If an attachment was already missing, its original path is kept and listed in Attachment Issues. Available files are included; storage connection or permission failures stop the operation.</p>
     <p>After import, sign in with your existing owner account. If import fails, your current data stays unchanged.</p>
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}

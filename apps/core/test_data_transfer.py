@@ -364,3 +364,134 @@ class DataTransferTests(TransactionTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertContains(response, "Choose the business workbook", status_code=400)
         self.assertTrue(User.objects.filter(pk=self.owner.pk).exists())
+
+    def test_already_missing_file_is_declared_and_original_reference_is_preserved(self):
+        from django.core.files.storage import default_storage
+        from openpyxl import load_workbook
+        path = self.supplier.logo.name
+        default_storage.delete(path)
+        payload = export_snapshot()
+        records, files = parse_snapshot(payload)
+        self.assertIn(path, records.missing_files)
+        self.assertNotIn(path, files)
+        self.assertTrue(any(r['model'] == 'manufacturers.manufacturer' and r['fields']['logo'] == path for r in records))
+        book = load_workbook(io.BytesIO(payload))
+        self.assertIn('Attachment Issues', book.sheetnames)
+        self.assertEqual(book['Attachment Issues'].cell(2, 2).value, path)
+        book.close()
+        backup = import_snapshot(payload)
+        self.assertEqual(backup.missing_backup_count, 1)
+        self.assertEqual(backup.missing_import_count, 1)
+        self.assertEqual(Manufacturer.objects.get(pk=self.supplier.pk).logo.name, path)
+        self.assertFalse(default_storage.exists(path))
+
+    def test_business_import_backs_up_missing_reference_and_restores_available_incoming_file(self):
+        from django.core.files.storage import default_storage
+        from apps.core.data_transfer import export_business_workbook
+        payload = export_business_workbook()
+        path = self.supplier.logo.name
+        default_storage.delete(path)
+        backup = import_snapshot(payload, business_only=True)
+        self.assertEqual(backup.missing_backup_count, 1)
+        self.assertEqual(backup.missing_import_count, 0)
+        with Manufacturer.objects.get(pk=self.supplier.pk).logo.open('rb') as file:
+            self.assertEqual(file.read(), b'supplier-image')
+        saved, _ = parse_snapshot((self.root / 'backups' / backup.name).read_bytes())
+        self.assertIn(path, saved.missing_files)
+
+    def test_storage_permission_or_read_failure_still_aborts_before_deletion(self):
+        payload = export_snapshot()
+        for failure in (PermissionError('denied'), OSError('storage unavailable')):
+            with patch('django.core.files.storage.FileSystemStorage.open', side_effect=failure):
+                with self.assertRaisesMessage(SnapshotError, self.supplier.logo.name):
+                    import_snapshot(payload)
+            self.assertTrue(Brand.objects.filter(pk=self.brand.pk).exists())
+            self.assertFalse((self.root / 'backups').exists())
+
+    def test_s3_listing_confirms_unicode_file_missing_without_unreliable_head_request(self):
+        from unittest.mock import Mock
+        from storages.backends.s3 import S3Storage
+        storage = S3Storage(access_key='test', secret_key='test', bucket_name='private', endpoint_url='https://storage.invalid')
+        storage.listdir = Mock(return_value=([], []))
+        storage.open = Mock(side_effect=AssertionError('missing key should not be opened'))
+        field = Manufacturer._meta.get_field('logo')
+        path = 'manufacturers/فائل.png'
+        Manufacturer.objects.filter(pk=self.supplier.pk).update(logo=path)
+        with patch.object(field, 'storage', storage):
+            records, _ = parse_snapshot(export_snapshot())
+        self.assertIn(path, records.missing_files)
+        storage.open.assert_not_called()
+        storage.listdir.assert_called_once_with('manufacturers')
+
+    def test_s3_access_denied_is_not_reported_as_missing(self):
+        from unittest.mock import Mock
+        from botocore.exceptions import ClientError
+        from storages.backends.s3 import S3Storage
+        storage = S3Storage(access_key='test', secret_key='test', bucket_name='private', endpoint_url='https://storage.invalid')
+        denied = ClientError({'Error': {'Code': 'AccessDenied'}, 'ResponseMetadata': {'HTTPStatusCode': 403}}, 'GetObject')
+        storage.listdir = Mock(side_effect=denied)
+        storage.open = Mock(side_effect=denied)
+        field = Manufacturer._meta.get_field('logo')
+        with patch.object(field, 'storage', storage):
+            with self.assertRaisesMessage(SnapshotError, 'Check storage access'):
+                export_snapshot()
+
+    def test_business_upload_reports_unavailable_files_without_blocking_records(self):
+        from django.core.files.storage import default_storage
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from apps.core.data_transfer import export_business_workbook
+        default_storage.delete(self.supplier.logo.name)
+        payload = export_business_workbook()
+        self.client.force_login(self.owner)
+        response = self.client.post(reverse('data-settings'), {
+            'confirm_replace': 'yes', 'data_file': SimpleUploadedFile('business.xlsx', payload),
+        }, follow=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'Data imported.')
+        self.assertContains(response, 'already missing from storage')
+        self.assertContains(response, 'declared unavailable in the imported workbook')
+        self.assertTrue(Manufacturer.objects.filter(pk=self.supplier.pk).exists())
+        self.assertTrue(User.objects.filter(pk=self.owner.pk).exists())
+
+    def test_unchanged_historical_choices_survive_backup_but_new_invalid_edits_fail(self):
+        from apps.owner_warehouse.models import Inventory, Location
+        inventory = Inventory.objects.create(name='Historical inventory', code='HIST_INV')
+        location = Location.objects.create(name='Historical location', code='HIST', inventory=inventory, location_type='DISTRIBUTOR')
+        payload = export_snapshot()
+        records, _ = parse_snapshot(payload)
+        self.assertTrue(any(r['model'] == 'owner_warehouse.location' and r['fields']['location_type'] == 'DISTRIBUTOR' for r in records))
+        def invalid_edit(book):
+            sheet = book['Locations']
+            headers = [cell.value for cell in sheet[1]]
+            sheet.cell(2, headers.index('Location Type') + 1, 'NEW_INVALID_TYPE')
+        with self.assertRaises(SnapshotError):
+            parse_snapshot(self.rewrite(payload, invalid_edit))
+
+    def test_approval_account_links_stay_on_server_and_older_workbooks_still_import(self):
+        from django.utils import timezone
+        from apps.core.data_transfer import export_business_workbook
+        from apps.manufacturers.models import ManufacturerOrder
+        order = ManufacturerOrder.objects.create(manufacturer=self.supplier, brand=self.brand,
+            po_number='PO-APPROVED-001', invoice_approved_by=self.owner, invoice_approved_at=timezone.now())
+        payload = export_business_workbook()
+        records, _ = parse_snapshot(payload)
+        self.assertNotIn('invoice_approved_by', next(r for r in records if r['model']=='manufacturers.manufacturerorder')['fields'])
+        def older_columns(book):
+            sheet = book['Purchase Orders']
+            headers = [cell.value for cell in sheet[1]]
+            col = headers.index('Record ID') + 1
+            sheet.insert_cols(col, 2)
+            sheet.cell(1, col, 'Invoice Approved By ID')
+            sheet.cell(1, col+1, 'Invoice Approved By (Name)')
+            sheet.cell(2, col, '00000000-0000-0000-0000-000000000001')
+            sheet.cell(2, col+1, 'old-source-account@example.test')
+            schema = book['_Schema']
+            for row in range(3, schema.max_row+1):
+                if schema.cell(row, 2).value=='manufacturers.manufacturerorder' and schema.cell(row,3).value=='id':
+                    schema.insert_rows(row)
+                    for index, value in enumerate(['Purchase Orders','manufacturers.manufacturerorder','invoice_approved_by','Invoice Approved By ID','ForeignKey'],1):
+                        schema.cell(row,index,value)
+                    break
+        import_snapshot(self.rewrite(payload, older_columns), business_only=True)
+        self.assertEqual(ManufacturerOrder.objects.get(pk=order.pk).invoice_approved_by_id, self.owner.pk)
+        self.assertTrue(User.objects.get(pk=self.owner.pk).check_password('secret-password'))

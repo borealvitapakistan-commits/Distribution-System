@@ -18,6 +18,8 @@ from django.core.management.color import no_style
 from django.core.cache import cache
 from django.db import connection, models, transaction
 from django.utils import timezone
+from botocore.exceptions import BotoCoreError, ClientError
+from storages.backends.s3 import S3Storage
 
 
 HEADER = ["kind", "model", "id", "data"]
@@ -28,6 +30,11 @@ csv.field_size_limit(MAX_BYTES)
 
 class SnapshotError(ValueError):
     pass
+
+
+class ImportBackup(PurePosixPath):
+    """Backup path with attachment counts for the import confirmation."""
+
 
 
 def snapshot_models():
@@ -95,6 +102,8 @@ def _export_snapshot():
     database_logos = set(BrandLogo.objects.values_list("brand_id", flat=True))
     rows = []
     media = {}
+    missing_files = {}
+    directory_cache = {}
     for model in snapshot_models():
         for obj in model._base_manager.order_by("pk").iterator():
             record = json.loads(serializers.serialize("json", [obj]))[0]
@@ -103,17 +112,39 @@ def _export_snapshot():
                 if model._meta.label_lower == "core.brand" and field.name == "logo" and obj.pk in database_logos:
                     continue
                 file = getattr(obj, field.name)
-                if file and file.name not in media:
+                if file and file.name not in media and file.name not in missing_files:
                     try:
+                        # Directory listings confirm absence without relying
+                        # on HEAD responses (some providers return 400 for
+                        # missing non-ASCII keys). Never infer absence from a
+                        # permission error or a network failure.
+                        if isinstance(file.storage, S3Storage):
+                            directory = str(PurePosixPath(file.name).parent)
+                            directory = "" if directory == "." else directory
+                            cache_key = (id(file.storage), directory)
+                            if cache_key not in directory_cache:
+                                try:
+                                    _, names = file.storage.listdir(directory)
+                                    directory_cache[cache_key] = set(names)
+                                except ClientError as exc:
+                                    if str(exc.response.get("Error", {}).get("Code")) in {"AccessDenied", "403"}:
+                                        directory_cache[cache_key] = None
+                                    else:
+                                        raise
+                            names = directory_cache[cache_key]
+                            if names is not None and PurePosixPath(file.name).name not in names:
+                                raise FileNotFoundError(file.name)
                         with file.storage.open(file.name, "rb") as source:
                             media[file.name] = base64.b64encode(source.read()).decode("ascii")
-                    except (OSError, FileNotFoundError) as exc:
-                        raise SnapshotError("An attached file is missing or unreadable. Restore it before exporting or importing.") from exc
+                    except FileNotFoundError:
+                        missing_files[file.name] = "Already missing from storage; original record reference preserved."
+                    except (OSError, BotoCoreError, ClientError) as exc:
+                        raise SnapshotError(f"Cannot read {model._meta.verbose_name} {obj.pk}, {field.verbose_name}: {file.name}. Check storage access and try again; current records are unchanged.") from exc
     rows.extend(["file", "", name, data] for name, data in sorted(media.items()))
     records = [{"model": row[1], "pk": row[2], "fields": json.loads(row[3])}
                for row in rows if row[0] == "record"]
     from .data_workbook import write_workbook
-    return write_workbook(records, {name: base64.b64decode(data) for name, data in media.items()}, snapshot_models())
+    return write_workbook(records, {name: base64.b64decode(data) for name, data in media.items()}, snapshot_models(), missing_files=missing_files)
 
 
 def parse_snapshot(payload):
@@ -137,11 +168,12 @@ def parse_snapshot(payload):
         writer.writerow(HEADER)
         writer.writerow(["manifest", "", "", json.dumps(manifest)])
         writer.writerows(rows)
-        return _parse_csv_snapshot(output.getvalue().encode("utf-8-sig"), check_size=False)
+        return _parse_csv_snapshot(output.getvalue().encode("utf-8-sig"), check_size=False, missing_files=getattr(records, "missing_files", {}))
     return _parse_csv_snapshot(payload)
 
 
-def _parse_csv_snapshot(payload, check_size=True):
+def _parse_csv_snapshot(payload, check_size=True, missing_files=None):
+    missing_files = dict(missing_files or {})
     if check_size and len(payload) > MAX_BYTES:
         raise SnapshotError("The file must be 100 MB or smaller.")
     try:
@@ -193,11 +225,12 @@ def _parse_csv_snapshot(payload, check_size=True):
                 name = record["fields"].get(field.name)
                 if name:
                     referenced.add(name)
-        if referenced != set(files):
+        if referenced != set(files) | set(missing_files):
             raise ValueError()
         # Convert field types before touching the current database.
         list(serializers.deserialize("json", json.dumps(records)))
-        return records, files
+        from .data_workbook import WorkbookRecords
+        return WorkbookRecords(records, missing_files=missing_files), files
     except SnapshotError:
         raise
     except (ValueError, TypeError, KeyError, StopIteration, UnicodeError, csv.Error,
@@ -224,6 +257,7 @@ def import_snapshot(payload, *, business_only=False, actor=None):
     if pending:
         raise SnapshotError("Apply pending database migrations before importing: " + ", ".join(m.app_label + "." + m.name for m, _ in pending))
     saved_files = []
+    missing_backup_count = 0
     try:
         # SQLite FK checks must be disabled before the transaction begins.
         with connection.constraint_checks_disabled(), transaction.atomic():
@@ -245,8 +279,9 @@ def import_snapshot(payload, *, business_only=False, actor=None):
             previous_version = DataVersion.objects.filter(pk=1).values_list("number", flat=True).first() or 0
             backup_payload = export_snapshot()
             backup_name = save_backup(backup_payload)
+            current_records, current_files = parse_snapshot(backup_payload)
+            missing_backup_count = len(getattr(current_records, "missing_files", {}))
             if getattr(records, "business", False):
-                current_records, current_files = parse_snapshot(backup_payload)
                 records, files = _merge_business_records(records, files, current_records, current_files, actor=actor)
             replacements = {}
             prefix = "data-imports/" + uuid.uuid4().hex
@@ -277,7 +312,10 @@ def import_snapshot(payload, *, business_only=False, actor=None):
             transaction.on_commit(cache.clear)
         from django.contrib.contenttypes.models import ContentType
         ContentType.objects.clear_cache()
-        return PurePosixPath(backup_name)
+        result = ImportBackup(backup_name)
+        result.missing_backup_count = missing_backup_count
+        result.missing_import_count = len(getattr(records, "missing_files", {}))
+        return result
     except Exception:
         for name in saved_files:
             default_storage.delete(name)
@@ -302,7 +340,7 @@ def business_workbook(records, files):
             file_data[name] = base64.b64decode(logo["fields"]["data"])
     referenced = {r["fields"].get(field.name) for r in selected
                   for field in external_file_fields(apps.get_model(r["model"])) if r["fields"].get(field.name)}
-    return write_workbook(selected, {name: value for name, value in file_data.items() if name in referenced}, snapshot_models(), business=True)
+    return write_workbook(selected, {name: value for name, value in file_data.items() if name in referenced}, snapshot_models(), business=True, missing_files={name: reason for name, reason in getattr(records, "missing_files", {}).items() if name in referenced and name not in file_data})
 
 
 def export_business_workbook():
@@ -326,6 +364,7 @@ def _merge_business_records(imported, imported_files, current, current_files, ac
     preserved = [copy.deepcopy(r) for r in current if not is_business_model(allowed[r["model"]]) and r["model"] != "core.brandlogo"]
     result = list(preserved)
     assigned_users = set()
+    unavailable = {**getattr(current, "missing_files", {}), **getattr(imported, "missing_files", {})}
     for record in imported:
         record = copy.deepcopy(record)
         model = allowed[record["model"]]
@@ -363,6 +402,8 @@ def _merge_business_records(imported, imported_files, current, current_files, ac
         if record["model"] == "core.brand" and fields.get("logo"):
             name = fields["logo"]
             if name not in imported_files:
+                if name in unavailable:
+                    continue
                 raise SnapshotError("A brand logo is missing from the workbook attachments.")
             result.append({"model": "core.brandlogo", "pk": record["pk"], "fields": {
                 "data": base64.b64encode(imported_files[name]).decode("ascii"),
@@ -379,6 +420,7 @@ def _merge_business_records(imported, imported_files, current, current_files, ac
             if value:
                 referenced.add(value)
     files = {**current_files, **imported_files}
-    if referenced - files.keys():
+    if referenced - (files.keys() | unavailable.keys()):
         raise SnapshotError("A referenced attachment is missing from the workbook.")
-    return result, {key: value for key, value in files.items() if key in referenced}
+    from .data_workbook import WorkbookRecords
+    return WorkbookRecords(result, missing_files={key: value for key, value in unavailable.items() if key in referenced and key not in files}), {key: value for key, value in files.items() if key in referenced}

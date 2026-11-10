@@ -31,9 +31,10 @@ BUSINESS_KEEP_DATES = {"manufacturers.manufacturerorder", "manufacturers.orderre
 
 
 class WorkbookRecords(list):
-    def __init__(self, records, business=False):
+    def __init__(self, records, business=False, missing_files=None):
         super().__init__(records)
         self.business = business
+        self.missing_files = dict(missing_files or {})
 
 
 def is_business_model(model):
@@ -81,8 +82,14 @@ def style_sheet(sheet):
     sheet.column_dimensions["A"].width = 9
 
 
+def business_excluded_field(model, field):
+    if field.is_relation and field.related_model._meta.label_lower == "accounts.user":
+        return True
+    return field.name in BUSINESS_SKIP_FIELDS and not (field.name == "created_at" and model._meta.label_lower in BUSINESS_KEEP_DATES)
+
+
 def layout(model_list, business=False):
-    used = {"read me", "_schema", "files", "long text"}
+    used = {"read me", "_schema", "files", "long text", "attachment issues", "_legacy values"}
     result = {}
     for model in model_list:
         if business and not is_business_model(model):
@@ -94,7 +101,7 @@ def layout(model_list, business=False):
             title = original[:27] + f" {suffix}"
             suffix += 1
         used.add(title.lower())
-        fields = [f for f in model._meta.local_fields if not f.primary_key and not (business and f.name in BUSINESS_SKIP_FIELDS and not (f.name == "created_at" and model._meta.label_lower in BUSINESS_KEEP_DATES))]
+        fields = [f for f in model._meta.local_fields if not f.primary_key and not (business and business_excluded_field(model, f))]
         fields.sort(key=lambda f: (PRIORITY.index(f.name) if f.name in PRIORITY else len(PRIORITY) + (1 if f.name in {"created_at", "updated_at", "created_by", "updated_by"} else 0), f.creation_counter))
         fields.append(model._meta.pk)
         columns = []
@@ -131,7 +138,8 @@ def display_name(record, lookup=None):
     return str(record["pk"])
 
 
-def write_workbook(records, files, model_list, business=False):
+def write_workbook(records, files, model_list, business=False, missing_files=None):
+    missing_files = dict(missing_files or getattr(records, "missing_files", {}))
     book = Workbook()
     readme = book.active
     readme.title = "Read Me"
@@ -175,6 +183,7 @@ def write_workbook(records, files, model_list, business=False):
     for record in records:
         grouped[record["model"]].append(record)
     long_values, binaries = {}, {}
+    legacy_values = []
 
     def cell_value(value, key):
         if isinstance(value, (dict, list)):
@@ -206,6 +215,8 @@ def write_workbook(records, files, model_list, business=False):
             for field, header in columns:
                 value = record["pk"] if field.primary_key else record["fields"].get(field.name)
                 key = f'{label}/{record["pk"]}/{field.name}'
+                if field.choices and value not in (None, "") and value not in {choice for choice, _ in field.flatchoices}:
+                    legacy_values.append([label, str(record["pk"]), field.name, value])
                 if isinstance(field, models.BinaryField) and value is not None:
                     binaries[key] = base64.b64decode(value)
                     value = "@binary:" + key
@@ -275,6 +286,20 @@ def write_workbook(records, files, model_list, business=False):
     readme.column_dimensions["B"].width = 110
     for number in range(2, len(instructions) + 2):
         readme.row_dimensions[number].height = 36
+    if missing_files:
+        issues = book.create_sheet("Attachment Issues")
+        append_row(issues, ["S.No.", "File Path", "Status"])
+        for serial, (name, reason) in enumerate(sorted(missing_files.items()), 1):
+            append_row(issues, [serial, name, reason])
+        style_sheet(issues)
+        append_row(readme, ["Unavailable attachments", f"{len(missing_files)} referenced files were already absent when this export was made. Their original paths are preserved in Attachment Issues; their bytes are not included. Other records and available attachments are complete."])
+    if legacy_values:
+        legacy = book.create_sheet("_Legacy Values")
+        append_row(legacy, ["Model", "Record ID", "Field", "Original Value"])
+        for row in legacy_values:
+            append_row(legacy, row)
+        legacy.sheet_state = "hidden"
+        append_row(readme, ["Historical values", "Unchanged historical choice values are preserved. New rows and edited choices must use the current dropdown values."])
     schema.sheet_state = "hidden"
     if business:
         attachments.sheet_state = "hidden"
@@ -301,6 +326,8 @@ def read_workbook(payload, model_list, max_bytes):
 
 
 def _read_book(book, model_list):
+    if any((sheet.max_row or 0) * (sheet.max_column or 0) > 2000000 for sheet in book.worksheets):
+        raise WorkbookError("A worksheet exceeds the supported cell count.")
     if "_Schema" not in book or "Read Me" not in book:
         raise WorkbookError("This workbook is missing its format information. Export a workbook from the app first.")
     schema_rows = list(book["_Schema"].values)
@@ -316,10 +343,33 @@ def _read_book(book, model_list):
             if field.remote_field.through._meta.auto_created:
                 relation_title = (title[:17] + " - " + str(field.verbose_name).title()[:11])[:31]
                 expected_schema.append((relation_title, label, field.name, None, "ManyToManyField"))
-    if set(schema_rows[2:]) != set(expected_schema):
+    actual_schema = set(schema_rows[2:])
+    expected = set(expected_schema)
+    extras = actual_schema - expected
+    if expected - actual_schema:
         raise WorkbookError("Workbook categories or fields differ from this app version. Export a fresh workbook.")
+    if extras:
+        # Earlier business workbooks included nullable approval-user columns.
+        # Continue accepting those files, but preserve account links on the
+        # server instead of resolving users from an intentionally absent sheet.
+        if not business:
+            raise WorkbookError("Workbook categories or fields differ from this app version. Export a fresh workbook.")
+        for title, label, name, header, kind in extras:
+            if label not in plans or title != plans[label][1]:
+                raise WorkbookError("Unknown workbook category.")
+            fields = {field.name: field for field in plans[label][0]._meta.local_fields}
+            field = fields.get(name)
+            expected_header = str(field.verbose_name).replace("_", " ").title() + " ID" if field else None
+            if not (field and field.is_relation and field.related_model._meta.label_lower == "accounts.user" and field.null
+                    and kind == field.get_internal_type() and header == expected_header):
+                raise WorkbookError("Workbook categories or fields differ from this app version. Export a fresh workbook.")
+        for label in {row[1] for row in extras}:
+            model, title, _ = plans[label]
+            columns = [(model._meta.get_field(row[2]), row[3]) for row in schema_rows[2:]
+                       if row[0] == title and row[1] == label and row[4] != "ManyToManyField"]
+            plans[label] = (model, title, columns)
 
-    allowed_sheets = {"Read Me", "_Schema", "Files", "Long Text"} | {row[0] for row in expected_schema}
+    allowed_sheets = {"Read Me", "_Schema", "Files", "Long Text", "Attachment Issues", "_Legacy Values"} | {row[0] for row in expected_schema}
     unknown_sheets = set(book.sheetnames) - allowed_sheets
     if any(not title.startswith("Archive ") for title in unknown_sheets):
         raise WorkbookError("Unknown category sheets: " + ", ".join(sorted(unknown_sheets)))
@@ -372,7 +422,33 @@ def _read_book(book, model_list):
             result[key] = value
         return result
 
+    legacy_values = {}
+    if "_Legacy Values" in book:
+        sheet = book["_Legacy Values"]
+        iterator = iter(sheet.values)
+        if list(next(iterator, ())) != ["Model", "Record ID", "Field", "Original Value"]:
+            raise WorkbookError("Invalid historical-value metadata.")
+        for label, pk, field_name, value in iterator:
+            key = (label, str(pk), field_name)
+            if key in legacy_values or label not in plans:
+                raise WorkbookError("Invalid or duplicate historical-value metadata.")
+            fields = {field.name: field for field, _ in plans[label][2]}
+            if field_name not in fields:
+                raise WorkbookError("Historical-value metadata references an unknown field.")
+            field = fields[field_name]
+            if not field.choices:
+                raise WorkbookError("Historical-value metadata must reference a choice field.")
+            legacy_values[key] = value
+    missing_files = {}
+    if "Attachment Issues" in book:
+        for number, row in rows("Attachment Issues", ["S.No.", "File Path", "Status"]):
+            _, name, reason = row
+            if not isinstance(name, str) or not name or name in missing_files or not reason:
+                raise WorkbookError(f'Attachment Issues, row {number}: invalid or duplicate file path.')
+            missing_files[name] = str(reason)
     files = chunks("Files", FILE_HEADER, binary=True)
+    if files.keys() & missing_files.keys():
+        raise WorkbookError("A file cannot be both present and declared unavailable.")
     long_text = chunks("Long Text", TEXT_HEADER)
     records, by_id, names, pending = [], {}, defaultdict(list), []
     for label, (model, title, columns) in plans.items():
@@ -409,6 +485,8 @@ def _read_book(book, model_list):
                     reference_name = row[index]
                     index += 1
                 if field.primary_key:
+                    continue
+                if business and field.is_relation and field.related_model._meta.label_lower == "accounts.user":
                     continue
                 if isinstance(value, str) and value.startswith("@text:"):
                     if value[6:] not in long_text:
@@ -499,7 +577,14 @@ def _read_book(book, model_list):
                 if field.primary_key or field.is_relation or (business and field.name in BUSINESS_SKIP_FIELDS):
                     continue
                 value = getattr(item.object, field.attname)
-                field.clean(value, item.object)
+                try:
+                    field.clean(value, item.object)
+                except ValidationError as exc:
+                    key = (item.object._meta.label_lower, str(item.object.pk), field.name)
+                    if getattr(exc, "code", None) == "invalid_choice" and key in legacy_values and legacy_values[key] == value:
+                        field.run_validators(value)
+                    else:
+                        raise ValidationError(f"{item.object._meta.verbose_name}, {field.verbose_name}: {exc}") from exc
     except (ValidationError, serializers.base.DeserializationError) as exc:
         raise WorkbookError("A workbook field has an invalid or missing value: " + str(exc)) from exc
     database_logos = {r["pk"] for r in records if r["model"] == "core.brandlogo"}
@@ -512,13 +597,13 @@ def _read_book(book, model_list):
                 continue
             if record["fields"].get(field.name):
                 referenced.add(record["fields"][field.name])
-    if referenced - files.keys():
+    if referenced - (files.keys() | missing_files.keys()):
         raise WorkbookError("An attached file referenced by a category sheet is missing.")
     from pathlib import PurePosixPath
-    for key in files:
+    for key in files.keys() | missing_files.keys():
         if key.startswith("@binary:"):
             continue
         path = PurePosixPath(key)
         if path.is_absolute() or ".." in path.parts or "\\" in key:
             raise WorkbookError("Invalid attachment path.")
-    return WorkbookRecords(records, business=business), {key: value for key, value in files.items() if key in referenced}
+    return WorkbookRecords(records, business=business, missing_files={key: value for key, value in missing_files.items() if key in referenced}), {key: value for key, value in files.items() if key in referenced}

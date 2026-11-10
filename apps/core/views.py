@@ -220,6 +220,10 @@ class DataSettingsView(OwnerRequiredMixin, TemplateView):
                 "error": "Import failed. Your previous data is unchanged. Check the workbook and server storage, then try again."
             }, status=400)
         logout(request)
+        if getattr(backup, "missing_backup_count", 0):
+            messages.warning(request, f"The backup preserved paths for {backup.missing_backup_count} attachments that were already missing from storage. See its Attachment Issues sheet.")
+        if getattr(backup, "missing_import_count", 0):
+            messages.warning(request, f"{backup.missing_import_count} attachments were declared unavailable in the imported workbook. Their record references were preserved.")
         messages.success(request, "Data imported. Previous data was backed up as " + backup.name
                          + ". Sign in with your existing owner account.")
         return redirect("login")
