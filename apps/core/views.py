@@ -203,11 +203,11 @@ class DataSettingsView(OwnerRequiredMixin, TemplateView):
         uploaded = request.FILES.get("data_file")
         error = None
         if request.POST.get("confirm_replace") != "yes":
-            error = "Confirm that the imported CSV will replace all current data."
-        elif not uploaded or not uploaded.name.lower().endswith(".csv"):
-            error = "Choose a CSV exported by this app."
+            error = "Confirm that the imported workbook will replace all current data."
+        elif not uploaded or not uploaded.name.lower().endswith(".xlsx"):
+            error = "Choose an Excel workbook (.xlsx) exported by this app."
         elif uploaded.size > MAX_BYTES:
-            error = "The CSV must be 100 MB or smaller."
+            error = "The workbook must be 100 MB or smaller."
         if error:
             return render(request, self.template_name, {"error": error}, status=400)
         try:
@@ -217,11 +217,11 @@ class DataSettingsView(OwnerRequiredMixin, TemplateView):
         except Exception:
             logging.getLogger(__name__).exception("Data replacement failed")
             return render(request, self.template_name, {
-                "error": "Import failed. Your previous data is unchanged. Check the CSV and server storage, then try again."
+                "error": "Import failed. Your previous data is unchanged. Check the workbook and server storage, then try again."
             }, status=400)
         logout(request)
         messages.success(request, "Data imported. Previous data was backed up as " + backup.name
-                         + ". Sign in with an owner account from the imported CSV.")
+                         + ". Sign in with an owner account from the imported workbook.")
         return redirect("login")
 
 
@@ -238,8 +238,8 @@ class DataExportView(OwnerRequiredMixin, View):
         except SnapshotError as exc:
             messages.error(request, str(exc))
             return redirect("data-settings")
-        response = HttpResponse(payload, content_type="text/csv; charset=utf-8")
-        filename = timezone.localtime().strftime("distribution-data-%Y%m%d-%H%M%S.csv")
+        response = HttpResponse(payload, content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        filename = timezone.localtime().strftime("distribution-data-%Y%m%d-%H%M%S.xlsx")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         response["Cache-Control"] = "no-store"
         return response

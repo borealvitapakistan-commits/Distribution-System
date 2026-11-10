@@ -5,29 +5,30 @@
     <div>
         <p class="eyebrow">Settings</p>
         <h1>Export &amp; Import Data</h1>
-        <p>Download your data or replace it with a saved export.</p>
+        <p>Download, edit or create records in a workbook with one sheet per category.</p>
     </div>
 </div>
 {% if error %}<div class="panel panel-body" role="alert"><p>{{ error }}</p></div>{% endif %}
 <section class="panel">
     <div class="panel-header"><h2>Export Data</h2></div>
     <div class="panel-body">
-    <p>Download one CSV with all products, partners, orders, inventory, financial records, audit history, user accounts and attached files. Records are ordered by record type and ID.</p>
+    <p>Download an Excel workbook with separate named sheets for products, manufacturers, purchase orders, inventory, finance and other categories. Each sheet has serial numbers and individual columns for names, descriptions, prices and all other fields.</p>
     <p>This file includes confidential business data and account password hashes. Keep it private. Login sessions and API tokens are excluded.</p>
-    <a class="button button-primary" href="{% url 'data-export' %}">Export Data (.csv)</a>
+    <a class="button button-primary" href="{% url 'data-export' %}">Export Data (.xlsx)</a>
     </div>
 </section>
 <section class="panel">
     <div class="panel-header"><h2>Import Data</h2></div>
     <div class="panel-body">
-    <p>Choose an unchanged CSV downloaded from this app (up to 100 MB). It will replace all current data, including user accounts.</p>
+    <p>Choose an Excel workbook (.xlsx) exported by this app (up to 100 MB). Edit values or add new rows in the category sheets; leave Record ID blank for new records. Import replaces all current data, including user accounts.</p>
+    <p>Keep sheet names and column headers. Use linked ID columns or a unique linked Name for new links. The Read Me sheet explains dates, defaults and attachments.</p>
     <p>Before replacing anything, the app saves a separate backup of your current records and attachments with today's date and time. Existing backups stay saved. Backup browsing will be added later.</p>
-    <p>After import, sign in with an owner account from the imported file. If import fails, your current data stays unchanged.</p>
+    <p>After import, sign in with an owner account from the imported workbook. If import fails, your current data stays unchanged.</p>
     <form method="post" enctype="multipart/form-data">
         {% csrf_token %}
         <div class="form-group">
-            <label for="data-file">Exported CSV</label>
-            <input type="file" id="data-file" name="data_file" accept=".csv,text/csv" required>
+            <label for="data-file">Excel workbook</label>
+            <input type="file" id="data-file" name="data_file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
         </div>
         <p><label class="checkbox-label"><input type="checkbox" name="confirm_replace" value="yes" required> I understand that this replaces all current data after saving a dated backup.</label></p>
         <button class="button button-primary" type="submit">Back Up &amp; Import Data</button>
