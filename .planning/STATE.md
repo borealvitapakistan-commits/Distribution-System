@@ -1,5 +1,13 @@
 # Current state
 
+Updated: 2026-11-10 — Released to GitHub / Vercel
+
+- Completed `phases/01-partners/01-14-PLAN.md`. Pushed release branch, passed GitHub/PostgreSQL CI (375 tests) and Vercel preview, then merged PR #1 into main with an exact checked-head match. Application merge: `8ec6011`; checked release head: `4be74d4`.
+- Production is https://distribution-system-six.vercel.app. Vercel deployment succeeded; production /health/ returned HTTP 200 / status ok and sign-in returned HTTP 200. Main CI also succeeded. Preview runtime URLs are Vercel-auth protected; build success was checked without bypassing that protection.
+- Rollback tag `pre-workbook-release-20261110` preserves previous working source `07d79f7`. No force-push, production migration, data import/reset or credential change during release. Secret/artifact scans passed; .env, databases, exports, backups and media remain excluded.
+- Added Vercel-specific 4 MB upload validation and private signed storage delivery for larger exports; local limit remains 100 MB. Updated deployment docs. Local dependency/transfer checks passed; release CI confirms the full 375-test suite.
+- Local main synchronized to merged GitHub main. This post-release state/summary commit contains planning metadata only; runtime code remains identical to the checked release. See `phases/01-partners/01-14-SUMMARY.md` for PR/check/deployment links.
+
 Updated: 2026-11-10 — Missing attachment blocker fixed
 
 - Diagnosed 88 external attachment references with no matching objects in the configured Supabase bucket. Recovered one exact local product photo to its missing private key and verified SHA256. Remaining 87 file contents are unavailable; references are preserved explicitly, not silently cleared.
