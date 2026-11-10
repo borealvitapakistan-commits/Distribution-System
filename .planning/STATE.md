@@ -1,5 +1,13 @@
 # Current state
 
+Updated: 2026-11-10 — Missing attachment blocker fixed
+
+- Diagnosed 88 external attachment references with no matching objects in the configured Supabase bucket. Recovered one exact local product photo to its missing private key and verified SHA256. Remaining 87 file contents are unavailable; references are preserved explicitly, not silently cleared.
+- Completed `phases/01-partners/01-13-PLAN.md`. Backups/exports now retain all record data and available files with an Attachment Issues sheet for confirmed missing files. Storage permission/network/read failures still abort safely with exact context. Incomplete included file parts are still rejected. Import reports declared missing attachments while retaining their paths.
+- Preserved unchanged historical choice values and fixed nullable approval-user columns in business workbooks, with backward compatibility for the user's previously delivered workbook. Accounts/permissions remain server-managed. Commit: `225dfa7`.
+- Actual Supabase full record backup and business export succeeded and parsed: 1,544 total records / 783 business rows; 87 missing references declared. Private verified workbook: `data/backups/attachment-recovery/records-with-attachment-report-20261110-143226.xlsx`, also in private Supabase `data-backups/`. Manifests under `data/backups/attachment-recovery/`.
+- Full suites: 373 passed on SQLite and 373 on PostgreSQL, including 32 transfer tests. Main app restarted at localhost:8001 (session 72652), health OK. No live data import, record deletion or schema change performed. Temporary PostgreSQL stopped. Remaining file bytes require original uploads for recovery. See `phases/01-partners/01-13-SUMMARY.md`.
+
 Updated: 2026-11-10 — Supabase migration blocker resolved
 
 - User authorized applying the pending migration. Added/tested safe legacy-logo preservation and reverse backfill to core.0007. Commit: `08e20ca`.
