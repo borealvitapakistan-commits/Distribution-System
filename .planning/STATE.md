@@ -1,5 +1,13 @@
 # Current state
 
+Updated: 2026-11-10 — Supabase migration blocker resolved
+
+- User authorized applying the pending migration. Added/tested safe legacy-logo preservation and reverse backfill to core.0007. Commit: `08e20ca`.
+- Created and verified a complete public-schema database dump before migrating, both locally (`data/backups/logo-column-migration/before-logo-columns-20261110-135804-f77dd29e0ab7409ea369cac5e2913b9d.dump`) and in private Supabase storage (`data-backups/` with the same filename). Hosted/local SHA256 matched. Private manifest: `data/backups/logo-column-migration/latest.json`.
+- Applied core.0007 successfully to Supabase. NO PENDING MIGRATIONS remain. This resolves the import blocker mentioned in earlier entries. Old logo columns removed; current logo hashes and business/account counts preserved (12 products, 38 orders, 51 order items).
+- Full PostgreSQL suite: 365 passed; SQLite migration test passed. App health and live logo endpoint verified. The 117-row local business workbook passes format/migration preflight. No live workbook import was performed; existing Supabase business data remains intact.
+- App remains at localhost:8001. Temporary PostgreSQL server stopped. See `phases/01-partners/01-12-SUMMARY.md`.
+
 Updated: 2026-11-10 — One business workbook / one upload
 
 - User clarified they want a SINGLE .xlsx with multiple business-section sheets, imported together. Individual CSVs and full backup/system datasets were not the intended deliverable.
