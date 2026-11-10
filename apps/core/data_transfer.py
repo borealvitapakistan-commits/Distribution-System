@@ -123,6 +123,8 @@ def parse_snapshot(payload):
         from .data_workbook import WorkbookError, read_workbook
         try:
             records, files = read_workbook(payload, snapshot_models(), MAX_BYTES)
+            if getattr(records, "business", False):
+                return records, files
         except (WorkbookError, ValueError, TypeError, KeyError) as exc:
             raise SnapshotError(str(exc)) from exc
         # Reuse the complete legacy validator, preserving support for old
@@ -212,8 +214,10 @@ def transfer_tables():
     return sorted(tables)
 
 
-def import_snapshot(payload):
+def import_snapshot(payload, *, business_only=False, actor=None):
     records, files = parse_snapshot(payload)
+    if business_only and not getattr(records, "business", False):
+        raise SnapshotError("Choose the business workbook from Export Data. Full system backups use a separate restoration format.")
     from django.db.migrations.executor import MigrationExecutor
     executor = MigrationExecutor(connection)
     pending = executor.migration_plan(executor.loader.graph.leaf_nodes())
@@ -239,7 +243,11 @@ def import_snapshot(payload):
                 raise SnapshotError("Data replacement supports PostgreSQL and SQLite databases.")
             from .models import DataVersion
             previous_version = DataVersion.objects.filter(pk=1).values_list("number", flat=True).first() or 0
-            backup_name = save_backup(export_snapshot())
+            backup_payload = export_snapshot()
+            backup_name = save_backup(backup_payload)
+            if getattr(records, "business", False):
+                current_records, current_files = parse_snapshot(backup_payload)
+                records, files = _merge_business_records(records, files, current_records, current_files, actor=actor)
             replacements = {}
             prefix = "data-imports/" + uuid.uuid4().hex
             for name, content in files.items():
@@ -274,3 +282,103 @@ def import_snapshot(payload):
         for name in saved_files:
             default_storage.delete(name)
         raise
+
+
+def business_workbook(records, files):
+    """Create the user-facing file without account/system records."""
+    import copy
+    import mimetypes
+    from .data_workbook import is_business_model, write_workbook
+    allowed = {m._meta.label_lower for m in snapshot_models() if is_business_model(m)}
+    selected = [copy.deepcopy(r) for r in records if r["model"] in allowed]
+    file_data = dict(files)
+    logos = {str(r["pk"]): r for r in records if r["model"] == "core.brandlogo"}
+    for record in selected:
+        if record["model"] == "core.brand" and str(record["pk"]) in logos:
+            logo = logos[str(record["pk"])]
+            ext = mimetypes.guess_extension(logo["fields"]["content_type"]) or ".bin"
+            name = "brand/logos/" + str(record["pk"]) + ext
+            record["fields"]["logo"] = name
+            file_data[name] = base64.b64decode(logo["fields"]["data"])
+    referenced = {r["fields"].get(field.name) for r in selected
+                  for field in external_file_fields(apps.get_model(r["model"])) if r["fields"].get(field.name)}
+    return write_workbook(selected, {name: value for name, value in file_data.items() if name in referenced}, snapshot_models(), business=True)
+
+
+def export_business_workbook():
+    records, files = parse_snapshot(export_snapshot())
+    return business_workbook(records, files)
+
+
+def _merge_business_records(imported, imported_files, current, current_files, actor=None):
+    """Called under the import table locks, after the full backup is durable."""
+    import copy
+    import mimetypes
+    from .data_workbook import is_business_model
+    allowed = {m._meta.label_lower: m for m in snapshot_models()}
+    lookup = {(r["model"], str(r["pk"])): r for r in current}
+    owners = [r for r in current if r["model"] == "accounts.user" and r["fields"].get("role") == "OWNER" and r["fields"].get("is_active")]
+    if not owners:
+        raise SnapshotError("An active owner account must exist before importing business data.")
+    if actor is not None and str(actor) not in {str(owner["pk"]) for owner in owners}:
+        raise SnapshotError("An active owner account must perform the import.")
+    actor = str(actor) if actor is not None else owners[0]["pk"]
+    preserved = [copy.deepcopy(r) for r in current if not is_business_model(allowed[r["model"]]) and r["model"] != "core.brandlogo"]
+    result = list(preserved)
+    assigned_users = set()
+    for record in imported:
+        record = copy.deepcopy(record)
+        model = allowed[record["model"]]
+        old = lookup.get((record["model"], str(record["pk"])))
+        fields = record["fields"]
+        for field in model._meta.local_fields:
+            if field.primary_key or field.name in fields:
+                continue
+            value = old["fields"].get(field.name) if old else field.get_default()
+            if getattr(field, "auto_now", False):
+                value = timezone.now().isoformat()
+            elif getattr(field, "auto_now_add", False):
+                value = value or timezone.now().isoformat()
+            if field.name == "updated_by":
+                value = actor
+            elif field.name == "created_by":
+                value = value or actor
+            fields[field.name] = value
+        if record["model"] == "owners.ownerprofile":
+            if old:
+                owner_user = old["fields"]["user"]
+            else:
+                matching = [u for u in owners if (u["fields"].get("email") or "").casefold() == (fields.get("email") or "").casefold()]
+                if len(matching) == 1:
+                    owner_user = matching[0]["pk"]
+                elif len(owners) == 1:
+                    owner_user = owners[0]["pk"]
+                else:
+                    raise SnapshotError("An owner profile must match an existing owner account by email. Create the account first.")
+            if str(owner_user) in assigned_users:
+                raise SnapshotError("Multiple owner profiles cannot use the same login account. Create the corresponding owner accounts first.")
+            assigned_users.add(str(owner_user))
+            fields["user"] = owner_user
+        result.append(record)
+        if record["model"] == "core.brand" and fields.get("logo"):
+            name = fields["logo"]
+            if name not in imported_files:
+                raise SnapshotError("A brand logo is missing from the workbook attachments.")
+            result.append({"model": "core.brandlogo", "pk": record["pk"], "fields": {
+                "data": base64.b64encode(imported_files[name]).decode("ascii"),
+                "content_type": mimetypes.guess_type(name)[0] or "application/octet-stream",
+                "updated_at": timezone.now().isoformat(),
+            }})
+    logos = {str(r["pk"]) for r in result if r["model"] == "core.brandlogo"}
+    referenced = set()
+    for record in result:
+        for field in external_file_fields(allowed[record["model"]]):
+            if record["model"] == "core.brand" and field.name == "logo" and str(record["pk"]) in logos:
+                continue
+            value = record["fields"].get(field.name)
+            if value:
+                referenced.add(value)
+    files = {**current_files, **imported_files}
+    if referenced - files.keys():
+        raise SnapshotError("A referenced attachment is missing from the workbook.")
+    return result, {key: value for key, value in files.items() if key in referenced}

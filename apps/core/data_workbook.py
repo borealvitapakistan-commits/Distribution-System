@@ -25,6 +25,22 @@ class WorkbookError(ValueError):
 
 
 VERSION = "distribution-workbook-v1"
+BUSINESS_VERSION = "distribution-business-workbook-v1"
+BUSINESS_SKIP_FIELDS = {"created_at", "updated_at", "created_by", "updated_by", "user"}
+BUSINESS_KEEP_DATES = {"manufacturers.manufacturerorder", "manufacturers.orderrevision"}
+
+
+class WorkbookRecords(list):
+    def __init__(self, records, business=False):
+        super().__init__(records)
+        self.business = business
+
+
+def is_business_model(model):
+    label = model._meta.label_lower
+    return (model._meta.app_label in {"products", "manufacturers", "batches", "owner_inventory", "owner_warehouse", "finance", "owners"}
+            and label not in {"owner_inventory.shopifysyncstate", "finance.financesettings"}) or label == "core.brand"
+
 CHUNK = 28000
 TITLES = {
     "accounts.user": "Users", "core.brand": "Brands", "core.brandlogo": "Brand Logos",
@@ -65,10 +81,12 @@ def style_sheet(sheet):
     sheet.column_dimensions["A"].width = 9
 
 
-def layout(model_list):
+def layout(model_list, business=False):
     used = {"read me", "_schema", "files", "long text"}
     result = {}
     for model in model_list:
+        if business and not is_business_model(model):
+            continue
         title = TITLES.get(model._meta.label_lower, str(model._meta.verbose_name_plural).title())
         title = re.sub(r"[\\/*?:\[\]]", " ", title)[:31]
         original, suffix = title, 2
@@ -76,7 +94,7 @@ def layout(model_list):
             title = original[:27] + f" {suffix}"
             suffix += 1
         used.add(title.lower())
-        fields = [f for f in model._meta.local_fields if not f.primary_key]
+        fields = [f for f in model._meta.local_fields if not f.primary_key and not (business and f.name in BUSINESS_SKIP_FIELDS and not (f.name == "created_at" and model._meta.label_lower in BUSINESS_KEEP_DATES))]
         fields.sort(key=lambda f: (PRIORITY.index(f.name) if f.name in PRIORITY else len(PRIORITY) + (1 if f.name in {"created_at", "updated_at", "created_by", "updated_by"} else 0), f.creation_counter))
         fields.append(model._meta.pk)
         columns = []
@@ -85,6 +103,8 @@ def layout(model_list):
                 header = "Record ID"
             else:
                 header = "Description" if model._meta.label_lower == "products.product" and field.name == "body_html" else str(field.verbose_name).replace("_", " ").title()
+                if business and field.name == "created_at":
+                    header = "Order Date" if model._meta.label_lower == "manufacturers.manufacturerorder" else "Revision Date"
                 if field.is_relation:
                     header += " ID"
             columns.append((field, header))
@@ -92,9 +112,18 @@ def layout(model_list):
     return result
 
 
-def display_name(record):
+def display_name(record, lookup=None):
     fields = record["fields"]
-    for name in ("name", "email", "po_number", "batch_number", "sku", "action", "object_label"):
+    lookup = lookup or {}
+    def related(label, key):
+        other = lookup.get((label, str(fields.get(key))))
+        return display_name(other, lookup) if other else ""
+    if record["model"] == "manufacturers.manufacturerorderitem" and lookup:
+        return " / ".join(filter(None, [related("manufacturers.manufacturerorder", "order"), related("products.product", "product"), str(fields.get("bottle_size") or "")]))
+    if record["model"] == "manufacturers.orderrevision" and lookup:
+        return f'{related("manufacturers.manufacturerorder", "order")} / Revision {fields.get("number", "")} / {fields.get("stage", "")}'
+
+    for name in ("name", "email", "po_number", "code", "batch_number", "sku", "action", "object_label"):
         if fields.get(name):
             return str(fields[name])
     if fields.get("first_name") or fields.get("last_name"):
@@ -102,11 +131,11 @@ def display_name(record):
     return str(record["pk"])
 
 
-def write_workbook(records, files, model_list):
+def write_workbook(records, files, model_list, business=False):
     book = Workbook()
     readme = book.active
     readme.title = "Read Me"
-    append_row(readme, ["Data workbook", VERSION])
+    append_row(readme, ["Data workbook", BUSINESS_VERSION if business else VERSION])
     instructions = [
         ("Created", timezone.now().isoformat()),
         ("How to use", "Each category has its own sheet. One row is one record; each field has its own column."),
@@ -124,13 +153,24 @@ def write_workbook(records, files, model_list):
         ("Privacy", "Contains confidential business data, attachments and account password hashes. Store privately."),
         ("Category", "Record count"),
     ]
+    if business:
+        instructions = [row for row in instructions if row[0] not in {"Users", "Replacement", "Privacy", "Linked records", "Reference names"}]
+        instructions[2] = ("Edit or create", "Edit the business columns or add new rows. Leave the hidden identifiers blank for new records; IDs and defaults are generated on import.")
+        instructions += [
+            ("One import", "Upload this entire .xlsx file once. All category sheets are imported together; do not upload individual CSV files."),
+            ("Linked records", "Linked names identify products, manufacturers and orders. Stable IDs are hidden to preserve links; use unique matching names for new rows."),
+            ("Accounts", "This file contains business data only. Owner login accounts, password hashes and system permissions are not included and are preserved during import."),
+            ("Automatic backup", "The app keeps a complete dated backup before replacing business data. You do not need to create or upload a backup yourself."),
+            ("Privacy", "Contains confidential business information and attachments. Store privately."),
+        ]
     for row in instructions:
         append_row(readme, row)
     schema = book.create_sheet("_Schema")
     append_row(schema, SCHEMA_HEADER)
-    append_row(schema, [VERSION, "", "", "", ""])
-    plans = layout(model_list)
-    lookup = {(r["model"], str(r["pk"])): display_name(r) for r in records}
+    append_row(schema, [BUSINESS_VERSION if business else VERSION, "", "", "", ""])
+    plans = layout(model_list, business=business)
+    source_records = {(r["model"], str(r["pk"])): r for r in records}
+    lookup = {key: display_name(record, source_records) for key, record in source_records.items()}
     grouped = defaultdict(list)
     for record in records:
         grouped[record["model"]].append(record)
@@ -194,6 +234,10 @@ def write_workbook(records, files, model_list):
             if guidance:
                 sheet.cell(1, column_number).comment = Comment(guidance, "Distribution App")
             column_number += 2 if field.is_relation and not field.primary_key else 1
+        if business:
+            for col_number, header in enumerate(headers, 1):
+                if header == "Record ID" or header.endswith(" ID"):
+                    sheet.column_dimensions[get_column_letter(col_number)].hidden = True
         for field in model._meta.local_many_to_many:
             if not field.remote_field.through._meta.auto_created:
                 continue
@@ -232,6 +276,9 @@ def write_workbook(records, files, model_list):
     for number in range(2, len(instructions) + 2):
         readme.row_dimensions[number].height = 36
     schema.sheet_state = "hidden"
+    if business:
+        attachments.sheet_state = "hidden"
+        texts.sheet_state = "hidden"
     stream = io.BytesIO()
     book.save(stream)
     return stream.getvalue()
@@ -254,11 +301,12 @@ def read_workbook(payload, model_list, max_bytes):
 
 
 def _read_book(book, model_list):
-    plans = layout(model_list)
     if "_Schema" not in book or "Read Me" not in book:
         raise WorkbookError("This workbook is missing its format information. Export a workbook from the app first.")
     schema_rows = list(book["_Schema"].values)
-    if list(schema_rows[0]) != SCHEMA_HEADER or schema_rows[1][0] != VERSION:
+    business = schema_rows[1][0] == BUSINESS_VERSION
+    plans = layout(model_list, business=business)
+    if list(schema_rows[0]) != SCHEMA_HEADER or schema_rows[1][0] not in {VERSION, BUSINESS_VERSION}:
         raise WorkbookError("Unsupported workbook version.")
     expected_schema = []
     for label, (model, title, columns) in plans.items():
@@ -406,8 +454,15 @@ def _read_book(book, model_list):
             records.append(record)
             by_id[key] = record
             names[(label, display_name(record))].append(pk)
+    names = defaultdict(list)
+    for record in records:
+        names[(record["model"], display_name(record, by_id))].append(record["pk"])
     for record, field, value, name, title, number in pending:
         label = field.related_model._meta.label_lower
+        if business and name and value is not None:
+            matches = names.get((label, str(name)), [])
+            if len(matches) == 1:
+                value = matches[0]
         if value is None and name:
             matches = names.get((label, str(name)), [])
             if len(matches) != 1:
@@ -441,7 +496,7 @@ def _read_book(book, model_list):
         decoded = list(serializers.deserialize("json", json.dumps(records, cls=DjangoJSONEncoder)))
         for item in decoded:
             for field in item.object._meta.local_fields:
-                if field.primary_key or field.is_relation:
+                if field.primary_key or field.is_relation or (business and field.name in BUSINESS_SKIP_FIELDS):
                     continue
                 value = getattr(item.object, field.attname)
                 field.clean(value, item.object)
@@ -457,4 +512,13 @@ def _read_book(book, model_list):
                 continue
             if record["fields"].get(field.name):
                 referenced.add(record["fields"][field.name])
-    return records, {key: value for key, value in files.items() if key in referenced}
+    if referenced - files.keys():
+        raise WorkbookError("An attached file referenced by a category sheet is missing.")
+    from pathlib import PurePosixPath
+    for key in files:
+        if key.startswith("@binary:"):
+            continue
+        path = PurePosixPath(key)
+        if path.is_absolute() or ".." in path.parts or "\\" in key:
+            raise WorkbookError("Invalid attachment path.")
+    return WorkbookRecords(records, business=business), {key: value for key, value in files.items() if key in referenced}
